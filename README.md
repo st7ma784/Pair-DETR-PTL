@@ -1,6 +1,6 @@
-# Conditional DETR
+# Pair DETR
 
-This repository is an official implementation of the ICCV 2021 paper "[Conditional DETR for Fast Training Convergence](https://arxiv.org/abs/2108.06152)". 
+This repository is an official implementation of Pair DETR 
 
 ## Introduction
 
