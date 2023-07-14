@@ -2,6 +2,7 @@
 
 This repository is an official implementation of Pair DETR 
 
+We're going to move it to pytorch-lightning and then look at implementing some DETIC goodness!
 ## Introduction
 
 
