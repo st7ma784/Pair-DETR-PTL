@@ -7,24 +7,20 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 # ------------------------------------------------------------------------
 
-import datetime
-import json
-import random
-import time
+
 from pathlib import Path
-from typing import Optional
+from typing import Optional 
 from datasets.coco_eval import CocoEvaluator
 from datasets.panoptic_eval import PanopticEvaluator
 
 import numpy as np
 from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
 import torch
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader
 
 import datasets
 import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
-from engine import evaluate, train_one_epoch
 from models import build_model
 import pytorch_lightning as pl
 
@@ -160,4 +156,16 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    main(args)
+    model=PairDETR(*args)
+    trainer = pl.Trainer(gpus=1,
+                         precision=16,
+                         max_epochs=args.epochs, 
+                         num_sanity_val_steps=0,
+                         gradient_clip_val=args.clip_grad,
+                         callbacks=[ModelCheckpoint(dirpath=args.output_dir,save_top_k=1,monitor='val_loss',mode='min')],
+                         accelerator='ddp',  
+                            )
+    trainer.fit(model)
+    trainer.test(model)
+
+    
