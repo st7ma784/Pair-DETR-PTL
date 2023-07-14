@@ -19,9 +19,10 @@ import torch
 from torch.utils.data import DataLoader
 
 import datasets
+from torch.nn import Transformer
 import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
-from models import build_model
+from model import *
 import pytorch_lightning as pl
 
 class PairDETR(pl.LightningModule):
@@ -29,7 +30,52 @@ class PairDETR(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters()
         self.args = args
-        self.model, self.criterion, self.postprocessors = build_model(self.args)
+        self.kwargs = kwargs
+        num_classes = 20 if args.dataset_file != 'coco' else 91
+        if args.dataset_file == "coco_panoptic":
+            num_classes = 250
+        posmethod=PositionEmbeddingLearned
+        if args.position_embedding in ('v2', 'sine'):
+            # TODO find a better way of exposing other arguments
+            posmethod = PositionEmbeddingSine
+        position_embedding = posmethod(args.hidden_dim // 2)
+        backbone = Joiner(Backbone(args.backbone, True, False, args.dilation), position_embedding)
+        backbone.num_channels = backbone.num_channels
+        
+        transformer = Transformer(
+            d_model=args.hidden_dim,
+            dropout=args.dropout,
+            nhead=args.nheads,
+            num_queries=args.num_queries,
+            dim_feedforward=args.dim_feedforward,
+            num_encoder_layers=args.enc_layers,
+            num_decoder_layers=args.dec_layers,
+            normalize_before=args.pre_norm,
+            return_intermediate_dec=True,
+        )
+
+        self.model = ConditionalDETR(
+            backbone,
+            transformer,
+            num_classes=num_classes,
+            num_queries=args.num_queries,
+            aux_loss=args.aux_loss,
+        )
+        # if args.masks:
+        #     model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
+        self.matcher = HungarianMatcher(cost_class=args.set_cost_class, cost_bbox=args.set_cost_bbox, cost_giou=args.set_cost_giou)
+
+        self.weight_dict = {'loss_ce': args.cls_loss_coef,
+                       'loss_bbox': args.bbox_loss_coef,
+                       'loss_giou': args.giou_loss_coef}
+
+        losses = ['labels', 'boxes', 'cardinality']
+        # if args.masks:
+        #     losses += ["masks"]
+        self.criterion = SetCriterion(num_classes, matcher=self.matcher, weight_dict=self.weight_dict,
+                                focal_alpha=args.focal_alpha, losses=losses)
+        self.postprocessors = {'bbox': PostProcess()}
+        
     #config optimizer
     def configure_optimizers(self):
             
@@ -168,4 +214,3 @@ if __name__ == '__main__':
     trainer.fit(model)
     trainer.test(model)
 
-    
