@@ -13,6 +13,8 @@ import random
 import time
 from pathlib import Path
 from typing import Optional
+from datasets.coco_eval import CocoEvaluator
+from datasets.panoptic_eval import PanopticEvaluator
 
 import numpy as np
 from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
@@ -75,42 +77,80 @@ class PairDETR(pl.LightningModule):
         self.log('class_error',loss_dict_reduced['class_error'])
         self.log('train_loss', loss_value)
         return losses
-def main(args):
-    
-    dataset_train = build_dataset(image_set='train', args=args)
-    dataset_val = build_dataset(image_set='val', args=args)
-
-    if args.dataset_file == "coco_panoptic":
-        coco_val = datasets.coco.build("val", args)
-        base_ds = get_coco_api_from_dataset(coco_val)
-    else:
-        base_ds = get_coco_api_from_dataset(dataset_val)
-
-    output_dir = Path(args.output_dir)
-   
-    for epoch in range(args.start_epoch, args.epochs):
-        train_one_epoch(
-            model, criterion, data_loader_train, optimizer, epoch,
-            args.clip_max_norm)
-        lr_scheduler.step()
-
-        _, coco_evaluator = evaluate(
-            model, criterion, postprocessors, data_loader_val, base_ds, args.output_dir
+    def on_validation_start(self) -> None:
+        
+        iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
+        
+        self.coco_evaluator = CocoEvaluator(self.val_dataset, iou_types)
+        self.panoptic_evaluator = None
+        if 'panoptic' in self.postprocessors.keys():
+            self.panoptic_evaluator = PanopticEvaluator(
+                self.val_dataset.ann_file,
+                self.val_dataset.ann_folder,
         )
+        return super().on_validation_start()
+    def validation_step(self, batch, batch_idx):
+    
 
-       
-        if args.output_dir and utils.is_main_process():
 
-            # for evaluation logs
-            if coco_evaluator is not None:
-                (output_dir / 'eval').mkdir(exist_ok=True)
-                if "bbox" in coco_evaluator.coco_eval:
-                    filenames = ['latest.pth']
-                    if epoch % 50 == 0:
-                        filenames.append(f'{epoch:03}.pth')
-                    for name in filenames:
-                        torch.save(coco_evaluator.coco_eval["bbox"].eval,
-                                   output_dir / "eval" / name)
+    # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
+
+        
+        samples, targets = batch
+        samples = samples.to(self.device)
+        targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+
+        outputs = self.model(samples)
+        loss_dict = self.criterion(outputs, targets)
+        weight_dict = self.criterion.weight_dict
+
+        # reduce losses over all GPUs for logging purposes
+        loss_dict_reduced = utils.reduce_dict(loss_dict)
+        loss_dict_reduced_scaled = {k: v * weight_dict[k]
+                                    for k, v in loss_dict_reduced.items() if k in weight_dict}
+        loss_dict_reduced_unscaled = {f'{k}_unscaled': v
+                                      for k, v in loss_dict_reduced.items()}
+        self.log("loss",sum(loss_dict_reduced_scaled.values()))
+        #  **loss_dict_reduced_scaled,
+        #  **loss_dict_reduced_unscaled)
+        self.log("class_error",loss_dict_reduced['class_error'])
+
+        orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
+        results = self.postprocessors['bbox'](outputs, orig_target_sizes)
+        if 'segm' in self.postprocessors.keys():
+            target_sizes = torch.stack([t["size"] for t in targets], dim=0)
+            results = self.postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
+        res = {target['image_id'].item(): output for target, output in zip(targets, results)}
+        if self.coco_evaluator is not None:
+            self.coco_evaluator.update(res)
+
+        if self.panoptic_evaluator is not None:
+            res_pano = self.postprocessors["panoptic"](outputs, target_sizes, orig_target_sizes)
+            for i, target in enumerate(targets):
+                image_id = target["image_id"].item()
+                file_name = f"{image_id:012d}.png"
+                res_pano[i]["image_id"] = image_id
+                res_pano[i]["file_name"] = file_name
+
+            self.panoptic_evaluator.update(res_pano)
+    def on_validation_end(self):
+        if self.coco_evaluator is not None:
+            self.coco_evaluator.accumulate()
+            self.coco_evaluator.summarize()
+        panoptic_res = None
+        if self.panoptic_evaluator is not None:
+            panoptic_res = self.panoptic_evaluator.summarize()
+        
+        if self.coco_evaluator is not None:
+            if 'bbox' in self.postprocessors.keys():
+                self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
+            if 'segm' in self.postprocessors.keys():
+                self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
+        if panoptic_res is not None:
+            self.log("PQ_all", panoptic_res["All"])
+            self.log("PQ_th", panoptic_res["Things"])
+            self.log("PQ_st", panoptic_res["Stuff"])
+        return super().on_validation_end()
 
 
 if __name__ == '__main__':
