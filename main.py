@@ -19,7 +19,6 @@ import torch
 from torch.utils.data import DataLoader
 
 import datasets
-from torch.nn import Transformer
 import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
 from model import *
@@ -42,7 +41,7 @@ class PairDETR(pl.LightningModule):
         backbone = Joiner(Backbone(args.backbone, True, False, args.dilation), position_embedding)
         backbone.num_channels = backbone.num_channels
         
-        transformer = Transformer(
+        transformer = PositionalTransformer(
             d_model=args.hidden_dim,
             dropout=args.dropout,
             nhead=args.nheads,
@@ -84,7 +83,7 @@ class PairDETR(pl.LightningModule):
         lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, self.args.lr_drop)
         return [optimizer], [lr_scheduler]
     
-    def setup(self, stage: str | None = None) -> None:
+    def setup(self, stage = None) -> None:
         self.train_dataset = build_dataset(image_set='train', args=self.args)
         self.val_dataset = build_dataset(image_set='val', args=self.args)
     def train_dataloader(self) -> TRAIN_DATALOADERS:
@@ -199,6 +198,7 @@ if __name__ == '__main__':
     from argparser import get_args_parser
     import argparse
     parser = argparse.ArgumentParser('Conditional DETR training and evaluation script', parents=[get_args_parser()])
+    from pytorch_lightning.callbacks import ModelCheckpoint
     args = parser.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
