@@ -9,18 +9,14 @@
 
 
 from pathlib import Path
-from typing import Optional 
 from datasets.coco_eval import CocoEvaluator
 from datasets.panoptic_eval import PanopticEvaluator
 
-import numpy as np
 from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
 import torch
 from torch.utils.data import DataLoader
 
-import datasets
 import util.misc as utils
-from datasets import build_dataset, get_coco_api_from_dataset
 from model import *
 import pytorch_lightning as pl
 
