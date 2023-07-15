@@ -150,7 +150,7 @@ class PairDETR(pl.LightningModule):
         weight_dict = self.criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
-        # reduce losses over all GPUs for logging purposes
+        # reduce losses over all GPUs for logging purposes ... Not quite sure why this is needed with PTL ... Note for future me ot fix.
         loss_dict_reduced = utils.reduce_dict(loss_dict)
         # loss_dict_reduced_unscaled = {f'{k}_unscaled': v
         #                               for k, v in loss_dict_reduced.items()}
@@ -165,8 +165,9 @@ class PairDETR(pl.LightningModule):
         self.log('class_error',loss_dict_reduced['class_error'])
         self.log('train_loss', loss_value)
         return losses
-    # def on_test_start(self) -> None:
-        
+   
+    def on_test_start(self) -> None:
+        print(" Looking for Datamodule :\n",self.__dir__())     
     #     iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
     #     # print(self.data.__dir__())
     #     self.coco_evaluator = CocoEvaluator(self.val_dataloader().dataset, iou_types)
@@ -262,8 +263,8 @@ if __name__ == '__main__':
                          gradient_clip_val=0.1,
                          callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='cuda',
-                         fast_dev_run=True,  
+                         fast_dev_run=False,  
                          devices="auto",
     )
     trainer.fit(model,data)
-    trainer.test(model,data)
+    #trainer.test(model,data)

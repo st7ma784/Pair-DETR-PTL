@@ -20,7 +20,7 @@ def get_args_parser():
                         help="Name of the convolutional backbone to use")
     parser.add_argument('--dilation', action='store_true',
                         help="If true, we replace stride with dilation in the last convolutional block (DC5)")
-    parser.add_argument('--position_embedding', default='sine', type=str, choices=('sine', 'learned'),
+    parser.add_argument('--position_embedding', default='v3', type=str, choices=('sine', 'learned'),
                         help="Type of positional embedding to use on top of the image features")
 
     # * Transformer
@@ -45,7 +45,7 @@ def get_args_parser():
                         help="Train segmentation head if the flag is provided")
 
     # Loss
-    parser.add_argument('--no_aux_loss', dest='aux_loss', action='store_false',
+    parser.add_argument('--no_aux_loss', dest='aux_loss', action='store_false',default=True,
                         help="Disables auxiliary decoding losses (loss at each layer)")
     
     # * Matcher
