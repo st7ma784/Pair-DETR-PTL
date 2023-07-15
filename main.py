@@ -106,20 +106,25 @@ class PairDETR(pl.LightningModule):
             samples = nested_tensor_from_tensor_list(samples)
         #features, pos = self.backbone(samples) this called Joiner which is a wrapper for the backbone:
         xs = self.backbone(samples)
-        features: List[NestedTensor] = []
-        pos = []
-        for name, x in xs.items():
-            features.append(x)
+        print("backbone Output: {}",xs.shape)
+        #features: List[NestedTensor] = []
+        #pos = []
+        #dear future me: URRRGGGHHH!
+        #for name, x in xs.items():
+            # features.append(x)
             # position encoding
-            pos.append(self.positional_embedding(x).to(x.tensors.dtype))
+            # pos.append(self.positional_embedding(x).to(x.tensors.dtype))
 
         
 
 
 
-        src, mask = features[-1].decompose()
+        #src, mask = features[-1].decompose()
+        src,mask=xs[-1].decompose()
         assert mask is not None
-        hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])
+        #hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])
+        hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed.weight,self.positional_embedding(xs[-1]).to(xs[-1].tensors.dtype))
+
         
         reference_before_sigmoid = inverse_sigmoid(reference)
         outputs_coords = []
