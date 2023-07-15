@@ -26,39 +26,39 @@ import pytorch_lightning as pl
 
        
 class PairDETR(pl.LightningModule):
-    def __init__(self, *args,**kwargs):
+    def __init__(self,**args):
         super().__init__()
         self.save_hyperparameters()
         self.args = args
-        self.kwargs = kwargs
-        num_classes = 20 if args.dataset_file != 'coco' else 91
-        if args.dataset_file == "coco_panoptic":
+        #self.kwargs = kwargs
+        num_classes = 20 if args['dataset_file'] != 'coco' else 91
+        if args['dataset_file'] == "coco_panoptic":
             num_classes = 250
         posmethod=PositionEmbeddingLearned
-        if args.position_embedding in ('v2', 'sine'):
+        if args['position_embedding'] in ('v2', 'sine'):
             # TODO find a better way of exposing other arguments
             posmethod = PositionEmbeddingSine
-        self.position_embedding = posmethod(args.hidden_dim // 2)
-        self.backbone = Backbone(args.backbone, True, False, args.dilation)
+        self.position_embedding = posmethod(args['hidden_dim'] // 2)
+        self.backbone = Backbone(args['backbone'], True, False, args['dilation'])
         #self.backbone.num_channels = self.backbone.num_channels
         self.transformer = PositionalTransformer(
-            d_model=args.hidden_dim,
-            dropout=args.dropout,
-            nhead=args.nheads,
-            num_queries=args.num_queries,
-            dim_feedforward=args.dim_feedforward,
-            num_encoder_layers=args.enc_layers,
-            num_decoder_layers=args.dec_layers,
-            normalize_before=args.pre_norm,
+            d_model=args['hidden_dim'],
+            dropout=args['dropout'],
+            nhead=args['nheads'],
+            num_queries=args['num_queries'],
+            dim_feedforward=args['dim_feedforward'],
+            num_encoder_layers=args['enc_layers'],
+            num_decoder_layers=args['dec_layers'],
+            normalize_before=args['pre_norm'],
             return_intermediate_dec=True,
         )
-        self.num_queries = args.num_queries
+        self.num_queries = args['num_queries']
         hidden_dim = self.transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes)
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
         self.query_embed = nn.Embedding(self.num_queries, hidden_dim)
         self.input_proj = nn.Conv2d(self.backbone.num_channels, hidden_dim, kernel_size=1)
-        self.aux_loss = args.aux_loss
+        self.aux_loss = args['aux_loss']
 
         # init prior_prob setting for focal loss
         prior_prob = 0.01
@@ -70,17 +70,17 @@ class PairDETR(pl.LightningModule):
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
         # if args.masks:
         #     model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
-        self.matcher = HungarianMatcher(cost_class=args.set_cost_class, cost_bbox=args.set_cost_bbox, cost_giou=args.set_cost_giou)
+        self.matcher = HungarianMatcher(cost_class=args['set_cost_class'], cost_bbox=args['set_cost_bbox'], cost_giou=args['set_cost_giou'])
 
-        self.weight_dict = {'loss_ce': args.cls_loss_coef,
-                       'loss_bbox': args.bbox_loss_coef,
-                       'loss_giou': args.giou_loss_coef}
+        self.weight_dict = {'loss_ce': args['cls_loss_coef'],
+                       'loss_bbox': args['bbox_loss_coef'],
+                       'loss_giou': args['giou_loss_coef']}
 
         losses = ['labels', 'boxes', 'cardinality']
         # if args.masks:
         #     losses += ["masks"]
         self.criterion = SetCriterion(num_classes, matcher=self.matcher, weight_dict=self.weight_dict,
-                                focal_alpha=args.focal_alpha, losses=losses)
+                                focal_alpha=args['focal_alpha'], losses=losses)
         self.postprocessors = {'bbox': PostProcess()}
         
     #config optimizer
@@ -275,14 +275,21 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    model=PairDETR(*args)
+    
+
+
+
+    
+    #convert to dict
+    args = vars(args)
+    model=PairDETR(**args)
     trainer = pl.Trainer(gpus=1,
                          precision=16,
-                         max_epochs=args.epochs, 
+                         max_epochs=args['epochs'], 
                          num_sanity_val_steps=0,
-                         gradient_clip_val=args.clip_grad,
-                         callbacks=[ModelCheckpoint(dirpath=args.output_dir,save_top_k=1,monitor='val_loss',mode='min')],
-                         accelerator='ddp',  
+                         gradient_clip_val=0.1,
+                         callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
+                         accelerator='auto',  
                             )
     trainer.fit(model)
     trainer.test(model)
