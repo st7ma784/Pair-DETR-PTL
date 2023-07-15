@@ -13,8 +13,12 @@ COCO dataset which returns image_id for evaluation.
 Mostly copy-paste from https://github.com/pytorch/vision/blob/13b35ff/references/detection/coco_utils.py
 """
 from pathlib import Path
-
-import torch
+import torch     
+import os
+import zipfile
+from pySmartDL import SmartDL
+import pytorch_lightning as pl
+import time
 import torch.utils.data
 import torchvision
 from pycocotools import mask as coco_mask
@@ -120,48 +124,141 @@ class ConvertCocoPolysToMask(object):
         return image, target
 
 
-def make_coco_transforms(image_set):
 
-    normalize = T.Compose([
-        T.ToTensor(),
-        T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-    ])
 
-    scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
+class COCODataModule(pl.LightningDataModule):
 
-    if image_set == 'train':
-        return T.Compose([
-            T.RandomHorizontalFlip(),
-            T.RandomSelect(
-                T.RandomResize(scales, max_size=1333),
-                T.Compose([
-                    T.RandomResize([400, 500, 600]),
-                    T.RandomSizeCrop(384, 600),
+    def __init__(self, Cache_dir='.', batch_size=256):
+        super().__init__()
+        self.data_dir = Cache_dir
+        self.ann_dir=os.path.join(self.data_dir,"annotations")
+        self.batch_size = batch_size
+        self.splits={"train":[],"val":[],"test":[]}
+        self.prepare_data()
+    def train_dataloader(self, B=None):
+        if B is None:
+            B=self.batch_size 
+        return torch.utils.data.DataLoader(self.train, batch_size=B, shuffle=True, num_workers=1, prefetch_factor=1, pin_memory=True,drop_last=True)
+    def val_dataloader(self, B=None):
+        if B is None:
+            B=self.batch_size
+       
+        return torch.utils.data.DataLoader(self.val, batch_size=B, shuffle=True, num_workers=1, prefetch_factor=1, pin_memory=True,drop_last=True)
+    def test_dataloader(self,B=None):
+        if B is None:
+            B=self.batch_size
+
+
+        return torch.utils.data.DataLoader(self.test, batch_size=B, shuffle=True, num_workers=4, prefetch_factor=4, pin_memory=True,drop_last=True)
+    def prepare_data(self):
+        '''called only once and on 1 GPU'''
+        # # download data
+        
+        if not os.path.exists(self.data_dir):
+            os.makedirs(self.data_dir,exist_ok=True)
+        if not os.path.exists(self.ann_dir):
+            os.makedirs(self.ann_dir,exist_ok=True)
+        urls=['https://images.cocodataset.org/zips/train2014.zip',
+                'https://images.cocodataset.org/zips/val2014.zip',
+                'https://images.cocodataset.org/zips/test2015.zip',
+                'https://images.cocodataset.org/zips/train2017.zip',
+                'https://images.cocodataset.org/zips/val2017.zip',
+                'https://images.cocodataset.org/annotations/annotations_trainval2014.zip',
+                'https://images.cocodataset.org/annotations/annotations_trainval2017.zip'
+                ]
+
+        objs=[]
+        for url in urls:
+            #print("url:",url)
+            name=str(url).split('/')[-1]
+            location=self.data_dir # if name.startswith("annotations") else self.ann_dir
+            #print("Location", location) #/Data/train2014.zip
+            #time.sleep(5)
+            #print('Downloading',url)
+            obj=SmartDL(url,os.path.join(location,name),progress_bar=False, verify=False)
+            obj.FileName=name
+            if name.endswith(".zip"):
+                name=name[:-4]
+            if name.startswith("train"):
+                self.splits['train'].append(name)
+            elif name.startswith("val"):
+                self.splits['val'].append(name)
+            elif name.startswith("test"):
+                self.splits['test'].append(name)
+            if not os.path.exists(os.path.join(location,name)) and not (name.startswith("annotations") and os.path.exists(os.path.join(location,"annotations"))):
+                print(os.path.join(location,name))
+                objs.append(obj)
+                obj.start(blocking=False,  )#There are security problems with Hostename 'images.cocodataset.org' and Certificate 'images.cocodataset.org' so we need to disable the SSL verification
+        for obj in objs:
+            while not obj.isFinished():
+                time.sleep(5)
+            if obj.isSuccessful():
+                print("Downloaded: %s" % obj.get_dest())
+            path = obj.get_dest()
+            if path.endswith(".zip"):
+                with zipfile.ZipFile(path, 'r') as zip_ref:
+                    try:
+                        zip_ref.extractall(self.data_dir)
+                    except Exception as e:
+                        print(e)
+                        print("Error extracting zip" ,path)
+                        continue        
+                    for root, dirs, files in os.walk(zip_ref.namelist()[0]):
+                        for file in files:
+                            Path(os.path.join(root, file)).touch()
+    def make_coco_transforms(self,image_set):
+
+        normalize = T.Compose([
+            T.ToTensor(),
+            T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+        ])
+
+        scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
+
+        if image_set == 'train':
+            return T.Compose([
+                T.RandomHorizontalFlip(),
+                T.RandomSelect(
                     T.RandomResize(scales, max_size=1333),
-                ])
-            ),
-            normalize,
-        ])
+                    T.Compose([
+                        T.RandomResize([400, 500, 600]),
+                        T.RandomSizeCrop(384, 600),
+                        T.RandomResize(scales, max_size=1333),
+                    ])
+                ),
+                normalize,
+            ])
 
-    if image_set == 'val':
-        return T.Compose([
-            T.RandomResize([800], max_size=1333),
-            normalize,
-        ])
+        if image_set == 'val':
+            return T.Compose([
+                T.RandomResize([800], max_size=1333),
+                normalize,
+            ])
 
-    raise ValueError(f'unknown {image_set}')
+        raise ValueError(f'unknown {image_set}')
+
+    def setup(self, stage=None):
+        '''called on each GPU separately - stage defines if we are at fit or test step'''
+        #print("Entered COCO datasetup")
+        
+    
+        
+        root = Path(self.data_dir)
+        assert root.exists(), f'provided COCO path {root} does not exist'
+        mode = 'instances'
+        PATHS = {
+            "train": (root / "images" / "train2017", root / "annotations" / f'{mode}_train2017.json'),
+            "val": (root / "images" / "val2017", root / "annotations" / f'{mode}_val2017.json'),
+            "test": (root / "images" / "test2017", root / "annotations" / f'image_info_test-dev2017.json'),
+        }
+
+        img_folder, ann_file = PATHS["train"]
+        self.train = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("train"), return_masks=False)
+        img_folder, ann_file = PATHS["val"]
+        self.val = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("val"), return_masks=False)
+        img_folder, ann_file = PATHS["test"]
+        self.test=CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("test"), return_masks=False)
 
 
-def build(image_set, args):
-    root = Path(args['coco_path'])
-    assert root.exists(), f'provided COCO path {root} does not exist'
-    mode = 'instances'
-    PATHS = {
-        "train": (root / "images" / "train2017", root / "annotations" / f'{mode}_train2017.json'),
-        "val": (root / "images" / "val2017", root / "annotations" / f'{mode}_val2017.json'),
-        "test": (root / "images" / "test2017", root / "annotations" / f'image_info_test-dev2017.json'),
-    }
 
-    img_folder, ann_file = PATHS[image_set]
-    dataset = CocoDetection(img_folder, ann_file, transforms=make_coco_transforms(image_set), return_masks=args['masks'])
-    return dataset
+
