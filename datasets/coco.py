@@ -1,17 +1,3 @@
-# ------------------------------------------------------------------------
-# Conditional DETR
-# Copyright (c) 2021 Microsoft. All Rights Reserved.
-# Licensed under the Apache License, Version 2.0 [see LICENSE for details]
-# ------------------------------------------------------------------------
-# Copied from DETR (https://github.com/facebookresearch/detr)
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
-# ------------------------------------------------------------------------
-
-"""
-COCO dataset which returns image_id for evaluation.
-
-Mostly copy-paste from https://github.com/pytorch/vision/blob/13b35ff/references/detection/coco_utils.py
-"""
 from pathlib import Path
 import torch     
 import os
@@ -158,12 +144,10 @@ class COCODataModule(pl.LightningDataModule):
             os.makedirs(self.data_dir,exist_ok=True)
         if not os.path.exists(self.ann_dir):
             os.makedirs(self.ann_dir,exist_ok=True)
-        urls=['https://images.cocodataset.org/zips/train2014.zip',
-                'https://images.cocodataset.org/zips/val2014.zip',
-                'https://images.cocodataset.org/zips/test2015.zip',
+        urls=[
+                'https://images.cocodataset.org/zips/test2017.zip',
                 'https://images.cocodataset.org/zips/train2017.zip',
                 'https://images.cocodataset.org/zips/val2017.zip',
-                'https://images.cocodataset.org/annotations/annotations_trainval2014.zip',
                 'https://images.cocodataset.org/annotations/annotations_trainval2017.zip'
                 ]
 
