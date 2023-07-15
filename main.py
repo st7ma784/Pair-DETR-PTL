@@ -27,6 +27,7 @@ class PairDETR(pl.LightningModule):
         self.save_hyperparameters()
         self.args = args
         #self.kwargs = kwargs
+        self.learning_rate = args['lr']
         num_classes = 20 if args['dataset_file'] != 'coco' else 91
         if args['dataset_file'] == "coco_panoptic":
             num_classes = 250
@@ -147,23 +148,11 @@ class PairDETR(pl.LightningModule):
 
     def configure_optimizers(self):
             
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.args.lr,
-                                    weight_decay=self.args.weight_decay)
-        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, self.args.lr_drop)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate,
+                                    weight_decay=self.args['weight_decay'])
+        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.args['epochs'])
         return [optimizer], [lr_scheduler]
-    
-    def setup(self, stage = None) -> None:
-        self.train_dataset = build_dataset(image_set='train', args=self.args)
-        self.val_dataset = build_dataset(image_set='val', args=self.args)
-    def train_dataloader(self) -> TRAIN_DATALOADERS:
-        return DataLoader(self.train_dataset, 
-                          collate_fn=utils.collate_fn, 
-                          num_workers=args.num_workers)
-    def val_dataloader(self):
-        return DataLoader(self.val_dataset, 
-                          collate_fn=utils.collate_fn, 
-                          #can add some speed ups here
-                          num_workers=args.num_workers)
+
     def training_step(self, batch, batch_idx):
         samples, targets = batch
         targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
@@ -277,13 +266,14 @@ if __name__ == '__main__':
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
-    trainer = pl.Trainer(gpus=1,
+    trainer = pl.Trainer(
                          precision=16,
                          max_epochs=args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.1,
                          callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
-                         accelerator='auto',  
-                            )
-    trainer.fit(model)
-    trainer.test(model)
+                         accelerator='cuda',  
+                         devices="auto",
+    )
+    trainer.fit(model,data)
+    trainer.test(model,data)

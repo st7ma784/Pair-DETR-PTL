@@ -8,7 +8,10 @@ import time
 import torch.utils.data
 import torchvision
 from pycocotools import mask as coco_mask
+from typing import Optional, List
 
+import torch
+from torch import Tensor
 import datasets.transforms as T
 
 
@@ -43,6 +46,96 @@ def convert_coco_poly_to_mask(segmentations, height, width):
     else:
         masks = torch.zeros((0, height, width), dtype=torch.uint8)
     return masks
+
+
+def collate_fn(batch):
+    batch = list(zip(*batch))
+    batch[0] = nested_tensor_from_tensor_list(batch[0])
+    return tuple(batch)
+
+class NestedTensor(object):
+    def __init__(self, tensors, mask: Optional[Tensor]):
+        self.tensors = tensors
+        self.mask = mask
+
+    def to(self, device):
+        # type: (Device) -> NestedTensor # noqa
+        cast_tensor = self.tensors.to(device)
+        mask = self.mask
+        if mask is not None:
+            assert mask is not None
+            cast_mask = mask.to(device)
+        else:
+            cast_mask = None
+        return NestedTensor(cast_tensor, cast_mask)
+
+    def decompose(self):
+        return self.tensors, self.mask
+
+    def __repr__(self):
+        return str(self.tensors)
+
+
+def nested_tensor_from_tensor_list(tensor_list: List[Tensor]):
+    # TODO make this more general
+    if tensor_list[0].ndim == 3:
+        if torchvision._is_tracing():
+            # nested_tensor_from_tensor_list() does not export well to ONNX
+            # call _onnx_nested_tensor_from_tensor_list() instead
+            return _onnx_nested_tensor_from_tensor_list(tensor_list)
+
+        # TODO make it support different-sized images
+        max_size = _max_by_axis([list(img.shape) for img in tensor_list])
+        # min_size = tuple(min(s) for s in zip(*[img.shape for img in tensor_list]))
+        batch_shape = [len(tensor_list)] + max_size
+        b, c, h, w = batch_shape
+        dtype = tensor_list[0].dtype
+        device = tensor_list[0].device
+        tensor = torch.zeros(batch_shape, dtype=dtype, device=device)
+        mask = torch.ones((b, h, w), dtype=torch.bool, device=device)
+        for img, pad_img, m in zip(tensor_list, tensor, mask):
+            pad_img[: img.shape[0], : img.shape[1], : img.shape[2]].copy_(img)
+            m[: img.shape[1], :img.shape[2]] = False
+    else:
+        raise ValueError('not supported')
+    return NestedTensor(tensor, mask)
+
+
+def _max_by_axis(the_list):
+    # type: (List[List[int]]) -> List[int]
+    maxes = the_list[0]
+    for sublist in the_list[1:]:
+        for index, item in enumerate(sublist):
+            maxes[index] = max(maxes[index], item)
+    return maxes
+
+@torch.jit.unused
+def _onnx_nested_tensor_from_tensor_list(tensor_list: List[Tensor]) -> NestedTensor:
+    max_size = []
+    for i in range(tensor_list[0].dim()):
+        max_size_i = torch.max(torch.stack([img.shape[i] for img in tensor_list]).to(torch.float32)).to(torch.int64)
+        max_size.append(max_size_i)
+    max_size = tuple(max_size)
+
+    # work around for
+    # pad_img[: img.shape[0], : img.shape[1], : img.shape[2]].copy_(img)
+    # m[: img.shape[1], :img.shape[2]] = False
+    # which is not yet supported in onnx
+    padded_imgs = []
+    padded_masks = []
+    for img in tensor_list:
+        padding = [(s1 - s2) for s1, s2 in zip(max_size, tuple(img.shape))]
+        padded_img = torch.nn.functional.pad(img, (0, padding[2], 0, padding[1], 0, padding[0]))
+        padded_imgs.append(padded_img)
+
+        m = torch.zeros_like(img[0], dtype=torch.int, device=img.device)
+        padded_mask = torch.nn.functional.pad(m, (0, padding[2], 0, padding[1]), "constant", 1)
+        padded_masks.append(padded_mask.to(torch.bool))
+
+    tensor = torch.stack(padded_imgs)
+    mask = torch.stack(padded_masks)
+
+    return NestedTensor(tensor, mask=mask)
 
 
 class ConvertCocoPolysToMask(object):
@@ -124,18 +217,18 @@ class COCODataModule(pl.LightningDataModule):
     def train_dataloader(self, B=None):
         if B is None:
             B=self.batch_size 
-        return torch.utils.data.DataLoader(self.train, batch_size=B, shuffle=True, num_workers=1, prefetch_factor=1, pin_memory=True,drop_last=True)
+        return torch.utils.data.DataLoader(self.train, batch_size=B, shuffle=True, num_workers=4, collate_fn=collate_fn, prefetch_factor=4, pin_memory=True,drop_last=True)
     def val_dataloader(self, B=None):
         if B is None:
             B=self.batch_size
        
-        return torch.utils.data.DataLoader(self.val, batch_size=B, shuffle=True, num_workers=1, prefetch_factor=1, pin_memory=True,drop_last=True)
+        return torch.utils.data.DataLoader(self.val, batch_size=B, shuffle=True, collate_fn=collate_fn,num_workers=1, prefetch_factor=1, pin_memory=True,drop_last=True)
     def test_dataloader(self,B=None):
         if B is None:
             B=self.batch_size
 
 
-        return torch.utils.data.DataLoader(self.test, batch_size=B, shuffle=True, num_workers=4, prefetch_factor=4, pin_memory=True,drop_last=True)
+        return torch.utils.data.DataLoader(self.test, batch_size=B, shuffle=True, num_workers=4, collate_fn=collate_fn, prefetch_factor=4, pin_memory=True,drop_last=True)
     def prepare_data(self):
         '''called only once and on 1 GPU'''
         # # download data
@@ -145,7 +238,7 @@ class COCODataModule(pl.LightningDataModule):
         if not os.path.exists(self.ann_dir):
             os.makedirs(self.ann_dir,exist_ok=True)
         urls=[
-                'https://images.cocodataset.org/zips/test2017.zip',
+                #'https://images.cocodataset.org/zips/test2017.zip',
                 'https://images.cocodataset.org/zips/train2017.zip',
                 'https://images.cocodataset.org/zips/val2017.zip',
                 'https://images.cocodataset.org/annotations/annotations_trainval2017.zip'
@@ -213,13 +306,12 @@ class COCODataModule(pl.LightningDataModule):
                 normalize,
             ])
 
-        if image_set == 'val':
+        else:
             return T.Compose([
                 T.RandomResize([800], max_size=1333),
                 normalize,
             ])
 
-        raise ValueError(f'unknown {image_set}')
 
     def setup(self, stage=None):
         '''called on each GPU separately - stage defines if we are at fit or test step'''
@@ -240,8 +332,8 @@ class COCODataModule(pl.LightningDataModule):
         self.train = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("train"), return_masks=False)
         img_folder, ann_file = PATHS["val"]
         self.val = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("val"), return_masks=False)
-        img_folder, ann_file = PATHS["test"]
-        self.test=CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("test"), return_masks=False)
+        # img_folder, ann_file = PATHS["test"]
+        # self.test=CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("test"), return_masks=False)
 
 
 
