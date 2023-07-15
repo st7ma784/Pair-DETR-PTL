@@ -52,9 +52,6 @@ class PairDETR(pl.LightningModule):
             normalize_before=args.pre_norm,
             return_intermediate_dec=True,
         )
-        #Dear future me , we really want to be extending this class as it's where our positional encodings are found! 
-        #good Luck! 
-
         self.num_queries = args.num_queries
         hidden_dim = self.transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes)
