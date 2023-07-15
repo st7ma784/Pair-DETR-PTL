@@ -22,7 +22,8 @@ from torch import Tensor
 import warnings
 from typing import Tuple, Optional
 
-from torch.nn.modules.linear import _LinearWithBias
+#
+# from torch.nn.modules.linear import _LinearWithBias
 from torch.nn.init import constant_
 from torch.nn.modules.module import Module
 
@@ -73,8 +74,8 @@ class MultiheadAttention(Module):
         self.head_dim = embed_dim // num_heads
         assert self.head_dim * num_heads == self.embed_dim, "embed_dim must be divisible by num_heads"
 
-        self.out_proj = _LinearWithBias(vdim, vdim)
-
+        #self.out_proj = _LinearWithBias(vdim, vdim)
+        self.out_proj = torch.nn.Linear(vdim, vdim,bias=bias)
         self.in_proj_bias = None
         self.in_proj_weight = None
         self.bias_k = self.bias_v = None
