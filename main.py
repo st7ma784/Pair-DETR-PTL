@@ -35,7 +35,7 @@ class PairDETR(pl.LightningModule):
         if args['position_embedding'] in ('v2', 'sine'):
             # TODO find a better way of exposing other arguments
             posmethod = PositionEmbeddingSine
-        self.position_embedding = posmethod(args['hidden_dim'] // 2)
+        self.positional_embedding = posmethod(args['hidden_dim'] // 2)
         self.backbone = Backbone(args['backbone'], True, False, args['dilation'])
         #self.backbone.num_channels = self.backbone.num_channels
         self.transformer = PositionalTransformer(
@@ -102,25 +102,14 @@ class PairDETR(pl.LightningModule):
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
         #features, pos = self.backbone(samples) this called Joiner which is a wrapper for the backbone:
-        xs = self.backbone(samples)
-        print("backbone Output: {}",xs.shape)
-        #features: List[NestedTensor] = []
-        #pos = []
-        #dear future me: URRRGGGHHH!
-        #for name, x in xs.items():
-            # features.append(x)
-            # position encoding
-            # pos.append(self.positional_embedding(x).to(x.tensors.dtype))
-
-        
-
-
-
-        #src, mask = features[-1].decompose()
-        src,mask=xs[-1].decompose()
+        ims=samples.tensors
+        m = samples.mask
+        xs = self.backbone(ims,m)
+        src,mask=xs["0"].decompose() # pull it into the tensor, mask. 
+        #print(src.shape,mask.shape) #orch.Size([16, 2048, 38, 35]) torch.Size([16, 38, 35])
         assert mask is not None
         #hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])
-        hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed.weight,self.positional_embedding(xs[-1]).to(xs[-1].tensors.dtype))
+        hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed.weight,self.positional_embedding(src,mask).to(src.dtype))
 
         
         reference_before_sigmoid = inverse_sigmoid(reference)
@@ -150,8 +139,8 @@ class PairDETR(pl.LightningModule):
             
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate,
                                     weight_decay=self.args['weight_decay'])
-        lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.args['epochs'])
-        return [optimizer], [lr_scheduler]
+        
+        return [optimizer]
 
     def training_step(self, batch, batch_idx):
         samples, targets = batch
@@ -176,80 +165,80 @@ class PairDETR(pl.LightningModule):
         self.log('class_error',loss_dict_reduced['class_error'])
         self.log('train_loss', loss_value)
         return losses
-    def on_validation_start(self) -> None:
+    # def on_test_start(self) -> None:
         
-        iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
-        
-        self.coco_evaluator = CocoEvaluator(self.val_dataset, iou_types)
-        self.panoptic_evaluator = None
-        if 'panoptic' in self.postprocessors.keys():
-            self.panoptic_evaluator = PanopticEvaluator(
-                self.val_dataset.ann_file,
-                self.val_dataset.ann_folder,
-        )
-        return super().on_validation_start()
-    def validation_step(self, batch, batch_idx):
+    #     iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
+    #     # print(self.data.__dir__())
+    #     self.coco_evaluator = CocoEvaluator(self.val_dataloader().dataset, iou_types)
+    #     self.panoptic_evaluator = None
+    #     if 'panoptic' in self.postprocessors.keys():
+    #         self.panoptic_evaluator = PanopticEvaluator(
+    #             self.val_dataloader().dataset.ann_file,
+    #             self.val_dataloader().dataset.ann_folder,
+    #     )
+    #     return super().on_test_start()
+    # def test_step(self, batch, batch_idx):
     
 
 
-    # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
+    # # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
 
         
-        samples, targets = batch
-        samples = samples.to(self.device)
-        targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+    #     samples, targets = batch
+    #     samples = samples.to(self.device)
+    #     targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
 
-        outputs = self.model(samples)
-        loss_dict = self.criterion(outputs, targets)
-        weight_dict = self.criterion.weight_dict
+    #     outputs = self.model(samples)
+    #     loss_dict = self.criterion(outputs, targets)
+    #     weight_dict = self.criterion.weight_dict
 
-        # reduce losses over all GPUs for logging purposes
-        loss_dict_reduced = utils.reduce_dict(loss_dict)
-        loss_dict_reduced_scaled = {k: v * weight_dict[k]
-                                    for k, v in loss_dict_reduced.items() if k in weight_dict}
-        loss_dict_reduced_unscaled = {f'{k}_unscaled': v
-                                      for k, v in loss_dict_reduced.items()}
-        self.log("loss",sum(loss_dict_reduced_scaled.values()))
-        #  **loss_dict_reduced_scaled,
-        #  **loss_dict_reduced_unscaled)
-        self.log("class_error",loss_dict_reduced['class_error'])
+    #     # reduce losses over all GPUs for logging purposes
+    #     loss_dict_reduced = utils.reduce_dict(loss_dict)
+    #     loss_dict_reduced_scaled = {k: v * weight_dict[k]
+    #                                 for k, v in loss_dict_reduced.items() if k in weight_dict}
+    #     loss_dict_reduced_unscaled = {f'{k}_unscaled': v
+    #                                   for k, v in loss_dict_reduced.items()}
+    #     self.log("loss",sum(loss_dict_reduced_scaled.values()))
+    #     #  **loss_dict_reduced_scaled,
+    #     #  **loss_dict_reduced_unscaled)
+    #     self.log("class_error",loss_dict_reduced['class_error'])
 
-        orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
-        results = self.postprocessors['bbox'](outputs, orig_target_sizes)
-        if 'segm' in self.postprocessors.keys():
-            target_sizes = torch.stack([t["size"] for t in targets], dim=0)
-            results = self.postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
-        res = {target['image_id'].item(): output for target, output in zip(targets, results)}
-        if self.coco_evaluator is not None:
-            self.coco_evaluator.update(res)
+    #     orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
+    #     results = self.postprocessors['bbox'](outputs, orig_target_sizes)
+    #     if 'segm' in self.postprocessors.keys():
+    #         target_sizes = torch.stack([t["size"] for t in targets], dim=0)
+    #         results = self.postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
+    #     res = {target['image_id'].item(): output for target, output in zip(targets, results)}
+    #     if self.coco_evaluator is not None:
+    #         self.coco_evaluator.update(res)
 
-        if self.panoptic_evaluator is not None:
-            res_pano = self.postprocessors["panoptic"](outputs, target_sizes, orig_target_sizes)
-            for i, target in enumerate(targets):
-                image_id = target["image_id"].item()
-                file_name = f"{image_id:012d}.png"
-                res_pano[i]["image_id"] = image_id
-                res_pano[i]["file_name"] = file_name
+    #     if self.panoptic_evaluator is not None:
+    #         res_pano = self.postprocessors["panoptic"](outputs, target_sizes, orig_target_sizes)
+    #         for i, target in enumerate(targets):
+    #             image_id = target["image_id"].item()
+    #             file_name = f"{image_id:012d}.png"
+    #             res_pano[i]["image_id"] = image_id
+    #             res_pano[i]["file_name"] = file_name
 
-            self.panoptic_evaluator.update(res_pano)
-    def on_validation_end(self):
-        if self.coco_evaluator is not None:
-            self.coco_evaluator.accumulate()
-            self.coco_evaluator.summarize()
-        panoptic_res = None
-        if self.panoptic_evaluator is not None:
-            panoptic_res = self.panoptic_evaluator.summarize()
+    #         self.panoptic_evaluator.update(res_pano)
+    # def on_test_end(self):
+    #     if self.coco_evaluator is not None:
+    #         self.coco_evaluator.accumulate()
+    #         self.coco_evaluator.summarize()
+    #     panoptic_res = None
+    #     if self.panoptic_evaluator is not None:
+    #         panoptic_res = self.panoptic_evaluator.summarize()
         
-        if self.coco_evaluator is not None:
-            if 'bbox' in self.postprocessors.keys():
-                self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
-            if 'segm' in self.postprocessors.keys():
-                self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
-        if panoptic_res is not None:
-            self.log("PQ_all", panoptic_res["All"])
-            self.log("PQ_th", panoptic_res["Things"])
-            self.log("PQ_st", panoptic_res["Stuff"])
-        return super().on_validation_end()
+    #     if self.coco_evaluator is not None:
+    #         if 'bbox' in self.postprocessors.keys():
+    #             self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
+    #         if 'segm' in self.postprocessors.keys():
+    #             self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
+    #     if panoptic_res is not None:
+    #         self.log("PQ_all", panoptic_res["All"])
+    #         self.log("PQ_th", panoptic_res["Things"])
+    #         self.log("PQ_st", panoptic_res["Stuff"])
+    #     return super().on_test_end()
 
 
 if __name__ == '__main__':
@@ -262,7 +251,7 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     from datasets.coco import COCODataModule
-    data=COCODataModule(Cache_dir=args.coco_path)
+    data=COCODataModule(Cache_dir=args.coco_path,batch_size=8)
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
@@ -272,7 +261,8 @@ if __name__ == '__main__':
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.1,
                          callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
-                         accelerator='cuda',  
+                         accelerator='cuda',
+                         fast_dev_run=True,  
                          devices="auto",
     )
     trainer.fit(model,data)
