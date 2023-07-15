@@ -38,10 +38,9 @@ class PairDETR(pl.LightningModule):
         if args.position_embedding in ('v2', 'sine'):
             # TODO find a better way of exposing other arguments
             posmethod = PositionEmbeddingSine
-        position_embedding = posmethod(args.hidden_dim // 2)
-        self.backbone = Joiner(Backbone(args.backbone, True, False, args.dilation), position_embedding)
+        self.position_embedding = posmethod(args.hidden_dim // 2)
+        self.backbone = Backbone(args.backbone, True, False, args.dilation)
         #self.backbone.num_channels = self.backbone.num_channels
-        
         self.transformer = PositionalTransformer(
             d_model=args.hidden_dim,
             dropout=args.dropout,
@@ -108,7 +107,18 @@ class PairDETR(pl.LightningModule):
         """
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
-        features, pos = self.backbone(samples)
+        #features, pos = self.backbone(samples) this called Joiner which is a wrapper for the backbone:
+        xs = self.backbone(samples)
+        features: List[NestedTensor] = []
+        pos = []
+        for name, x in xs.items():
+            features.append(x)
+            # position encoding
+            pos.append(self.positional_embedding(x).to(x.tensors.dtype))
+
+        
+
+
 
         src, mask = features[-1].decompose()
         assert mask is not None
