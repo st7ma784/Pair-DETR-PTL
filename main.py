@@ -24,28 +24,45 @@ from datasets import build_dataset, get_coco_api_from_dataset
 from model import *
 import pytorch_lightning as pl
 
-class ConditionalDETR(nn.Module):
-    """ This is the Conditional DETR module that performs object detection """
-    def __init__(self, backbone, transformer, num_classes, num_queries, aux_loss=False):
-        """ Initializes the model.
-        Parameters:
-            backbone: torch module of the backbone to be used. See backbone.py
-            transformer: torch module of the transformer architecture. See transformer.py
-            num_classes: number of object classes
-            num_queries: number of object queries, ie detection slot. This is the maximal number of objects
-                         Conditional DETR can detect in a single image. For COCO, we recommend 100 queries.
-            aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
-        """
+       
+class PairDETR(pl.LightningModule):
+    def __init__(self, *args,**kwargs):
         super().__init__()
-        self.num_queries = num_queries
-        self.transformer = transformer
-        hidden_dim = transformer.d_model
+        self.save_hyperparameters()
+        self.args = args
+        self.kwargs = kwargs
+        num_classes = 20 if args.dataset_file != 'coco' else 91
+        if args.dataset_file == "coco_panoptic":
+            num_classes = 250
+        posmethod=PositionEmbeddingLearned
+        if args.position_embedding in ('v2', 'sine'):
+            # TODO find a better way of exposing other arguments
+            posmethod = PositionEmbeddingSine
+        position_embedding = posmethod(args.hidden_dim // 2)
+        self.backbone = Joiner(Backbone(args.backbone, True, False, args.dilation), position_embedding)
+        #self.backbone.num_channels = self.backbone.num_channels
+        
+        self.transformer = PositionalTransformer(
+            d_model=args.hidden_dim,
+            dropout=args.dropout,
+            nhead=args.nheads,
+            num_queries=args.num_queries,
+            dim_feedforward=args.dim_feedforward,
+            num_encoder_layers=args.enc_layers,
+            num_decoder_layers=args.dec_layers,
+            normalize_before=args.pre_norm,
+            return_intermediate_dec=True,
+        )
+        #Dear future me , we really want to be extending this class as it's where our positional encodings are found! 
+        #good Luck! 
+
+        self.num_queries = args.num_queries
+        hidden_dim = self.transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes)
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
-        self.query_embed = nn.Embedding(num_queries, hidden_dim)
-        self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
-        self.backbone = backbone
-        self.aux_loss = aux_loss
+        self.query_embed = nn.Embedding(self.num_queries, hidden_dim)
+        self.input_proj = nn.Conv2d(self.backbone.num_channels, hidden_dim, kernel_size=1)
+        self.aux_loss = args.aux_loss
 
         # init prior_prob setting for focal loss
         prior_prob = 0.01
@@ -55,6 +72,24 @@ class ConditionalDETR(nn.Module):
         # init bbox_mebed
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
+        # if args.masks:
+        #     model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
+        self.matcher = HungarianMatcher(cost_class=args.set_cost_class, cost_bbox=args.set_cost_bbox, cost_giou=args.set_cost_giou)
+
+        self.weight_dict = {'loss_ce': args.cls_loss_coef,
+                       'loss_bbox': args.bbox_loss_coef,
+                       'loss_giou': args.giou_loss_coef}
+
+        losses = ['labels', 'boxes', 'cardinality']
+        # if args.masks:
+        #     losses += ["masks"]
+        self.criterion = SetCriterion(num_classes, matcher=self.matcher, weight_dict=self.weight_dict,
+                                focal_alpha=args.focal_alpha, losses=losses)
+        self.postprocessors = {'bbox': PostProcess()}
+        
+    #config optimizer
+
+    
 
     def forward(self, samples: NestedTensor):
         """ The forward expects a NestedTensor, which consists of:
@@ -102,59 +137,6 @@ class ConditionalDETR(nn.Module):
         return [{'pred_logits': a, 'pred_boxes': b}
                 for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
 
-class PairDETR(pl.LightningModule):
-    def __init__(self, *args,**kwargs):
-        super().__init__()
-        self.save_hyperparameters()
-        self.args = args
-        self.kwargs = kwargs
-        num_classes = 20 if args.dataset_file != 'coco' else 91
-        if args.dataset_file == "coco_panoptic":
-            num_classes = 250
-        posmethod=PositionEmbeddingLearned
-        if args.position_embedding in ('v2', 'sine'):
-            # TODO find a better way of exposing other arguments
-            posmethod = PositionEmbeddingSine
-        position_embedding = posmethod(args.hidden_dim // 2)
-        backbone = Joiner(Backbone(args.backbone, True, False, args.dilation), position_embedding)
-        backbone.num_channels = backbone.num_channels
-        
-        transformer = PositionalTransformer(
-            d_model=args.hidden_dim,
-            dropout=args.dropout,
-            nhead=args.nheads,
-            num_queries=args.num_queries,
-            dim_feedforward=args.dim_feedforward,
-            num_encoder_layers=args.enc_layers,
-            num_decoder_layers=args.dec_layers,
-            normalize_before=args.pre_norm,
-            return_intermediate_dec=True,
-        )
-        #Dear future me , we really want to be extending this class as it's where our positional encodings are found! 
-        #good Luck! 
-        self.model = ConditionalDETR(
-            backbone,
-            transformer,
-            num_classes=num_classes,
-            num_queries=args.num_queries,
-            aux_loss=args.aux_loss,
-        )
-        # if args.masks:
-        #     model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
-        self.matcher = HungarianMatcher(cost_class=args.set_cost_class, cost_bbox=args.set_cost_bbox, cost_giou=args.set_cost_giou)
-
-        self.weight_dict = {'loss_ce': args.cls_loss_coef,
-                       'loss_bbox': args.bbox_loss_coef,
-                       'loss_giou': args.giou_loss_coef}
-
-        losses = ['labels', 'boxes', 'cardinality']
-        # if args.masks:
-        #     losses += ["masks"]
-        self.criterion = SetCriterion(num_classes, matcher=self.matcher, weight_dict=self.weight_dict,
-                                focal_alpha=args.focal_alpha, losses=losses)
-        self.postprocessors = {'bbox': PostProcess()}
-        
-    #config optimizer
     def configure_optimizers(self):
             
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.args.lr,
@@ -177,7 +159,7 @@ class PairDETR(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         samples, targets = batch
         targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
-        outputs = self.model(samples)
+        outputs = self(samples)
         loss_dict = self.criterion(outputs, targets)
         weight_dict = self.criterion.weight_dict
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
