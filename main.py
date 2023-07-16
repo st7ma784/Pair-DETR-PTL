@@ -73,11 +73,8 @@ class PairDETR(pl.LightningModule):
                        'loss_bbox': args['bbox_loss_coef'],
                        'loss_giou': args['giou_loss_coef']}
 
-        losses = ['labels', 'boxes', 'cardinality']
-        # if args.masks:
-        #     losses += ["masks"]
         self.criterion = SetCriterion(num_classes, matcher=self.matcher, weight_dict=self.weight_dict,
-                                focal_alpha=args['focal_alpha'], losses=losses)
+                                focal_alpha=args['focal_alpha'], losses=['labels', 'boxes', 'cardinality'])
         self.postprocessors = {'bbox': PostProcess()}
         
     #config optimizer
@@ -144,26 +141,17 @@ class PairDETR(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         samples, targets = batch
-        targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+        #targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
         outputs = self(samples)
         loss_dict = self.criterion(outputs, targets)
-        weight_dict = self.criterion.weight_dict
-        losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
-        # reduce losses over all GPUs for logging purposes ... Not quite sure why this is needed with PTL ... Note for future me ot fix.
-        loss_dict_reduced = utils.reduce_dict(loss_dict)
-        # loss_dict_reduced_unscaled = {f'{k}_unscaled': v
-        #                               for k, v in loss_dict_reduced.items()}
-        loss_dict_reduced_scaled = {k: v * weight_dict[k]
-                                    for k, v in loss_dict_reduced.items() if k in weight_dict}
-        losses_reduced_scaled = sum(loss_dict_reduced_scaled.values())
+        losses = sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
 
-        loss_value = losses_reduced_scaled.item()
-        
-        self.log('loss',losses_reduced_scaled)
-        # **loss_dict_reduced_scaled, **loss_dict_reduced_unscaled)
-        self.log('class_error',loss_dict_reduced['class_error'])
-        self.log('train_loss', loss_value)
+        loss_dict_scaled = {k: v * self.weight_dict[k]
+                                    for k, v in loss_dict.items() if k in self.weight_dict}
+        for k,v in loss_dict_scaled.items():
+            self.log(k,v,prog_bar=True,enable_graph=False)
+        #self.log('train_loss', loss_value)
         return losses
    
     def on_test_start(self) -> None:
