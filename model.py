@@ -866,10 +866,7 @@ class TransformerDecoder(nn.Module):
         self.layers = nn.ModuleList([decoder_layer(*args,first_layer=True)]+[decoder_layer(*args, query_scale=self.query_scale) for i in range(num_layers)])   # Can I make this squential?
         self.num_layers = num_layers
         self.norm = norm
-        self.dim_t = torch.arange(128, dtype=torch.float32, device=self.device)
-        self.dim2_t = torch.arange(64, dtype=torch.float32, device=self.device)
-        self.dim_t = 10000 ** (2 * ((self.dim_t // 2) / 128))
-        self.dim2_t = 10000 ** (2 * ((self.dim2_t) / 64))
+        self.dim2_t = torch.pow(10000** (2 / 128), torch.arange(64, dtype=torch.float32))
 
         self.return_intermediate = return_intermediate
         self.ref_point_head = MLP(d_model, d_model, 2, 2)
@@ -884,74 +881,17 @@ class TransformerDecoder(nn.Module):
         self.intermediate.append(self.norm(output))
     
     def gen_sineembed_for_position(self,pos_tensor):
-                
-            # n_query, bs, _ = pos_tensor.size()
-            # sineembed_tensor = torch.zeros(n_query, bs, 256)
+         
             pos_tensor = torch.mul(pos_tensor,2 * math.pi)
-            #print(pos_tensor.shape) #300,B,2
-            #print("dim.t",self.dim_t.shape)#128
-            #print("pos_tensor",pos_tensor[0,0])#300,B,2
-            
-          
-            pos_x = pos_tensor[:, :, 0].unsqueeze(-1) / self.dim_t.to(pos_tensor.device)
-            pos_y = pos_tensor[:, :, 1].unsqueeze(-1) / self.dim_t.to(pos_tensor.device)
             
             pos2_x = pos_tensor[:, :, 0].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
             pos2_y = pos_tensor[:, :, 1].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
-            #print("shape of posx",pos_x[:,:,::2].shape) #150,B,1
-            print(torch.allclose(pos_x[:,:,0::2],pos2_x))
-            print(torch.sum(pos_x[:,:,0::2]-pos2_x))
-            pos_x = torch.stack((pos_x[:, :, 0::2].sin(), pos_x[:, :, 1::2].cos()), dim=3).flatten(2)
-            pos_y = torch.stack((pos_y[:, :, 0::2].sin(), pos_y[:, :, 1::2].cos()), dim=3).flatten(2)
-            pos=torch.cat((pos_y,pos_x),dim=2)
+            #shapes are 300,B,128          
 
             pos2_x = torch.stack((pos2_x.sin(), pos2_x.cos()), dim=3).flatten(2)
             pos2_y = torch.stack((pos2_y.sin(), pos2_y.cos()), dim=3).flatten(2)
-            pos2 = torch.cat((pos2_y, pos2_x), dim=2)
-            assert pos.shape==pos2.shape
-            print("head")
-            #print(torch.allclose(pos_x,pos2_x))
-            #print(torch.sum(pos_x-pos2_x))
-            #print("pos",pos[0,0])
-            #print("pos2",pos2[0,0])
-            #print(torch.sum(pos-pos2))
-
-            #print(torch.allclose(pos,pos2))
-
-
-            # sin=torch.cat((pos_x[:, :, 0::2], pos_y[:, :, 0::2]), dim=2).sin()
-            # cos=torch.cat((pos_x[:, :, 1::2], pos_y[:, :, 1::2]), dim=2).cos()
-            # pos2=torch.stack((sin,cos),dim=3).flatten(2)
-            # print(pos.shape,pos2.shape)
-            # print(torch.sum(pos-pos2))
-            return pos
-    # def gen_sineembed_for_position(pos_tensor):
-    #     # n_query, bs, _ = pos_tensor.size()
-    #     # sineembed_tensor = torch.zeros(n_query, bs, 256)
-    #     pos_tensor = 2 * math.pi
-    #    
-    #     x_embed = pos_tensor[:, :, 0] * scale
-    #     y_embed = pos_tensor[:, :, 1] * scale
-    #     pos_x = x_embed[:, :, None] / dim_t
-    #     pos_y = y_embed[:, :, None] / dim_t
-    #     pos_x = torch.stack((pos_x[:, :, 0::2].sin(), pos_x[:, :, 1::2].cos()), dim=3).flatten(2)
-    #     pos_y = torch.stack((pos_y[:, :, 0::2].sin(), pos_y[:, :, 1::2].cos()), dim=3).flatten(2)
-
-
-
-    #     pos = torch.cat((pos_y, pos_x), dim=2)
-    #     #there is a way to make this more efficient by using the sin and cos of the same tensor
-    #     #we can do it like this :
-
-
-
-
-    #     # sin=torch.cat((pos_x[:, :, 0::2], pos_y[:, :, 0::2]), dim=2).sin()
-    #     # cos=torch.cat((pos_x[:, :, 1::2], pos_y[:, :, 1::2]), dim=2).cos()
-    #     # pos2=torch.stack((sin,cos),dim=3).flatten(2)
-    #     # print(pos.shape,pos2.shape)
-    #     # print(torch.sum(pos-pos2))
-    #     return pos
+            return torch.cat((pos2_y, pos2_x), dim=2)
+        
 
     def forward(self, output, memory,
                 tgt_mask: Optional[Tensor] = None,
@@ -962,17 +902,16 @@ class TransformerDecoder(nn.Module):
                 query_pos: Optional[Tensor] = None):
 
         
-        reference_points = self.ref_point_head(query_pos).sigmoid().transpose(0, 1)
+        reference_points = self.ref_point_head(query_pos).sigmoid()
         for layer in self.layers:
             output = layer(output, memory, tgt_mask=tgt_mask,
                            memory_mask=memory_mask,
                            tgt_key_padding_mask=tgt_key_padding_mask,
                            memory_key_padding_mask=memory_key_padding_mask,
-                           pos=pos, query_pos=query_pos, query_sine_embed=self.gen_sineembed_for_position(reference_points[..., :2].transpose(0, 1)) ,
+                           pos=pos, query_pos=query_pos, query_sine_embed=self.gen_sineembed_for_position(reference_points[..., :2]) ,
                            )
-
         if self.return_intermediate:
-            out=[torch.stack(self.intermediate).transpose(1, 2), reference_points]
+            out=[torch.stack(self.intermediate).transpose(1, 2), reference_points.transpose(0, 1)]
             self.intermediate = []
             return out
         return output.unsqueeze(0)
@@ -996,17 +935,19 @@ class TransformerEncoderLayer(nn.Module):
 
 
         self.activation = _get_activation_fn(activation)
+        self.run=None
         self.normalize_before = normalize_before
-
-    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
-        return tensor if pos is None else tensor + pos
+        if self.normalize_before:
+            self.run = self.forward_pre
+        else:
+            self.run = self.forward_post
 
     def forward_post(self,
                      src,
                      src_mask: Optional[Tensor] = None,
                      src_key_padding_mask: Optional[Tensor] = None,
-                     pos: Optional[Tensor] = None):
-        q = k = self.with_pos_embed(src, pos)
+                     pos: Optional[Tensor] = 0.0):
+        q = k = src+ pos
         src2 = self.self_attn(q, k, value=src, attn_mask=src_mask,
                               key_padding_mask=src_key_padding_mask)[0]
         src = src + self.dropout1(src2)
@@ -1019,9 +960,9 @@ class TransformerEncoderLayer(nn.Module):
     def forward_pre(self, src,
                     src_mask: Optional[Tensor] = None,
                     src_key_padding_mask: Optional[Tensor] = None,
-                    pos: Optional[Tensor] = None):
+                    pos: Optional[Tensor] = torch.zeros([])):
         src2 = self.norm1(src)
-        q = k = self.with_pos_embed(src2, pos)
+        q = k = src2+ pos.to(src2.device)
         src2 = self.self_attn(q, k, value=src2, attn_mask=src_mask,
                               key_padding_mask=src_key_padding_mask)[0]
         src = src + self.dropout1(src2)
@@ -1034,9 +975,8 @@ class TransformerEncoderLayer(nn.Module):
                 src_mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None):
-        if self.normalize_before:
-            return self.forward_pre(src, src_mask, src_key_padding_mask, pos)
-        return self.forward_post(src, src_mask, src_key_padding_mask, pos)
+        
+        return self.run(src, src_mask, src_key_padding_mask, pos)
 
 from models.attention import MultiheadAttention
 
@@ -1083,10 +1023,12 @@ class TransformerDecoderLayer(nn.Module):
         self.dropout3 = nn.Dropout(dropout)
 
         self.activation = _get_activation_fn(activation)
+        self.run=None
         self.normalize_before = normalize_before
-
-    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
-        return tensor if pos is None else tensor + pos
+        if self.normalize_before:
+            self.forward = self.forward_pre
+        else:
+            self.forward = self.forward_post
 
     def forward_post(self, tgt, memory,
                      tgt_mask: Optional[Tensor] = None,
@@ -1128,7 +1070,7 @@ class TransformerDecoderLayer(nn.Module):
         v = self.ca_v_proj(memory)
 
         num_queries, bs, n_model = q_content.shape
-        hw, _, _ = k_content.shape
+        hw= k_content.shape[0]
 
         k_pos = self.ca_kpos_proj(pos)
 
@@ -1168,16 +1110,17 @@ class TransformerDecoderLayer(nn.Module):
                     memory_mask: Optional[Tensor] = None,
                     tgt_key_padding_mask: Optional[Tensor] = None,
                     memory_key_padding_mask: Optional[Tensor] = None,
-                    pos: Optional[Tensor] = None,
-                    query_pos: Optional[Tensor] = None):
+                    pos: Optional[Tensor] = 0.0,
+                    query_pos: Optional[Tensor] = 0.0,
+                     query_sine_embed=False, is_first = False):
         tgt2 = self.norm1(tgt)
-        q = k = self.with_pos_embed(tgt2, query_pos)
+        q = k = tgt2 +query_pos
         tgt2 = self.self_attn(q, k, value=tgt2, attn_mask=tgt_mask,
                               key_padding_mask=tgt_key_padding_mask)[0]
         tgt = tgt + self.dropout1(tgt2)
         tgt2 = self.norm2(tgt)
-        tgt2 = self.multihead_attn(query=self.with_pos_embed(tgt2, query_pos),
-                                   key=self.with_pos_embed(memory, pos),
+        tgt2 = self.multihead_attn(query=tgt2 + query_pos,
+                                   key=memory+ pos,
                                    value=memory, attn_mask=memory_mask,
                                    key_padding_mask=memory_key_padding_mask)[0]
         tgt = tgt + self.dropout2(tgt2)
@@ -1186,20 +1129,6 @@ class TransformerDecoderLayer(nn.Module):
         tgt = tgt + self.dropout3(tgt2)
         return tgt
 
-    def forward(self, tgt, memory,
-                tgt_mask: Optional[Tensor] = None,
-                memory_mask: Optional[Tensor] = None,
-                tgt_key_padding_mask: Optional[Tensor] = None,
-                memory_key_padding_mask: Optional[Tensor] = None,
-                pos: Optional[Tensor] = None,
-                query_pos: Optional[Tensor] = None,
-                query_sine_embed = None,
-                is_first = False):
-        if self.normalize_before:
-            return self.forward_pre(tgt, memory, tgt_mask, memory_mask,
-                                    tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos)
-        return self.forward_post(tgt, memory, tgt_mask, memory_mask,
-                                 tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos, query_sine_embed, is_first)
 
 
 def _get_activation_fn(activation):
