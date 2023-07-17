@@ -116,7 +116,7 @@ class PairDETR(pl.LightningModule):
         # print("mask",mask.shape)#mask torch.Size([8, 29, 34])
 
         #print("h,w",src.shape[-2],src.shape[-1])# now regular size! 
-        hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed, self.positional_embedding(src,mask).to(src.dtype))
+        hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed, self.positional_embedding(src).to(src.dtype))
         #
         #print("reference",reference.shape) # B, n_q, 2
         #print("reference_before_sigmoid",reference_before_sigmoid.shape) #   B, n_q, 2

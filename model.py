@@ -730,7 +730,7 @@ class PositionEmbeddingLearned(nn.Module):
         nn.init.uniform_(self.row_embed)
         nn.init.uniform_(self.col_embed)
 
-    def forward(self, x,mask):
+    def forward(self, x: Tensor):
         return torch.cat([
             self.col_embed.unsqueeze(0).repeat(self.row_embed.shape[0], 1, 1),
             self.row_embed.unsqueeze(1).repeat(1, self.col_embed.shape[0], 1),
