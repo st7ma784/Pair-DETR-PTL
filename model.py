@@ -682,9 +682,11 @@ class PositionEmbeddingSine(nn.Module):
     This is a more standard version of the position embedding, very similar to the one
     used by the Attention is all you need paper, generalized to work on images.
     """
-    def __init__(self, num_pos_feats=64, temperature=10000, normalize=True, scale=None):
+    def __init__(self, num_pos_feats=64, temperature=10000, normalize=True, scale=None,device='cuda'):
         super().__init__()
         self.num_pos_feats = num_pos_feats
+        self.device=device
+
         self.temperature = temperature
         self.normalize = normalize
         if scale is not None and normalize is False:
@@ -718,27 +720,22 @@ class PositionEmbeddingLearned(nn.Module):
     """
     Absolute pos embedding, learned.
     """
-    def __init__(self, num_pos_feats=256):
+    def __init__(self, num_pos_feats=256,device='cuda'):
         super().__init__()
-        self.row_embed = nn.Embedding(50, num_pos_feats)
-        self.col_embed = nn.Embedding(50, num_pos_feats)
+        self.device=device
+        self.row_embed = nn.Parameter(torch.ones(25, num_pos_feats,device=self.device))
+        self.col_embed = nn.Parameter(torch.ones(25, num_pos_feats,device=self.device))
         self.reset_parameters()
 
     def reset_parameters(self):
-        nn.init.uniform_(self.row_embed.weight)
-        nn.init.uniform_(self.col_embed.weight)
+        nn.init.uniform_(self.row_embed)
+        nn.init.uniform_(self.col_embed)
 
     def forward(self, x,mask):
-        h, w = x.shape[-2:]
-        i = torch.arange(w, device=x.device)
-        j = torch.arange(h, device=x.device)
-        x_emb = self.col_embed(i)
-        y_emb = self.row_embed(j)
-        pos = torch.cat([
-            x_emb.unsqueeze(0).repeat(h, 1, 1),
-            y_emb.unsqueeze(1).repeat(1, w, 1),
-        ], dim=-1).permute(2, 0, 1).unsqueeze(0).repeat(x.shape[0], 1, 1, 1)
-        return pos
+        return torch.cat([
+            self.col_embed.unsqueeze(0).repeat(self.row_embed.shape[0], 1, 1),
+            self.row_embed.unsqueeze(1).repeat(1, self.col_embed.shape[0], 1),
+        ], dim=-1).permute(2, 0, 1).unsqueeze(0).repeat(x.shape[0], 1, 1, 1) # returns [ B,F,H,W]
 
 
 def gen_sineembed_for_position(pos_tensor):
@@ -775,8 +772,9 @@ class BackboneBase(nn.Module):
         xs = self.body(im)
         m = mask[None].float()
         assert m is not None
-        out: Dict[str, NestedTensor] = {name:NestedTensor(x, F.interpolate(m, size=x.shape[-2:]).to(torch.bool)[0]) for name, x in xs.items()}
-        return out
+        tensors=torch.stack(list(zip(*xs.items()))[1])
+        masks=[F.interpolate(m, size=x.shape[-2:]).to(torch.bool)[0] for x in tensors]
+        return tensors,masks
 
 class Backbone(BackboneBase):
     """ResNet backbone with frozen BatchNorm."""

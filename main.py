@@ -35,7 +35,7 @@ class PairDETR(pl.LightningModule):
         if args['position_embedding'] in ('v2', 'sine'):
             # TODO find a better way of exposing other arguments
             posmethod = PositionEmbeddingSine
-        self.positional_embedding = posmethod(args['hidden_dim'] // 2)
+        self.positional_embedding = posmethod(args['hidden_dim'] // 2,device=self.device)
         self.backbone = Backbone(args['backbone'], True, False, args['dilation'])
         #self.backbone.num_channels = self.backbone.num_channels
         self.transformer = PositionalTransformer(
@@ -52,8 +52,8 @@ class PairDETR(pl.LightningModule):
         self.num_queries = args['num_queries']
         hidden_dim = self.transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes)
-        self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
-        self.query_embed = nn.Embedding(self.num_queries, hidden_dim)
+        self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 8)
+        self.query_embed = nn.Parameter(nn.Embedding(self.num_queries, hidden_dim).weight) # changing to nn,Parameter(*)
         self.input_proj = nn.Conv2d(self.backbone.num_channels, hidden_dim, kernel_size=1)
         self.aux_loss = args['aux_loss']
 
@@ -99,18 +99,27 @@ class PairDETR(pl.LightningModule):
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
         #features, pos = self.backbone(samples) this called Joiner which is a wrapper for the backbone:
-        ims=samples.tensors
-        m = samples.mask
-        xs = self.backbone(ims,m)
-        src,mask=xs["0"].decompose() # pull it into the tensor, mask. 
+
+        src,mask = self.backbone(samples.tensors,samples.mask)
+        #print(src.shape)
+        src,mask=src[-1],mask[-1]
+        #src,mask=xs["0"].decompose() # pull it into the tensor, mask. 
         #print(src.shape,mask.shape) #orch.Size([16, 2048, 38, 35]) torch.Size([16, 38, 35])
         assert mask is not None
-        #hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed.weight, pos[-1])
-        hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed.weight,self.positional_embedding(src,mask).to(src.dtype))
+
+
+        # print("self.input_proj(src)",self.input_proj(src).shape)#([8, 256, 29, 34])
+        # print("self.query_embed.weight",self.query_embed.weight.shape)#([300, 256])
+        # print("self.positional_embedding(src,mask).to(src.dtype)",self.positional_embedding(src,mask).to(src.dtype).shape)#([8, 256, 29, 34])
+        # print("mask",mask.shape)#mask torch.Size([8, 29, 34])
+
+        #print("h,w",src.shape[-2],src.shape[-1])# NOT regular sizes! 
+        hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed, self.positional_embedding(src,mask).to(src.dtype))
 
         
         reference_before_sigmoid = inverse_sigmoid(reference)
         outputs_coords = []
+        print("hs.shape",hs.shape)
         for lvl in range(hs.shape[0]):
             tmp = self.bbox_embed(hs[lvl])
             tmp[..., :2] += reference_before_sigmoid
@@ -240,7 +249,7 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     from datasets.coco import COCODataModule
-    data=COCODataModule(Cache_dir=args.coco_path,batch_size=8)
+    data=COCODataModule(Cache_dir=args.coco_path,batch_size=16)
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
@@ -248,8 +257,8 @@ if __name__ == '__main__':
                          precision=16,
                          max_epochs=args['epochs'], 
                          num_sanity_val_steps=0,
-                         gradient_clip_val=0.1,
-                         callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
+                         gradient_clip_val=0.25,
+                         #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='cuda',
                          fast_dev_run=False,  
                          devices="auto",

@@ -9,12 +9,12 @@ import torch.utils.data
 import torchvision
 from pycocotools import mask as coco_mask
 from typing import Optional, List
-
+from torchvision.transforms import Resize
 import torch
 from torch import Tensor
 import datasets.transforms as T
-
-
+from PIL import Image
+import torchvision.transforms.v2 as T2
 class CocoDetection(torchvision.datasets.CocoDetection):
     def __init__(self, img_folder, ann_file, transforms, return_masks):
         super(CocoDetection, self).__init__(img_folder, ann_file)
@@ -291,28 +291,15 @@ class COCODataModule(pl.LightningDataModule):
             T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
 
-        scales = [480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800]
-
-        if image_set == 'train':
-            return T.Compose([
-                T.RandomHorizontalFlip(),
-                T.RandomSelect(
-                    T.RandomResize(scales, max_size=1333),
-                    T.Compose([
-                        T.RandomResize([400, 500, 600]),
-                        T.RandomSizeCrop(384, 600),
-                        T.RandomResize(scales, max_size=1333),
-                    ])
-                ),
+        return T.Compose([
+                T2.Resize(800),
+                T2.CenterCrop(800),
+                #Note: the standard  lambda function here is not supported by pytorch lightning
+            
                 normalize,
-            ])
+        ])
 
-        else:
-            return T.Compose([
-                T.RandomResize([800], max_size=1333),
-                normalize,
-            ])
-
+        
 
     def setup(self, stage=None):
         '''called on each GPU separately - stage defines if we are at fit or test step'''
