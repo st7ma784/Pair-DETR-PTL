@@ -53,7 +53,7 @@ class PairDETR(pl.LightningModule):
         self.num_queries = args['num_queries']
         hidden_dim = self.transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes)
-        self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 8)
+        self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 6)
         self.query_embed = nn.Parameter(nn.Embedding(self.num_queries, hidden_dim).weight)
         self.query_embed.to(self.device) # changing to nn,Parameter(*)
         self.input_proj = nn.Conv2d(self.backbone.num_channels, hidden_dim, kernel_size=1)
