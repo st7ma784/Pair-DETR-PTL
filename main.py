@@ -259,7 +259,7 @@ if __name__ == '__main__':
     args = vars(args)
     model=PairDETR(**args)
     trainer = pl.Trainer(
-                         precision=16,
+                         precision=32,
                          max_epochs=args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
