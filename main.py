@@ -254,7 +254,7 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     from datasets.coco import COCODataModule
-    data=COCODataModule(Cache_dir=args.coco_path,batch_size=16)
+    data=COCODataModule(Cache_dir=args.coco_path,batch_size=14)
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
@@ -262,7 +262,8 @@ if __name__ == '__main__':
                          precision=32,
                          max_epochs=args['epochs'], 
                          num_sanity_val_steps=0,
-                         gradient_clip_val=0.25,
+                        #  gradient_clip_val=0.25,
+                         accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='cuda',
                          fast_dev_run=False,  

@@ -719,7 +719,7 @@ class PositionEmbeddingLearned(nn.Module):
     """
     Absolute pos embedding, learned.
     """
-    def __init__(self, num_pos_feats=256,device='cuda'):
+    def __init__(self, num_pos_feats=512,device='cuda'):
         super().__init__()
         self.device=device
         self.row_embed = nn.Parameter(torch.ones(25, num_pos_feats,device=self.device))
@@ -848,7 +848,7 @@ class TransformerDecoder(nn.Module):
         self.layers = nn.Sequential(*[TransformerDecoderLayer(*args,first_layer=True)]+[TransformerDecoderLayer(*args, query_scale=self.query_scale) for i in range(num_layers)])   # Can I make this squential?
         self.num_layers = num_layers
         self.norm = norm
-        self.dim2_t = torch.pow(10000** (2 / 128), torch.arange(64, dtype=torch.float32))
+        self.dim2_t = torch.pow(10000** (2 / (d_model/2)), torch.arange(d_model//4, dtype=torch.float32))
 
         self.return_intermediate = return_intermediate
         self.ref_point_head = MLP(d_model, d_model, 2, 2)
@@ -1072,6 +1072,7 @@ class TransformerDecoderLayer(nn.Module):
             k = k_content
 
         q = q.view(num_queries, bs, self.nhead, n_model//self.nhead)
+        #print(query_sine_embed.shape)
         query_sine_embed = self.ca_qpos_sine_proj(query_sine_embed* self.query_scale(tgt))
         query_sine_embed = query_sine_embed.view(num_queries, bs, self.nhead, n_model//self.nhead)
         q = torch.cat([q, query_sine_embed], dim=3).view(num_queries, bs, n_model * 2)
