@@ -895,22 +895,23 @@ class TransformerDecoder(nn.Module):
           
             pos_x = pos_tensor[:, :, 0].unsqueeze(-1) / self.dim_t.to(pos_tensor.device)
             pos_y = pos_tensor[:, :, 1].unsqueeze(-1) / self.dim_t.to(pos_tensor.device)
+            
+            pos2_x = pos_tensor[:, :, 0].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
+            pos2_y = pos_tensor[:, :, 1].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
+            #print("shape of posx",pos_x[:,:,::2].shape) #150,B,1
+            print(torch.allclose(pos_x[:,:,0::2],pos2_x))
+            print(torch.sum(pos_x[:,:,0::2]-pos2_x))
             pos_x = torch.stack((pos_x[:, :, 0::2].sin(), pos_x[:, :, 1::2].cos()), dim=3).flatten(2)
             pos_y = torch.stack((pos_y[:, :, 0::2].sin(), pos_y[:, :, 1::2].cos()), dim=3).flatten(2)
             pos=torch.cat((pos_y,pos_x),dim=2)
 
-            pos2_x = pos_tensor[:, :, 0].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
-            pos2_y = pos_tensor[:, :, 1].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
-            #print("shape of posx",pos_x[:,:,::2].shape) #150,B,1
-  
-            
             pos2_x = torch.stack((pos2_x.sin(), pos2_x.cos()), dim=3).flatten(2)
             pos2_y = torch.stack((pos2_y.sin(), pos2_y.cos()), dim=3).flatten(2)
             pos2 = torch.cat((pos2_y, pos2_x), dim=2)
             assert pos.shape==pos2.shape
             print("head")
-            print(torch.allclose(pos_x[:,:,::2],pos2_x))
-            print(torch.sum(pos_x[:,:,::2]-pos2_x))
+            print(torch.allclose(pos_x,pos2_x))
+            print(torch.sum(pos_x-pos2_x))
             print("pos",pos[0,0])
             print("pos2",pos2[0,0])
             print(torch.sum(pos-pos2))
