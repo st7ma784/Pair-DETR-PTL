@@ -693,7 +693,9 @@ class PositionEmbeddingSine(nn.Module):
         if scale is None:
             scale = 2 * math.pi
         self.scale = scale
-
+        
+        dim_t = torch.arange(self.num_pos_feats//2, dtype=torch.float32)
+        self.dim_t = self.temperature ** (2 * (dim_t) / self.num_pos_feats)
     def forward(self, x: Tensor, mask: Tensor):
         assert mask is not None
         not_mask = ~mask
@@ -704,13 +706,11 @@ class PositionEmbeddingSine(nn.Module):
             y_embed = y_embed / (y_embed[:, -1:, :] + eps) * self.scale
             x_embed = x_embed / (x_embed[:, :, -1:] + eps) * self.scale
 
-        dim_t = torch.arange(self.num_pos_feats, dtype=torch.float32, device=x.device)
-        dim_t = self.temperature ** (2 * (dim_t // 2) / self.num_pos_feats)
 
-        pos_x = x_embed[:, :, :, None] / dim_t
-        pos_y = y_embed[:, :, :, None] / dim_t
-        pos_x = torch.stack((pos_x[:, :, :, 0::2].sin(), pos_x[:, :, :, 1::2].cos()), dim=4).flatten(3)
-        pos_y = torch.stack((pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()), dim=4).flatten(3)
+        pos_x = x_embed[:, :, :, None] / self.dim_t
+        pos_y = y_embed[:, :, :, None] / self.dim_t
+        pos_x = torch.stack((pos_x.sin(), pos_x.cos()), dim=4).flatten(3)
+        pos_y = torch.stack((pos_y.sin(), pos_y.cos()), dim=4).flatten(3)
         pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
         return pos
 
@@ -735,22 +735,6 @@ class PositionEmbeddingLearned(nn.Module):
             self.col_embed.unsqueeze(0).repeat(self.row_embed.shape[0], 1, 1),
             self.row_embed.unsqueeze(1).repeat(1, self.col_embed.shape[0], 1),
         ], dim=-1).permute(2, 0, 1).unsqueeze(0).repeat(x.shape[0], 1, 1, 1) # returns [ B,F,H,W]
-
-
-def gen_sineembed_for_position(pos_tensor):
-    # n_query, bs, _ = pos_tensor.size()
-    # sineembed_tensor = torch.zeros(n_query, bs, 256)
-    scale = 2 * math.pi
-    dim_t = torch.arange(128, dtype=torch.float32, device=pos_tensor.device)
-    dim_t = 10000 ** (2 * (dim_t // 2) / 128)
-    x_embed = pos_tensor[:, :, 0] * scale
-    y_embed = pos_tensor[:, :, 1] * scale
-    pos_x = x_embed[:, :, None] / dim_t
-    pos_y = y_embed[:, :, None] / dim_t
-    pos_x = torch.stack((pos_x[:, :, 0::2].sin(), pos_x[:, :, 1::2].cos()), dim=3).flatten(2)
-    pos_y = torch.stack((pos_y[:, :, 0::2].sin(), pos_y[:, :, 1::2].cos()), dim=3).flatten(2)
-    pos = torch.cat((pos_y, pos_x), dim=2)
-    return pos
 
 
 class BackboneBase(nn.Module):
@@ -822,8 +806,8 @@ class PositionalTransformer(nn.Module):
         pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
         query_embed = query_embed.unsqueeze(1).repeat(1, src.shape[1], 1)
         mask = mask.flatten(1)
-
-        tgt = torch.zeros_like(query_embed)
+        #print("Tgt and query embed shape",query_embed.shape)#300,16,256
+        tgt = torch.zeros_like(query_embed) 
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
         hs, references = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                           pos=pos_embed, query_pos=query_embed)
