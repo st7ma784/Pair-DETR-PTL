@@ -26,7 +26,7 @@ from typing import Tuple, Optional
 # from torch.nn.modules.linear import _LinearWithBias
 from torch.nn.init import constant_
 from torch.nn.modules.module import Module
-
+from functools import partial
 from torch._jit_internal import Optional, Tuple
 if float(torch.__version__[:3]) < 1.7:
     from torch._overrides import has_torch_function, handle_torch_function
@@ -86,7 +86,11 @@ class MultiheadAttention(Module):
         self.add_zero_attn = add_zero_attn
 
         self._reset_parameters()
-
+        self.run=partial(multi_head_attention_forward)
+        if not self._qkv_same_embed_dim:
+            self.run=partial(multi_head_attention_forward, use_separate_proj_weight=True,
+                q_proj_weight=self.q_proj_weight, k_proj_weight=self.k_proj_weight,
+                v_proj_weight=self.v_proj_weight,)
     def _reset_parameters(self):
         constant_(self.out_proj.bias, 0.)
 
@@ -137,19 +141,8 @@ class MultiheadAttention(Module):
         - attn_output_weights: :math:`(N, L, S)` where N is the batch size,
           L is the target sequence length, S is the source sequence length.
         """
-        if not self._qkv_same_embed_dim:
-            return multi_head_attention_forward(
-                query, key, value, self.embed_dim, self.num_heads,
-                self.in_proj_weight, self.in_proj_bias,
-                self.bias_k, self.bias_v, self.add_zero_attn,
-                self.dropout, self.out_proj.weight, self.out_proj.bias,
-                training=self.training,
-                key_padding_mask=key_padding_mask, need_weights=need_weights,
-                attn_mask=attn_mask, use_separate_proj_weight=True,
-                q_proj_weight=self.q_proj_weight, k_proj_weight=self.k_proj_weight,
-                v_proj_weight=self.v_proj_weight, out_dim=self.vdim)
-        else:
-            return multi_head_attention_forward(
+
+        return self.run(
                 query, key, value, self.embed_dim, self.num_heads,
                 self.in_proj_weight, self.in_proj_bias,
                 self.bias_k, self.bias_v, self.add_zero_attn,

@@ -782,10 +782,10 @@ class PositionalTransformer(nn.Module):
         args=(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
         
-        self.encoder = PosTransformerEncoder(TransformerEncoderLayer,args, num_encoder_layers, normalize_before)
+        self.encoder = PosTransformerEncoder(args, num_encoder_layers, normalize_before)
 
         decoder_norm = nn.LayerNorm(d_model)
-        self.decoder = TransformerDecoder(TransformerDecoderLayer, args,num_decoder_layers, decoder_norm,
+        self.decoder = TransformerDecoder(args,num_decoder_layers, decoder_norm,
                                           return_intermediate=return_intermediate_dec,
                                           d_model=d_model,device=device)
 
@@ -816,9 +816,9 @@ class PositionalTransformer(nn.Module):
 
 class PosTransformerEncoder(nn.Module):
 
-    def __init__(self, encoder_layer,args, num_layers, norm=None):
+    def __init__(self,args, num_layers, norm=None):
         super().__init__()
-        self.layers =nn.ModuleList([encoder_layer(*args) for i in range(num_layers)])
+        self.layers =nn.Sequential(*[TransformerEncoderLayer(*args) for i in range(num_layers)])
     
         self.num_layers = num_layers
         if norm is not None:
@@ -827,27 +827,25 @@ class PosTransformerEncoder(nn.Module):
             #set norm to do nothing
             self.norm = lambda x: x
 
-    def forward(self, output,
+    def forward(self, output:Tensor,
                 mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None):
         
+        return self.norm(self.layers(dict(src=output, src_mask=mask,
+                           src_key_padding_mask=src_key_padding_mask, pos=pos))["src"])
 
-        for layer in self.layers:      #wtf    fix this into nn sequential ftlog 
-            output = layer(output, src_mask=mask,
-                           src_key_padding_mask=src_key_padding_mask, pos=pos)
 
-        return self.norm(output)
 
 
 
 class TransformerDecoder(nn.Module):
 
-    def __init__(self, decoder_layer,args, num_layers, norm=None, return_intermediate=False, d_model=256,device="cuda"):
+    def __init__(self,args, num_layers, norm=None, return_intermediate=False, d_model=256,device="cuda"):
         super().__init__()
         self.query_scale = MLP(d_model, d_model, d_model, 2)
         self.device=device
-        self.layers = nn.ModuleList([decoder_layer(*args,first_layer=True)]+[decoder_layer(*args, query_scale=self.query_scale) for i in range(num_layers)])   # Can I make this squential?
+        self.layers = nn.Sequential(*[TransformerDecoderLayer(*args,first_layer=True)]+[TransformerDecoderLayer(*args, query_scale=self.query_scale) for i in range(num_layers)])   # Can I make this squential?
         self.num_layers = num_layers
         self.norm = norm
         self.dim2_t = torch.pow(10000** (2 / 128), torch.arange(64, dtype=torch.float32))
@@ -862,16 +860,14 @@ class TransformerDecoder(nn.Module):
         for layer in self.layers:
             layer.register_forward_hook(self._get_intermediate_output)
     def _get_intermediate_output(self, layer, input, output):
-        self.intermediate.append(self.norm(output))
+        self.intermediate.append(self.norm(output["tgt"]))
     
     def gen_sineembed_for_position(self,pos_tensor):
          
             pos_tensor = torch.mul(pos_tensor,2 * math.pi)
-            
             pos2_x = pos_tensor[:, :, 0].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
             pos2_y = pos_tensor[:, :, 1].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
             #shapes are 300,B,128          
-
             pos2_x = torch.stack((pos2_x.sin(), pos2_x.cos()), dim=3).flatten(2)
             pos2_y = torch.stack((pos2_y.sin(), pos2_y.cos()), dim=3).flatten(2)
             return torch.cat((pos2_y, pos2_x), dim=2)
@@ -887,13 +883,16 @@ class TransformerDecoder(nn.Module):
 
         
         reference_points = self.ref_point_head(query_pos).sigmoid()
-        for layer in self.layers:
-            output = layer(output, memory, tgt_mask=tgt_mask,
-                           memory_mask=memory_mask,
-                           tgt_key_padding_mask=tgt_key_padding_mask,
-                           memory_key_padding_mask=memory_key_padding_mask,
-                           pos=pos, query_pos=query_pos, query_sine_embed=self.gen_sineembed_for_position(reference_points[..., :2]) ,
-                           )
+        output=self.layers(dict( tgt=output, memory=memory,
+                                tgt_mask = tgt_mask,
+                                memory_mask = memory_mask,
+                                tgt_key_padding_mask = tgt_key_padding_mask,
+                                memory_key_padding_mask = memory_key_padding_mask,
+                                pos = pos,
+                                query_pos = query_pos,
+                                query_sine_embed = self.gen_sineembed_for_position(reference_points[..., :2]) ,
+                                is_first = False))["tgt"]
+            
         if self.return_intermediate:
             out=[torch.stack(self.intermediate).transpose(1, 2), reference_points.transpose(0, 1)]
             self.intermediate = []
@@ -919,18 +918,18 @@ class TransformerEncoderLayer(nn.Module):
 
 
         self.activation = _get_activation_fn(activation)
-        self.run=None
+        self.forward=None
         self.normalize_before = normalize_before
         if self.normalize_before:
-            self.run = self.forward_pre
+            self.forward = self.forward_pre
         else:
-            self.run = self.forward_post
+            self.forward = self.forward_post
 
-    def forward_post(self,
-                     src,
-                     src_mask: Optional[Tensor] = None,
-                     src_key_padding_mask: Optional[Tensor] = None,
-                     pos: Optional[Tensor] = 0.0):
+    def forward_post(self,kwargs):
+        src = kwargs['src']
+        src_mask = kwargs['src_mask']
+        src_key_padding_mask = kwargs['src_key_padding_mask']
+        pos = kwargs['pos']
         q = k = src+ pos
         src2 = self.self_attn(q, k, value=src, attn_mask=src_mask,
                               key_padding_mask=src_key_padding_mask)[0]
@@ -939,12 +938,20 @@ class TransformerEncoderLayer(nn.Module):
         src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
         src = src + self.dropout2(src2)
         src = self.norm2(src)
-        return src
+        kwargs['src']=src
+        return kwargs
+              
 
-    def forward_pre(self, src,
-                    src_mask: Optional[Tensor] = None,
-                    src_key_padding_mask: Optional[Tensor] = None,
-                    pos: Optional[Tensor] = torch.zeros([])):
+
+
+
+
+    def forward_pre(self, kwargs):
+        src = kwargs['src']
+        src_mask = kwargs['src_mask']
+        src_key_padding_mask = kwargs['src_key_padding_mask']
+        pos = kwargs['pos']
+
         src2 = self.norm1(src)
         q = k = src2+ pos.to(src2.device)
         src2 = self.self_attn(q, k, value=src2, attn_mask=src_mask,
@@ -953,14 +960,8 @@ class TransformerEncoderLayer(nn.Module):
         src2 = self.norm2(src)
         src2 = self.linear2(self.dropout(self.activation(self.linear1(src2))))
         src = src + self.dropout2(src2)
-        return src
-
-    def forward(self, src,
-                src_mask: Optional[Tensor] = None,
-                src_key_padding_mask: Optional[Tensor] = None,
-                pos: Optional[Tensor] = None):
-        
-        return self.run(src, src_mask, src_key_padding_mask, pos)
+        kwargs['src']=src
+        return kwargs
 
 from models.attention import MultiheadAttention
 
@@ -1014,16 +1015,18 @@ class TransformerDecoderLayer(nn.Module):
         else:
             self.forward = self.forward_post
 
-    def forward_post(self, tgt, memory,
-                     tgt_mask: Optional[Tensor] = None,
-                     memory_mask: Optional[Tensor] = None,
-                     tgt_key_padding_mask: Optional[Tensor] = None,
-                     memory_key_padding_mask: Optional[Tensor] = None,
-                     pos: Optional[Tensor] = None,
-                     query_pos: Optional[Tensor] = None,
-                     query_sine_embed = None,
-                     is_first = False):
-                     
+    def forward_post(self,  kwargs):
+        
+        tgt=kwargs['tgt']
+        memory=kwargs['memory']
+        tgt_mask=kwargs['tgt_mask']
+        memory_mask=kwargs['memory_mask']
+        tgt_key_padding_mask=kwargs['tgt_key_padding_mask']
+        memory_key_padding_mask=kwargs['memory_key_padding_mask']
+        pos=kwargs['pos']
+        query_pos=kwargs['query_pos']
+        query_sine_embed=kwargs['query_sine_embed']             
+        
         # ========== Begin of Self-Attention =============
         # Apply projections here
         # shape: num_queries x batch_size x 256
@@ -1087,16 +1090,21 @@ class TransformerDecoderLayer(nn.Module):
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout3(tgt2)
         tgt = self.norm3(tgt)
-        return tgt
+        kwargs['tgt']=tgt
+        return kwargs
 
-    def forward_pre(self, tgt, memory,
-                    tgt_mask: Optional[Tensor] = None,
-                    memory_mask: Optional[Tensor] = None,
-                    tgt_key_padding_mask: Optional[Tensor] = None,
-                    memory_key_padding_mask: Optional[Tensor] = None,
-                    pos: Optional[Tensor] = 0.0,
-                    query_pos: Optional[Tensor] = 0.0,
-                     query_sine_embed=False, is_first = False):
+    def forward_pre(self, kwargs):
+        
+        tgt=kwargs['tgt']
+        memory=kwargs['memory']
+        tgt_mask=kwargs['tgt_mask']
+        memory_mask=kwargs['memory_mask']
+        tgt_key_padding_mask=kwargs['tgt_key_padding_mask']
+        memory_key_padding_mask=kwargs['memory_key_padding_mask']
+        pos=kwargs['pos']
+        query_pos=kwargs['query_pos']
+        query_sine_embed=kwargs['query_sine_embed'] 
+        
         tgt2 = self.norm1(tgt)
         q = k = tgt2 +query_pos
         tgt2 = self.self_attn(q, k, value=tgt2, attn_mask=tgt_mask,
@@ -1111,7 +1119,8 @@ class TransformerDecoderLayer(nn.Module):
         tgt2 = self.norm3(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
         tgt = tgt + self.dropout3(tgt2)
-        return tgt
+        kwargs.update({'tgt':tgt})
+        return kwargs
 
 
 
