@@ -910,13 +910,13 @@ class TransformerDecoder(nn.Module):
             pos2 = torch.cat((pos2_y, pos2_x), dim=2)
             assert pos.shape==pos2.shape
             print("head")
-            print(torch.allclose(pos_x,pos2_x))
-            print(torch.sum(pos_x-pos2_x))
-            print("pos",pos[0,0])
-            print("pos2",pos2[0,0])
-            print(torch.sum(pos-pos2))
+            #print(torch.allclose(pos_x,pos2_x))
+            #print(torch.sum(pos_x-pos2_x))
+            #print("pos",pos[0,0])
+            #print("pos2",pos2[0,0])
+            #print(torch.sum(pos-pos2))
 
-            print(torch.allclose(pos,pos2))
+            #print(torch.allclose(pos,pos2))
 
 
             # sin=torch.cat((pos_x[:, :, 0::2], pos_y[:, :, 0::2]), dim=2).sin()
