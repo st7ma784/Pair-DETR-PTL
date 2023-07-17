@@ -80,9 +80,6 @@ class DETRsegm(nn.Module):
         return out
 
 
-def _expand(tensor, length: int):
-    return tensor.unsqueeze(1).repeat(1, int(length), 1, 1, 1).flatten(0, 1)
-
 
 class MaskHeadSmallConv(nn.Module):
     """
@@ -155,6 +152,9 @@ class MaskHeadSmallConv(nn.Module):
         return x
 
 
+
+def _expand(tensor, length: int):
+    return tensor.unsqueeze(1).repeat(1, int(length), 1, 1, 1).flatten(0, 1)
 class MHAttentionMap(nn.Module):
     """This is a 2D attention module, which only returns the attention softmax (no multiplication by value)"""
 
@@ -659,9 +659,8 @@ class PostProcess(nn.Module):
         scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
         boxes = boxes * scale_fct[:, None, :]
 
-        results = [{'scores': s, 'labels': l, 'boxes': b} for s, l, b in zip(scores, labels, boxes)]
+        return [{'scores': s, 'labels': l, 'boxes': b} for s, l, b in zip(scores, labels, boxes)]
 
-        return results
 
 class MLP(nn.Module):
     """ Very simple multi-layer perceptron (also called FFN)"""
@@ -788,41 +787,23 @@ class Backbone(BackboneBase):
         num_channels = 512 if name in ('resnet18', 'resnet34') else 2048
         super().__init__(backbone, train_backbone, num_channels, return_interm_layers)
 
-
-def gen_sineembed_for_position(pos_tensor):
-    # n_query, bs, _ = pos_tensor.size()
-    # sineembed_tensor = torch.zeros(n_query, bs, 256)
-    scale = 2 * math.pi
-    dim_t = torch.arange(128, dtype=torch.float32, device=pos_tensor.device)
-    dim_t = 10000 ** (2 * (dim_t // 2) / 128)
-    x_embed = pos_tensor[:, :, 0] * scale
-    y_embed = pos_tensor[:, :, 1] * scale
-    pos_x = x_embed[:, :, None] / dim_t
-    pos_y = y_embed[:, :, None] / dim_t
-    pos_x = torch.stack((pos_x[:, :, 0::2].sin(), pos_x[:, :, 1::2].cos()), dim=3).flatten(2)
-    pos_y = torch.stack((pos_y[:, :, 0::2].sin(), pos_y[:, :, 1::2].cos()), dim=3).flatten(2)
-    pos = torch.cat((pos_y, pos_x), dim=2)
-    return pos
-
 class PositionalTransformer(nn.Module):
 
     def __init__(self, d_model=512, nhead=8, num_queries=300, num_encoder_layers=6,
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False,
-                 return_intermediate_dec=False):
+                 return_intermediate_dec=False,device="cuda"):
         super().__init__()
 
-        encoder_layer = TransformerEncoderLayer(d_model, nhead, dim_feedforward,
+        args=(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
-        encoder_norm = nn.LayerNorm(d_model) if normalize_before else None
-        self.encoder = PosTransformerEncoder(encoder_layer, num_encoder_layers, encoder_norm)
+        
+        self.encoder = PosTransformerEncoder(TransformerEncoderLayer,args, num_encoder_layers, normalize_before)
 
-        decoder_layer = TransformerDecoderLayer(d_model, nhead, dim_feedforward,
-                                                dropout, activation, normalize_before)
         decoder_norm = nn.LayerNorm(d_model)
-        self.decoder = TransformerDecoder(decoder_layer, num_decoder_layers, decoder_norm,
+        self.decoder = TransformerDecoder(TransformerDecoderLayer, args,num_decoder_layers, decoder_norm,
                                           return_intermediate=return_intermediate_dec,
-                                          d_model=d_model)
+                                          d_model=d_model,device=device)
 
         self._reset_parameters()
 
@@ -837,10 +818,9 @@ class PositionalTransformer(nn.Module):
 
     def forward(self, src, mask, query_embed, pos_embed):
         # flatten NxCxHxW to HWxNxC
-        bs, c, h, w = src.shape
         src = src.flatten(2).permute(2, 0, 1)
         pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
-        query_embed = query_embed.unsqueeze(1).repeat(1, bs, 1)
+        query_embed = query_embed.unsqueeze(1).repeat(1, src.shape[1], 1)
         mask = mask.flatten(1)
 
         tgt = torch.zeros_like(query_embed)
@@ -852,85 +832,148 @@ class PositionalTransformer(nn.Module):
 
 class PosTransformerEncoder(nn.Module):
 
-    def __init__(self, encoder_layer, num_layers, norm=None):
+    def __init__(self, encoder_layer,args, num_layers, norm=None):
         super().__init__()
-        self.layers = _get_clones(encoder_layer, num_layers)
+        self.layers =nn.ModuleList([encoder_layer(*args) for i in range(num_layers)])
+    
         self.num_layers = num_layers
-        self.norm = norm
+        if norm is not None:
+            self.norm =  nn.LayerNorm(args[0])
+        else:
+            #set norm to do nothing
+            self.norm = lambda x: x
 
-    def forward(self, src,
+    def forward(self, output,
                 mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None):
-        output = src
+        
 
-        for layer in self.layers:
+        for layer in self.layers:      #wtf    fix this into nn sequential ftlog 
             output = layer(output, src_mask=mask,
                            src_key_padding_mask=src_key_padding_mask, pos=pos)
 
-        if self.norm is not None:
-            output = self.norm(output)
+        return self.norm(output)
 
-        return output
 
 
 class TransformerDecoder(nn.Module):
 
-    def __init__(self, decoder_layer, num_layers, norm=None, return_intermediate=False, d_model=256):
+    def __init__(self, decoder_layer,args, num_layers, norm=None, return_intermediate=False, d_model=256,device="cuda"):
         super().__init__()
-        self.layers = _get_clones(decoder_layer, num_layers)
+        self.query_scale = MLP(d_model, d_model, d_model, 2)
+        self.device=device
+        self.layers = nn.ModuleList([decoder_layer(*args,first_layer=True)]+[decoder_layer(*args, query_scale=self.query_scale) for i in range(num_layers)])   # Can I make this squential?
         self.num_layers = num_layers
         self.norm = norm
-        self.return_intermediate = return_intermediate
-        self.query_scale = MLP(d_model, d_model, d_model, 2)
-        self.ref_point_head = MLP(d_model, d_model, 2, 2)
-        for layer_id in range(num_layers - 1):
-            self.layers[layer_id + 1].ca_qpos_proj = None
+        self.dim_t = torch.arange(128, dtype=torch.float32, device=self.device)
+        self.dim2_t = torch.arange(64, dtype=torch.float32, device=self.device)
+        self.dim_t = 10000 ** (2 * ((self.dim_t // 2) / 128))
+        self.dim2_t = 10000 ** (2 * ((self.dim2_t) / 64))
 
-    def forward(self, tgt, memory,
+        self.return_intermediate = return_intermediate
+        self.ref_point_head = MLP(d_model, d_model, 2, 2)
+        if self.return_intermediate:
+            self._register_hook()
+        #instead of doing a list to append to for intermediate layers, we could just register a hook to the layer and get the output from there
+    def _register_hook(self):
+        self.intermediate = []
+        for layer in self.layers:
+            layer.register_forward_hook(self._get_intermediate_output)
+    def _get_intermediate_output(self, layer, input, output):
+        self.intermediate.append(self.norm(output))
+    
+    def gen_sineembed_for_position(self,pos_tensor):
+                
+            # n_query, bs, _ = pos_tensor.size()
+            # sineembed_tensor = torch.zeros(n_query, bs, 256)
+            pos_tensor = torch.mul(pos_tensor,2 * math.pi)
+            #print(pos_tensor.shape) #300,B,2
+            #print("dim.t",self.dim_t.shape)#128
+            #print("pos_tensor",pos_tensor[0,0])#300,B,2
+            
+          
+            pos_x = pos_tensor[:, :, 0].unsqueeze(-1) / self.dim_t.to(pos_tensor.device)
+            pos_y = pos_tensor[:, :, 1].unsqueeze(-1) / self.dim_t.to(pos_tensor.device)
+            pos_x = torch.stack((pos_x[:, :, 0::2].sin(), pos_x[:, :, 1::2].cos()), dim=3).flatten(2)
+            pos_y = torch.stack((pos_y[:, :, 0::2].sin(), pos_y[:, :, 1::2].cos()), dim=3).flatten(2)
+            pos=torch.cat((pos_y,pos_x),dim=2)
+
+            pos2_x = pos_tensor[:, :, 0].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
+            pos2_y = pos_tensor[:, :, 1].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
+            #print("shape of posx",pos_x[:,:,::2].shape) #150,B,1
+  
+            
+            pos2_x = torch.stack((pos2_x.sin(), pos2_x.cos()), dim=3).flatten(2)
+            pos2_y = torch.stack((pos2_y.sin(), pos2_y.cos()), dim=3).flatten(2)
+            pos2 = torch.cat((pos2_y, pos2_x), dim=2)
+            assert pos.shape==pos2.shape
+            print("head")
+            print(torch.allclose(pos_x[:,:,::2],pos2_x))
+            print(torch.sum(pos_x[:,:,::2]-pos2_x))
+            print("pos",pos[0,0])
+            print("pos2",pos2[0,0])
+            print(torch.sum(pos-pos2))
+
+            print(torch.allclose(pos,pos2))
+
+
+            # sin=torch.cat((pos_x[:, :, 0::2], pos_y[:, :, 0::2]), dim=2).sin()
+            # cos=torch.cat((pos_x[:, :, 1::2], pos_y[:, :, 1::2]), dim=2).cos()
+            # pos2=torch.stack((sin,cos),dim=3).flatten(2)
+            # print(pos.shape,pos2.shape)
+            # print(torch.sum(pos-pos2))
+            return pos
+    # def gen_sineembed_for_position(pos_tensor):
+    #     # n_query, bs, _ = pos_tensor.size()
+    #     # sineembed_tensor = torch.zeros(n_query, bs, 256)
+    #     pos_tensor = 2 * math.pi
+    #    
+    #     x_embed = pos_tensor[:, :, 0] * scale
+    #     y_embed = pos_tensor[:, :, 1] * scale
+    #     pos_x = x_embed[:, :, None] / dim_t
+    #     pos_y = y_embed[:, :, None] / dim_t
+    #     pos_x = torch.stack((pos_x[:, :, 0::2].sin(), pos_x[:, :, 1::2].cos()), dim=3).flatten(2)
+    #     pos_y = torch.stack((pos_y[:, :, 0::2].sin(), pos_y[:, :, 1::2].cos()), dim=3).flatten(2)
+
+
+
+    #     pos = torch.cat((pos_y, pos_x), dim=2)
+    #     #there is a way to make this more efficient by using the sin and cos of the same tensor
+    #     #we can do it like this :
+
+
+
+
+    #     # sin=torch.cat((pos_x[:, :, 0::2], pos_y[:, :, 0::2]), dim=2).sin()
+    #     # cos=torch.cat((pos_x[:, :, 1::2], pos_y[:, :, 1::2]), dim=2).cos()
+    #     # pos2=torch.stack((sin,cos),dim=3).flatten(2)
+    #     # print(pos.shape,pos2.shape)
+    #     # print(torch.sum(pos-pos2))
+    #     return pos
+
+    def forward(self, output, memory,
                 tgt_mask: Optional[Tensor] = None,
                 memory_mask: Optional[Tensor] = None,
                 tgt_key_padding_mask: Optional[Tensor] = None,
                 memory_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None,
                 query_pos: Optional[Tensor] = None):
-        output = tgt
 
-        intermediate = []
-        reference_points_before_sigmoid = self.ref_point_head(query_pos)    # [num_queries, batch_size, 2]
-        reference_points = reference_points_before_sigmoid.sigmoid().transpose(0, 1)
-
-        for layer_id, layer in enumerate(self.layers):
-            obj_center = reference_points[..., :2].transpose(0, 1)      # [num_queries, batch_size, 2]
-
-            # For the first decoder layer, we do not apply transformation over p_s
-            if layer_id == 0:
-                pos_transformation = 1
-            else:
-                pos_transformation = self.query_scale(output)
-
-            # get sine embedding for the query vector
-            query_sine_embed = gen_sineembed_for_position(obj_center)     
-            # apply transformation
-            query_sine_embed = query_sine_embed * pos_transformation
+        
+        reference_points = self.ref_point_head(query_pos).sigmoid().transpose(0, 1)
+        for layer in self.layers:
             output = layer(output, memory, tgt_mask=tgt_mask,
                            memory_mask=memory_mask,
                            tgt_key_padding_mask=tgt_key_padding_mask,
                            memory_key_padding_mask=memory_key_padding_mask,
-                           pos=pos, query_pos=query_pos, query_sine_embed=query_sine_embed,
-                           is_first=(layer_id == 0))
-            if self.return_intermediate:
-                intermediate.append(self.norm(output))
-
-        if self.norm is not None:
-            output = self.norm(output)
-            if self.return_intermediate:
-                intermediate.pop()
-                intermediate.append(output)
+                           pos=pos, query_pos=query_pos, query_sine_embed=self.gen_sineembed_for_position(reference_points[..., :2].transpose(0, 1)) ,
+                           )
 
         if self.return_intermediate:
-            return [torch.stack(intermediate).transpose(1, 2), reference_points]
-
+            out=[torch.stack(self.intermediate).transpose(1, 2), reference_points]
+            self.intermediate = []
+            return out
         return output.unsqueeze(0)
 
 
@@ -949,6 +992,7 @@ class TransformerEncoderLayer(nn.Module):
         self.norm2 = nn.LayerNorm(d_model)
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
+
 
         self.activation = _get_activation_fn(activation)
         self.normalize_before = normalize_before
@@ -998,7 +1042,7 @@ from models.attention import MultiheadAttention
 class TransformerDecoderLayer(nn.Module):
 
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
-                 activation="relu", normalize_before=False):
+                 activation="relu", normalize_before=False,first_layer=False,query_scale=None):
         super().__init__()
         # Decoder Self-Attention
         self.sa_qcontent_proj = nn.Linear(d_model, d_model)
@@ -1007,10 +1051,16 @@ class TransformerDecoderLayer(nn.Module):
         self.sa_kpos_proj = nn.Linear(d_model, d_model)
         self.sa_v_proj = nn.Linear(d_model, d_model)
         self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, vdim=d_model)
-
+        self.first_layer = first_layer
+        self.ca_qpos_proj= None
+        self.query_scale = query_scale
+        if first_layer:
+            self.ca_qpos_proj = nn.Linear(d_model, d_model)
+            self.query_scale = lambda x: 1.0
+        
         # Decoder Cross-Attention
         self.ca_qcontent_proj = nn.Linear(d_model, d_model)
-        self.ca_qpos_proj = nn.Linear(d_model, d_model)
+        
         self.ca_kcontent_proj = nn.Linear(d_model, d_model)
         self.ca_kpos_proj = nn.Linear(d_model, d_model)
         self.ca_v_proj = nn.Linear(d_model, d_model)
@@ -1083,7 +1133,7 @@ class TransformerDecoderLayer(nn.Module):
 
         # For the first decoder layer, we concatenate the positional embedding predicted from 
         # the object query (the positional embedding) into the original query (key) in DETR.
-        if is_first:
+        if self.first_layer:
             q_pos = self.ca_qpos_proj(query_pos)
             q = q_content + q_pos
             k = k_content + k_pos
@@ -1092,7 +1142,7 @@ class TransformerDecoderLayer(nn.Module):
             k = k_content
 
         q = q.view(num_queries, bs, self.nhead, n_model//self.nhead)
-        query_sine_embed = self.ca_qpos_sine_proj(query_sine_embed)
+        query_sine_embed = self.ca_qpos_sine_proj(query_sine_embed* self.query_scale(tgt))
         query_sine_embed = query_sine_embed.view(num_queries, bs, self.nhead, n_model//self.nhead)
         q = torch.cat([q, query_sine_embed], dim=3).view(num_queries, bs, n_model * 2)
         k = k.view(hw, bs, self.nhead, n_model//self.nhead)
@@ -1145,15 +1195,11 @@ class TransformerDecoderLayer(nn.Module):
                 query_sine_embed = None,
                 is_first = False):
         if self.normalize_before:
-            raise NotImplementedError
             return self.forward_pre(tgt, memory, tgt_mask, memory_mask,
                                     tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos)
         return self.forward_post(tgt, memory, tgt_mask, memory_mask,
                                  tgt_key_padding_mask, memory_key_padding_mask, pos, query_pos, query_sine_embed, is_first)
 
-import copy
-def _get_clones(module, N):
-    return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
 def _get_activation_fn(activation):
     """Return an activation function given a string"""

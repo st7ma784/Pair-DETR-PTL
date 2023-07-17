@@ -48,12 +48,14 @@ class PairDETR(pl.LightningModule):
             num_decoder_layers=args['dec_layers'],
             normalize_before=args['pre_norm'],
             return_intermediate_dec=True,
+            device=self.device,
         )
         self.num_queries = args['num_queries']
         hidden_dim = self.transformer.d_model
         self.class_embed = nn.Linear(hidden_dim, num_classes)
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 8)
-        self.query_embed = nn.Parameter(nn.Embedding(self.num_queries, hidden_dim).weight) # changing to nn,Parameter(*)
+        self.query_embed = nn.Parameter(nn.Embedding(self.num_queries, hidden_dim).weight)
+        self.query_embed.to(self.device) # changing to nn,Parameter(*)
         self.input_proj = nn.Conv2d(self.backbone.num_channels, hidden_dim, kernel_size=1)
         self.aux_loss = args['aux_loss']
 
@@ -113,19 +115,22 @@ class PairDETR(pl.LightningModule):
         # print("self.positional_embedding(src,mask).to(src.dtype)",self.positional_embedding(src,mask).to(src.dtype).shape)#([8, 256, 29, 34])
         # print("mask",mask.shape)#mask torch.Size([8, 29, 34])
 
-        #print("h,w",src.shape[-2],src.shape[-1])# NOT regular sizes! 
+        #print("h,w",src.shape[-2],src.shape[-1])# now regular size! 
         hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed, self.positional_embedding(src,mask).to(src.dtype))
-
+        #
+        #print("reference",reference.shape) # B, n_q, 2
+        #print("reference_before_sigmoid",reference_before_sigmoid.shape) #   B, n_q, 2
+        # outputs_coords = []
+        tmp=self.bbox_embed(hs)
         
-        reference_before_sigmoid = inverse_sigmoid(reference)
-        outputs_coords = []
-        print("hs.shape",hs.shape)
-        for lvl in range(hs.shape[0]):
-            tmp = self.bbox_embed(hs[lvl])
-            tmp[..., :2] += reference_before_sigmoid
-            outputs_coord = tmp.sigmoid()
-            outputs_coords.append(outputs_coord)
-        outputs_coord = torch.stack(outputs_coords)
+        tmp[..., :2] +=  inverse_sigmoid(reference) 
+        outputs_coord = tmp.sigmoid()
+        # for lvl in range(hs.shape[0]):
+        #     tmp = self.bbox_embed(hs[lvl]) # should be relatively impervious to the extra dim?
+        #     tmp[..., :2] += reference_before_sigmoid 
+        #     outputs_coord = tmp.sigmoid()
+        #     outputs_coords.append(outputs_coord)
+        # outputs_coord = torch.stack(outputs_coords)
 
         outputs_class = self.class_embed(hs)
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
