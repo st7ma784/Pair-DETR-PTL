@@ -468,7 +468,7 @@ class HungarianMatcher(nn.Module):
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
         #must be a better way than this: 
         #can i use torch.topk instead? but I need the index in batch*nqueries space rather than in target
-
+        
         C = C.view(bs, num_queries, -1).cpu()
 
         sizes = [len(v["boxes"]) for v in targets]
