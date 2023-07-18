@@ -15,20 +15,44 @@ from torch import Tensor
 import datasets.transforms as T
 from PIL import Image
 import torchvision.transforms.v2 as T2
+from transformers import CLIPTokenizer
+import clip
 class CocoDetection(torchvision.datasets.CocoDetection):
     def __init__(self, img_folder, ann_file, transforms, return_masks):
         super(CocoDetection, self).__init__(img_folder, ann_file)
+        self.Tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+        self.myclip,_=clip.load('ViT-B/32',device="cpu")
+        self.myclip.eval()
+
+        self.tokenize=lambda x:  self.myclip.encode_text(self.Tokenizer(x, # Sentence to encode.
+                    add_special_tokens = True, # Add '[CLS]' and '[SEP]'
+                    max_length = 77,           # Pad & truncate all sentences.
+                    padding = "max_length",
+                    truncation=True,
+                    return_attention_mask = False,   # Construct attn. masks.
+                    return_tensors = 'pt',     # Return pytorch tensors.
+                )['input_ids'].squeeze(1)).detach().cpu()
         self._transforms = transforms
+        self.tokenized_classnames={int(i):self.tokenize(" ".join(["a",c["name"]])) for i,c in self.coco.cats.items()}
         self.prepare = ConvertCocoPolysToMask(return_masks)
+
 
     def __getitem__(self, idx):
         img, target = super(CocoDetection, self).__getitem__(idx)
         image_id = self.ids[idx]
         target = {'image_id': image_id, 'annotations': target}
+        #print("target",target)
         img, target = self.prepare(img, target)
         if self._transforms is not None:
             img, target = self._transforms(img, target)
-        return img, target
+        #print("labels",target['labels'])      
+        
+        #Can be improved in future by returning clip.encode(im.crop(box)) for each box's labels!!
+        
+        
+        
+        #target.update({"labels":torch.stack([self.tokenized_classnames[int(l)] for l in target['labels']])})
+        return img, target, self.tokenized_classnames
 
 
 def convert_coco_poly_to_mask(segmentations, height, width):
@@ -50,6 +74,7 @@ def convert_coco_poly_to_mask(segmentations, height, width):
 
 def collate_fn(batch):
     batch = list(zip(*batch))
+    batch[2] = batch[2][0]
     batch[0] = nested_tensor_from_tensor_list(batch[0])
     return tuple(batch)
 

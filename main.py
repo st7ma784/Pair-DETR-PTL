@@ -9,18 +9,18 @@
 
 
 from pathlib import Path
-from datasets.coco_eval import CocoEvaluator
-from datasets.panoptic_eval import PanopticEvaluator
+# from datasets.coco_eval import CocoEvaluator
+# from datasets.panoptic_eval import PanopticEvaluator
 
-from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
+# from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
 import torch
-from torch.utils.data import DataLoader
+# from torch.utils.data import DataLoader
 
-import util.misc as utils
+# import util.misc as utils
 from model import *
 import pytorch_lightning as pl
-
-       
+import clip
+from transformers import CLIPTokenizer
 class PairDETR(pl.LightningModule):
     def __init__(self,**args):
         super().__init__()
@@ -28,9 +28,21 @@ class PairDETR(pl.LightningModule):
         self.args = args
         #self.kwargs = kwargs
         self.learning_rate = args['lr']
-        num_classes = 20 if args['dataset_file'] != 'coco' else 91
-        if args['dataset_file'] == "coco_panoptic":
-            num_classes = 250
+        # num_classes = 20 if args['dataset_file'] != 'coco' else 91
+        # if args['dataset_file'] == "coco_panoptic":
+        #     num_classes = 250
+        # self.class_embed = nn.Linear(hidden_dim, num_classes)
+        self.Tokenizer=CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
+        self.tokenize=lambda x: self.Tokenizer(x, # Sentence to encode.
+                    add_special_tokens = True, # Add '[CLS]' and '[SEP]'
+                    max_length = 77,           # Pad & truncate all sentences.
+                    padding = "max_length",
+                    truncation=True,
+                    return_attention_mask = False,   # Construct attn. masks.
+                    return_tensors = 'pt',     # Return pytorch tensors.
+                )['input_ids']
+        myclip,_=clip.load('ViT-B/32',device=self.device)
+        self.clip_projection= myclip.text_projection
         posmethod=PositionEmbeddingLearned
         if args['position_embedding'] in ('v2', 'sine'):
             #TODO find a better way of exposing other arguments
@@ -52,7 +64,6 @@ class PairDETR(pl.LightningModule):
         )
         self.num_queries = args['num_queries']
         hidden_dim = self.transformer.d_model
-        self.class_embed = nn.Linear(hidden_dim, num_classes)
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 6)
         self.query_embed = nn.Parameter(nn.Embedding(self.num_queries, hidden_dim).weight)
         self.query_embed.to(self.device) # changing to nn,Parameter(*)
@@ -60,9 +71,9 @@ class PairDETR(pl.LightningModule):
         self.aux_loss = args['aux_loss']
 
         # init prior_prob setting for focal loss
-        prior_prob = 0.01
-        bias_value = -math.log((1 - prior_prob) / prior_prob)
-        self.class_embed.bias.data = torch.ones(num_classes) * bias_value
+        # prior_prob = 0.01
+        # bias_value = -math.log((1 - prior_prob) / prior_prob)
+        #self.class_embed.bias.data = torch.ones(num_classes) * bias_value
 
         # init bbox_mebed
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
@@ -75,7 +86,7 @@ class PairDETR(pl.LightningModule):
                        'loss_bbox': args['bbox_loss_coef'],
                        'loss_giou': args['giou_loss_coef']}
 
-        self.criterion = SetCriterion(num_classes, matcher=self.matcher, weight_dict=self.weight_dict,
+        self.criterion = SetCriterion(matcher=self.matcher, weight_dict=self.weight_dict,
                                 focal_alpha=args['focal_alpha'], losses=['labels', 'boxes', 'cardinality'])
         self.postprocessors = {'bbox': PostProcess()}
         
@@ -121,24 +132,22 @@ class PairDETR(pl.LightningModule):
         #print("reference",reference.shape) # B, n_q, 2
         #print("reference_before_sigmoid",reference_before_sigmoid.shape) #   B, n_q, 2
         # outputs_coords = []
+        #hs torch.Size([1, 200, 14, 512])
+        #torch.Size([14, 200, 2])
+        #print("hs",hs.shape) # torch.Size([layers, B, n_queries, F]
+        #print(reference.shape) # torch.Size([layers, B, n_queries, 2]
         tmp=self.bbox_embed(hs)
         
         tmp[..., :2] +=  inverse_sigmoid(reference) 
         outputs_coord = tmp.sigmoid()
-        # for lvl in range(hs.shape[0]):
-        #     tmp = self.bbox_embed(hs[lvl]) # should be relatively impervious to the extra dim?
-        #     tmp[..., :2] += reference_before_sigmoid 
-        #     outputs_coord = tmp.sigmoid()
-        #     outputs_coords.append(outputs_coord)
-        # outputs_coord = torch.stack(outputs_coords)
-        print("hs",hs.shape) # torch.Size([9, B, n_queries, F])
-        outputs_class = self.class_embed(hs)
-        print("outputs_class",outputs_class.shape)
+        
+        outputs_class = hs@self.clip_projection # torch.Size([9, B, n_queries, C])
+        #print("outputs_class",outputs_class.shape)
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
         if self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
         return out
-
+    # this can be optimized better! to remove the above if statement! 
     @torch.jit.unused
     def _set_aux_loss(self, outputs_class, outputs_coord):
         # this is a workaround to make torchscript happy, as torchscript
@@ -151,14 +160,18 @@ class PairDETR(pl.LightningModule):
             
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate,
                                     weight_decay=self.args['weight_decay'])
-        
+        # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, self.args['lr_drop'])
         return [optimizer]
 
     def training_step(self, batch, batch_idx):
-        samples, targets = batch
+        samples, targets ,classencodings = batch
+        #print("batch targets",targets)
+        #print("batch classes",classes.shape)
         #targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
         outputs = self(samples)
-        loss_dict = self.criterion(outputs, targets)
+
+        # I also want a list of the class labels from COCO to be comparing against in the first instance, this is essentially the classes we're told to go and grab, and the labels are the GT, which when deployed will come from Text to as well.
+        loss_dict = self.criterion(classencodings,outputs, targets)
 
         losses = sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
 
@@ -255,7 +268,7 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     from datasets.coco import COCODataModule
-    data=COCODataModule(Cache_dir=args.coco_path,batch_size=14)
+    data=COCODataModule(Cache_dir=args.coco_path,batch_size=8)
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
