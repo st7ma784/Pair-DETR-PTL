@@ -33,7 +33,7 @@ class PairDETR(pl.LightningModule):
             num_classes = 250
         posmethod=PositionEmbeddingLearned
         if args['position_embedding'] in ('v2', 'sine'):
-            # TODO find a better way of exposing other arguments
+            #TODO find a better way of exposing other arguments
             posmethod = PositionEmbeddingSine
         self.positional_embedding = posmethod(args['hidden_dim'] // 2,device=self.device)
         self.backbone = Backbone(args['backbone'], True, False, args['dilation'])
@@ -47,7 +47,7 @@ class PairDETR(pl.LightningModule):
             num_encoder_layers=args['enc_layers'],
             num_decoder_layers=args['dec_layers'],
             normalize_before=args['pre_norm'],
-            return_intermediate_dec=True,
+            return_intermediate_dec=args['intermediate_layer'],
             device=self.device,
         )
         self.num_queries = args['num_queries']
@@ -131,8 +131,9 @@ class PairDETR(pl.LightningModule):
         #     outputs_coord = tmp.sigmoid()
         #     outputs_coords.append(outputs_coord)
         # outputs_coord = torch.stack(outputs_coords)
-
+        print("hs",hs.shape) # torch.Size([9, B, n_queries, F])
         outputs_class = self.class_embed(hs)
+        print("outputs_class",outputs_class.shape)
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
         if self.aux_loss:
             out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)

@@ -21,6 +21,7 @@ def get_args_parser():
     parser.add_argument('--position_embedding', default='v3', type=str, choices=('sine', 'learned'),
                         help="Type of positional embedding to use on top of the image features")
 
+    parser.add_argument('--intermediate_layer', default=False, type=bool,)
     # * Transformer
     parser.add_argument('--enc_layers', default=8, type=int,
                         help="Number of encoding layers in the transformer")

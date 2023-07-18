@@ -895,9 +895,10 @@ class TransformerDecoder(nn.Module):
             
         if self.return_intermediate:
             out=[torch.stack(self.intermediate).transpose(1, 2), reference_points.transpose(0, 1)]
+            print("out shape",out[0].shape)
             self.intermediate = []
             return out
-        return output.unsqueeze(0)
+        return output.unsqueeze(0), reference_points.transpose(0, 1)
 
 
 class TransformerEncoderLayer(nn.Module):
