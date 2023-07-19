@@ -479,7 +479,7 @@ class HungarianMatcher(nn.Module):
 
         
         tgt_embs= torch.stack([encodings[int(i)] for i in tgt_ids],dim=0).squeeze()
-        out_prob=out_prob/torch.norm(out_prob,dim=-1,keepdim=True)
+        out_prob=out_prob/torch.norm(out_prob,dim=-1,keepdim=True) #can get away with no grad...
         tgt_embs=tgt_embs/torch.norm(tgt_embs,dim=-1,keepdim=True)
 
         cost_class=F.relu(out_prob@tgt_embs.T)

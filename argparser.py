@@ -23,9 +23,9 @@ def get_args_parser():
 
     parser.add_argument('--intermediate_layer', default=False, type=bool,)
     # * Transformer
-    parser.add_argument('--enc_layers', default=8, type=int,
+    parser.add_argument('--enc_layers', default=12, type=int,
                         help="Number of encoding layers in the transformer")
-    parser.add_argument('--dec_layers', default=8, type=int,
+    parser.add_argument('--dec_layers', default=12, type=int,
                         help="Number of decoding layers in the transformer")
     parser.add_argument('--dim_feedforward', default=1024, type=int,
                         help="Intermediate size of the feedforward layers in the transformer blocks")
