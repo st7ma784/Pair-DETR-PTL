@@ -503,12 +503,12 @@ class HungarianMatcher(nn.Module):
         sizes = [len(v["boxes"]) for v in targets]
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
         target_classes_o=torch.cat([encodings[int(i.item())] for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
-        print("target classes o",target_classes_o.shape)
+        #print("target classes o",target_classes_o.shape)
         x,y=zip(*indices)
         src=torch.cat([torch.as_tensor(x) for x in x])
         tgt=torch.cat([torch.as_tensor(y) for y in y])
         idxs = torch.stack([src,tgt])
-        print("idxs",idxs.shape)
+        #print("idxs",idxs.shape)
         batch_idx = torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]).unsqueeze(0)
         indices=torch.cat([batch_idx,idxs],dim=0)
         return indices, target_classes_o

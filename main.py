@@ -41,8 +41,8 @@ class PairDETR(pl.LightningModule):
                     return_attention_mask = False,   # Construct attn. masks.
                     return_tensors = 'pt',     # Return pytorch tensors.
                 )['input_ids']
-        myclip,_=clip.load('ViT-B/32',device=self.device)
-        self.clip_projection= myclip.text_projection
+        #myclip,_=clip.load('ViT-B/32',device=self.device)
+        #self.clip_projection= myclip.text_projection #this is usuallyy if text onto vis, not the other way round....
         posmethod=PositionEmbeddingLearned
         if args['position_embedding'] in ('v2', 'sine'):
             #TODO find a better way of exposing other arguments
@@ -112,7 +112,7 @@ class PairDETR(pl.LightningModule):
 
         tmp[..., :2] +=  inverse_sigmoid(reference) 
         outputs_coord = tmp.sigmoid()
-        outputs_class = hs@self.clip_projection
+        outputs_class = hs#@self.clip_projection
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
         if self.aux_loss:
             out['aux_outputs'] = [{'pred_logits': a, 'pred_boxes': b} for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
@@ -121,14 +121,14 @@ class PairDETR(pl.LightningModule):
 
     def configure_optimizers(self):
 
-        param_dicts = [{"params": self.transformer.parameters()},
-                       {"params": self.input_proj.parameters()},
-                       {"params": self.query_embed},
-                       {"params": self.bbox_embed.parameters()},
-                       {"params": self.clip_projection},
-                       {"params": self.positional_embedding.parameters(), "lr": self.learning_rate * 0.1},
-                       ]
-        optimizer = torch.optim.AdamW(param_dicts,
+        # param_dicts = [{"params": self.transformer.parameters()},
+        #                {"params": self.input_proj.parameters()},
+        #                {"params": self.query_embed},
+        #                {"params": self.bbox_embed.parameters()},
+        #                {"params": self.clip_projection},
+        #                {"params": self.positional_embedding.parameters(), "lr": self.learning_rate * 0.1},
+        #                ]
+        optimizer = torch.optim.AdamW(self.parameters(),
                                     lr=self.learning_rate,
                                     weight_decay=self.args['weight_decay'])
         # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, self.args['lr_drop'])
