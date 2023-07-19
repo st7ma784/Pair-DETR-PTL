@@ -12,9 +12,7 @@
 
 from util.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
 from util import box_ops
-from util.misc import (NestedTensor, nested_tensor_from_tensor_list,
-                       accuracy, get_world_size, interpolate,
-                       is_dist_avail_and_initialized, inverse_sigmoid,is_main_process)
+from util.misc import (NestedTensor, nested_tensor_from_tensor_list, interpolate)
 
 from typing import Optional, List
 import math
@@ -38,7 +36,43 @@ try:
 except ImportError:
     pass
 
+class FrozenBatchNorm2d(torch.nn.Module):
+    """
+    BatchNorm2d where the batch statistics and the affine parameters are fixed.
 
+    Copy-paste from torchvision.misc.ops with added eps before rqsrt,
+    without which any other models than torchvision.models.resnet[18,34,50,101]
+    produce nans.
+    """
+
+    def __init__(self, n):
+        super(FrozenBatchNorm2d, self).__init__()
+        self.register_buffer("weight", torch.ones(n))
+        self.register_buffer("bias", torch.zeros(n))
+        self.register_buffer("running_mean", torch.zeros(n))
+        self.register_buffer("running_var", torch.ones(n))
+
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
+                              missing_keys, unexpected_keys, error_msgs):
+        num_batches_tracked_key = prefix + 'num_batches_tracked'
+        if num_batches_tracked_key in state_dict:
+            del state_dict[num_batches_tracked_key]
+
+        super(FrozenBatchNorm2d, self)._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict,
+            missing_keys, unexpected_keys, error_msgs)
+
+    def forward(self, x):
+        # move reshapes to the beginning
+        # to make it fuser-friendly
+        w = self.weight.reshape(1, -1, 1, 1)
+        b = self.bias.reshape(1, -1, 1, 1)
+        rv = self.running_var.reshape(1, -1, 1, 1)
+        rm = self.running_mean.reshape(1, -1, 1, 1)
+        eps = 1e-5
+        scale = w * (rv + eps).rsqrt()
+        bias = b - rm * scale
+        return x * scale + bias
 class DETRsegm(nn.Module):
     def __init__(self, detr, freeze_detr=False):
         super().__init__()
@@ -425,11 +459,6 @@ class HungarianMatcher(nn.Module):
         # We flatten to compute the cost matrices in a batch
         out_prob = outputs["pred_logits"].flatten(0, 1)  # [batch_size * num_queries, F]
         out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]#  this is nan somewhere ?!?!?!
-        err=torch.any(torch.isnan(out_bbox))
-        if err:
-            #we should really work out how and why this happens! 
-            print("out bbox has nan")
-        out_bbox = torch.nan_to_num(out_bbox, nan=0.0, posinf=0.0, neginf=0.0)
 
         #print("out prob, out box",out_prob.shape, out_bbox.shape)#1600,F   1600,4
         # Also concat the target labels and boxes
@@ -438,8 +467,8 @@ class HungarianMatcher(nn.Module):
         tgt_bbox = torch.cat([v["boxes"] for v in targets])
         #print("tgt ids, tgt box",tgt_ids.shape, tgt_bbox.shape)# torch.Size([120]) torch.Size([120, 4])
         # Compute the classification cost.
-        alpha = 0.25
-        gamma = 2.0
+        # alpha = 0.25
+        # gamma = 2.0
 
 
         # neg_cost_class =  (out_prob ** gamma) * (-(1 - out_prob + 1e-8).log())
@@ -452,11 +481,11 @@ class HungarianMatcher(nn.Module):
         tgt_embs= torch.stack([encodings[int(i)] for i in tgt_ids],dim=0).squeeze()
         out_prob=out_prob/torch.norm(out_prob,dim=-1,keepdim=True)
         tgt_embs=tgt_embs/torch.norm(tgt_embs,dim=-1,keepdim=True)
-        probs= out_prob@tgt_embs.T
-        probs=probs.sigmoid()
-        neg_cost_class =  (probs ** gamma) * (-(1 - probs + 1e-8).log())
-        pos_cost_class =  ((1 - probs) ** gamma) * (-(probs + 1e-8).log())
-        cost_class = alpha *pos_cost_class - (1 - alpha)*neg_cost_class
+
+        cost_class=F.relu(out_prob@tgt_embs.T)
+        #neg_cost_class =  (probs ** gamma) * (-(1 - probs + 1e-8).log())
+        #pos_cost_class =  ((1 - probs) ** gamma) * (-(probs + 1e-8).log())
+        #cost_class = alpha *pos_cost_class - (1 - alpha)*neg_cost_class
         #cost_class=-cost_class
         #print("cost class",cost_class.shape)
         # Compute the L1 cost between boxes
@@ -469,14 +498,22 @@ class HungarianMatcher(nn.Module):
         #must be a better way than this: 
         #can i use torch.topk instead? but I need the index in batch*nqueries space rather than in target
         
-        C = C.view(bs, num_queries, -1).cpu()
+        C = C.view(bs, num_queries, -1).cpu().sigmoid()
 
         sizes = [len(v["boxes"]) for v in targets]
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
-        out=[(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
         target_classes_o=torch.cat([encodings[int(i.item())] for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
-
-        return out, target_classes_o
+        print("target classes o",target_classes_o.shape)
+        x,y=zip(*indices)
+        src=torch.cat([torch.as_tensor(x) for x in x])
+        tgt=torch.cat([torch.as_tensor(y) for y in y])
+        idxs = torch.stack([src,tgt])
+        print("idxs",idxs.shape)
+        batch_idx = torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]).unsqueeze(0)
+        indices=torch.cat([batch_idx,idxs],dim=0)
+        return indices, target_classes_o
+#        out=[(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
+#       return out, target_classes_o
 
 
 class SetCriterion(nn.Module):
@@ -485,7 +522,7 @@ class SetCriterion(nn.Module):
         1) we compute hungarian assignment between ground truth boxes and the outputs of the model
         2) we supervise each pair of matched ground-truth / prediction (supervise class and box)
     """
-    def __init__(self, matcher, weight_dict, focal_alpha, losses):
+    def __init__(self, matcher, weight_dict, focal_alpha, losses,device):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -494,7 +531,9 @@ class SetCriterion(nn.Module):
             losses: list of all the losses to be applied. See get_loss for list of available losses.
             focal_alpha: alpha in Focal Loss
         """
+
         super().__init__()
+        self.device=device
         self.matcher = matcher
         self.weight_dict = weight_dict
         self.losses = losses
@@ -507,80 +546,35 @@ class SetCriterion(nn.Module):
             'boxes': self.loss_boxes,
             'masks': self.loss_masks
         }
-    def sigmoid_focal_loss(self,inputs, targets, num_boxes, alpha: float = 0.25, gamma: float = 2):
+        self.loss=nn.CrossEntropyLoss(reduction="mean")
+    def sigmoid_focal_loss(self,inputs, targets, num_boxes):
         """
         Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
-        Args:
-            inputs: A float tensor of arbitrary shape.
-                    The predictions for each example.
-            targets: A float tensor with the same shape as inputs. Stores the binary
-                    classification label for each element in inputs
-                    (0 for the negative class and 1 for the positive class).
-            alpha: (optional) Weighting factor in range (0,1) to balance
-                    positive vs negative examples. Default = -1 (no weighting).
-            gamma: Exponent of the modulating factor (1 - p_t) to
-                balance easy vs hard examples.
-        Returns:
-            Loss tensor
+
         """
-        #prob = inputs.sigmoid()
-        #print("prob: ", prob.shape)
-        inputs=inputs/torch.norm(inputs,dim=1,keepdim=True)
-        #print("inputs: ", inputs.shape) # b x nqueries x F
-        targets=targets/torch.norm(targets,dim=1,keepdim=True)
-        #print("targets: ", targets.shape)# b x nqueries x F
-        #to do : maybe a better way than this! 
-        loss = 1-torch.sum(inputs*targets,dim=-1)
-        #print(loss.shape)
-        loss=loss.mean()
-        #print(loss.shape)
-        loss=loss.mean()
+        #do similarity of inputs to targets,
+        # print("inputs",inputs.shape) # inputs torch.Size([8, 200, 512])
+        # print("targets",targets.shape) # targets torch.Size([8, 200, 512])
+        inputs=inputs#/torch.norm(inputs,dim=-1,keepdim=True)
+        targets=targets#/torch.norm(targets,dim=-1,keepdim=True)
+        match=F.relu(torch.sum(inputs*targets,dim=-1))
+        loss=self.loss(match,torch.ones(match.shape,device=match.device))
+  
         return loss / num_boxes
 
     def loss_labels(self,target_classes_o, outputs, targets, indices, num_boxes, log=True):
-        """Classification loss (Binary focal loss)
-        targets dicts must contain the key "labels" containing a tensor of dim [nb_target_boxes]
-        
-        """
-         # number fo clip embeddings rather than what was just class indexes
-        #print("encodings: ", encodings.shape)
-        #print("Len encs: ", num_classes)
-        #indices = self.matcher(outputs_without_aux, targets) #
-        #print("indices list of tuples of shapes: ", indices[0][0].shape, indices[0][1].shape)
-        #print( "indices 0 is actually ", indices[0][0][0], indices[0][1][1]) #class index?
-        #print("targets list of dicts of shapes: ", targets[0]["labels"].shape, targets[0]["boxes"].shape) # nothe this has come straight from GT 
-        #print("num boxes: ", num_boxes)
+     
         assert 'pred_logits' in outputs
-        batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
-        src_idx = torch.cat([src for (src, _) in indices])
-        idx= batch_idx, src_idx
-        #print(idx)
-        '''
-        0,  0,  0,  1,  1,  1,  1,  ... 13, 13, 13]),
-        58, 156, 169,   8, ...130, 149])
-        '''
-        #idx = self._get_src_permutation_idx(indices)
-        #print("target_classes_o shape: ", target_classes_o.shape) # [n_boxes,512]
-        #print("target_classes_o: ", target_classes_o.shape)# hoping for [batch_size, n_boxes,512]
+
+        idx= (indices[0], indices[2])
         src_logits = outputs['pred_logits']
 
         target_classes = torch.zeros((*src_logits.shape[:2],512), device=src_logits.device) 
         target_classes[idx] = target_classes_o
-        #print("target_classes shape: ", target_classes.shape) # [batch_size, n_boxes]
-        #print(target_classes) # [batch_size, n_boxes]
-
-        # target_classes_onehot = torch.zeros([src_logits.shape[0], src_logits.shape[1], src_logits.shape[2]+1],
-        #                                     dtype=src_logits.dtype, layout=src_logits.layout, device=src_logits.device)
-        # target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
-        
-        # target_classes_onehot = target_classes_onehot[:,:,:-1] # B, n_boxes, F???? 
-        #print("target_classes_onehot shape: ", target_classes_onehot.shape) # [batch_size, n_boxes, num_classes]
-        loss_ce = self.sigmoid_focal_loss(src_logits, target_classes, num_boxes, alpha=self.focal_alpha, gamma=2) * src_logits.shape[1]
+       
+        loss_ce = self.sigmoid_focal_loss(src_logits, target_classes, num_boxes) * src_logits.shape[1]
         losses = {'loss_ce': loss_ce}
 
-        # if log:
-        #     # TODO this should probably be a separate loss, not hacked in this one here
-        #     losses['class_error'] = 100 - accuracy(src_logits[idx], target_classes_o)[0]
         return losses
 
     @torch.no_grad()
@@ -603,10 +597,11 @@ class SetCriterion(nn.Module):
            The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
         """
         assert 'pred_boxes' in outputs
-        idx = self._get_src_permutation_idx(indices)
+        idx = (indices[0],indices[1])
         src_boxes = outputs['pred_boxes'][idx]
-        target_boxes = torch.cat([t['boxes'][i] for t, (_, i) in zip(targets, indices)], dim=0)
-
+        target_boxes = torch.stack([targets[t]['boxes'][i] for (t, i) in zip(indices[0],indices[2])], dim=0)
+        # print("target_boxes shape: ", target_boxes.shape) # [n_boxes, 4]
+        # print("src_boxes shape: ", src_boxes.shape) # [ n_boxes, 4]
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
 
         losses = {}
@@ -624,8 +619,8 @@ class SetCriterion(nn.Module):
         """
         assert "pred_masks" in outputs
 
-        src_idx = self._get_src_permutation_idx(indices)
-        tgt_idx = self._get_tgt_permutation_idx(indices)
+        src_idx =(indices[0],indices[2])
+        tgt_idx = (indices[0],indices[1])
         src_masks = outputs["pred_masks"]
         src_masks = src_masks[src_idx]
         masks = [t["masks"] for t in targets]
@@ -647,26 +642,7 @@ class SetCriterion(nn.Module):
         }
         return losses
 
-    def _get_src_permutation_idx(self, indices):
-        # permute predictions following indices
-        batch_idx = torch.cat([torch.full_like(src, i) for i, (src, _) in enumerate(indices)])
-        src_idx = torch.cat([src for (src, _) in indices])
-        return batch_idx, src_idx
-
-    def _get_tgt_permutation_idx(self, indices):
-        # permute targets following indices
-        batch_idx = torch.cat([torch.full_like(tgt, i) for i, (_, tgt) in enumerate(indices)])
-        tgt_idx = torch.cat([tgt for (_, tgt) in indices])
-        return batch_idx, tgt_idx
-
     def forward(self, encodings,outputs, targets):
-        """ This performs the loss computation.
-        Parameters:
-             outputs: dict of tensors, see the output specification of the model for the format
-             targets: list of dicts, such that len(targets) == batch_size.
-                      The expected keys in each dict depends on the losses applied, see each loss' doc
-        """
-
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
 
         # Retrieve the matching between the outputs of the last layer and the targets
@@ -674,10 +650,8 @@ class SetCriterion(nn.Module):
          
         # Compute the average number of target boxes accross all nodes, for normalization purposes
         num_boxes = sum(len(t["labels"]) for t in targets)
-        num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=next(iter(outputs.values())).device)
-        if is_dist_avail_and_initialized():
-            torch.distributed.all_reduce(num_boxes)
-        num_boxes = torch.clamp(num_boxes / get_world_size(), min=1).item()
+        num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=self.device)
+        num_boxes = torch.clamp(num_boxes, min=1).item()
 
         # Compute all the requested losses
         losses = {}
@@ -689,13 +663,6 @@ class SetCriterion(nn.Module):
             for i, aux_outputs in enumerate(outputs['aux_outputs']):
                 indices = self.matcher(aux_outputs, targets,encodings)
                 for loss in self.losses:
-                    if loss == 'masks':
-                        # Intermediate masks losses are too costly to compute, we ignore them.
-                        continue
-                    kwargs = {}
-                    if loss == 'labels':
-                        # Logging is enabled only for the last layer
-                        kwargs = {'log': False}
                     l_dict = self.loss_map[loss](target_classes_o,outputs, targets, indices, num_boxes)
                     l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
@@ -813,6 +780,7 @@ class PositionEmbeddingLearned(nn.Module):
 class BackboneBase(nn.Module):
 
     def __init__(self, backbone: nn.Module, train_backbone: bool, num_channels: int, return_interm_layers: bool):
+
         super().__init__()
         for name, parameter in backbone.named_parameters():
             if not train_backbone or 'layer2' not in name and 'layer3' not in name and 'layer4' not in name:
@@ -823,14 +791,14 @@ class BackboneBase(nn.Module):
             return_layers = {'layer4': "0"}
         self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
         self.num_channels = num_channels
-
-    def forward(self, im,mask):
+    def forward(self, im):
         xs = self.body(im)
-        m = mask[None].float()
-        assert m is not None
-        tensors=torch.stack(list(zip(*xs.items()))[1])
-        masks=[F.interpolate(m, size=x.shape[-2:]).to(torch.bool)[0] for x in tensors]
-        return tensors,masks
+        # for k,v in xs.items():
+        #     if v.isnan().any():
+        #         print(k)
+        #         print('nan')
+                
+        return torch.stack(list(xs.values()))
 
 class Backbone(BackboneBase):
     """ResNet backbone with frozen BatchNorm."""
@@ -839,8 +807,8 @@ class Backbone(BackboneBase):
                  return_interm_layers: bool,
                  dilation: bool):
         backbone = getattr(torchvision.models, name)(
-            replace_stride_with_dilation=[False, False, dilation],
-            pretrained=is_main_process(), norm_layer=torch.nn.BatchNorm2d)
+                                                    replace_stride_with_dilation=[False, False, dilation],
+                                                    pretrained=True, norm_layer=FrozenBatchNorm2d)
         num_channels = 512 if name in ('resnet18', 'resnet34') else 2048
         super().__init__(backbone, train_backbone, num_channels, return_interm_layers)
 
@@ -879,9 +847,10 @@ class PositionalTransformer(nn.Module):
         pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
         query_embed = query_embed.unsqueeze(1).repeat(1, src.shape[1], 1)
         mask = mask.flatten(1)
-        #print("Tgt and query embed shape",query_embed.shape)#300,16,256
+    
         tgt = torch.zeros_like(query_embed) 
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
+      
         hs, references = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                           pos=pos_embed, query_pos=query_embed)
         return hs, references
@@ -894,21 +863,21 @@ class PosTransformerEncoder(nn.Module):
         self.layers =nn.Sequential(*[TransformerEncoderLayer(*args) for i in range(num_layers)])
     
         self.num_layers = num_layers
-        if norm is not None:
-            self.norm =  nn.LayerNorm(args[0])
-        else:
-            #set norm to do nothing
-            self.norm = lambda x: x
+        #if norm is not None:
+        self.norm =  nn.LayerNorm(args[0])
+        # else:
+        #     #set norm to do nothing
+        #     self.norm = lambda x: x
 
     def forward(self, output:Tensor,
                 mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None):
         
-        return self.norm(self.layers(dict(src=output, src_mask=mask,
+        output= self.norm(self.layers(dict(src=output, src_mask=mask,
                            src_key_padding_mask=src_key_padding_mask, pos=pos))["src"])
-
-
+       
+        return output
 
 
 
@@ -954,7 +923,6 @@ class TransformerDecoder(nn.Module):
                 pos: Optional[Tensor] = None,
                 query_pos: Optional[Tensor] = None):
 
-        
         reference_points = self.ref_point_head(query_pos).sigmoid()
         output=self.layers(dict( tgt=output, memory=memory,
                                 tgt_mask = tgt_mask,
@@ -965,12 +933,13 @@ class TransformerDecoder(nn.Module):
                                 query_pos = query_pos,
                                 query_sine_embed = self.gen_sineembed_for_position(reference_points[..., :2]) ,
                                 is_first = False))["tgt"]
-            
+
         if self.return_intermediate:
             out=[torch.stack(self.intermediate).transpose(1, 2), reference_points.transpose(0, 1)]
-            print("out shape",out[0].shape)
+            #print("out shape",out[0].shape)
             self.intermediate = []
             return out
+
         return output.transpose(0,1).unsqueeze(0), reference_points.transpose(0, 1)
 
 
@@ -1178,7 +1147,6 @@ class TransformerDecoderLayer(nn.Module):
         memory_key_padding_mask=kwargs['memory_key_padding_mask']
         pos=kwargs['pos']
         query_pos=kwargs['query_pos']
-        query_sine_embed=kwargs['query_sine_embed'] 
         
         tgt2 = self.norm1(tgt)
         q = k = tgt2 +query_pos
@@ -1194,7 +1162,7 @@ class TransformerDecoderLayer(nn.Module):
         tgt2 = self.norm3(tgt)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt2))))
         tgt = tgt + self.dropout3(tgt2)
-        kwargs.update({'tgt':tgt})
+        kwargs['tgt']=tgt
         return kwargs
 
 

@@ -74,15 +74,19 @@ def convert_coco_poly_to_mask(segmentations, height, width):
 
 def collate_fn(batch):
     batch = list(zip(*batch))
-    batch[2] = batch[2][0]
+
     batch[0] = nested_tensor_from_tensor_list(batch[0])
+    #collate images
+    
+    batch[2] = batch[2][0]
     return tuple(batch)
 
 class NestedTensor(object):
     def __init__(self, tensors, mask: Optional[Tensor]):
         self.tensors = tensors
         self.mask = mask
-
+        if self.tensors.isnan().any():
+            raise ValueError("NaN in tensor")
     def to(self, device):
         # type: (Device) -> NestedTensor # noqa
         cast_tensor = self.tensors.to(device)

@@ -15,8 +15,8 @@ from pathlib import Path
 # from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
 import torch
 # from torch.utils.data import DataLoader
+from util.misc import inverse_sigmoid
 
-# import util.misc as utils
 from model import *
 import pytorch_lightning as pl
 import clip
@@ -47,9 +47,11 @@ class PairDETR(pl.LightningModule):
         if args['position_embedding'] in ('v2', 'sine'):
             #TODO find a better way of exposing other arguments
             posmethod = PositionEmbeddingSine
-        self.positional_embedding = posmethod(args['hidden_dim'] // 2,device=self.device)
-        self.backbone = Backbone(args['backbone'], True, False, args['dilation'])
+        self.backbone = Backbone(args['backbone'], False, False,False)
         #self.backbone.num_channels = self.backbone.num_channels
+        self.num_queries = args['num_queries']
+        hidden_dim = args['hidden_dim']
+
         self.transformer = PositionalTransformer(
             d_model=args['hidden_dim'],
             dropout=args['dropout'],
@@ -62,11 +64,10 @@ class PairDETR(pl.LightningModule):
             return_intermediate_dec=args['intermediate_layer'],
             device=self.device,
         )
-        self.num_queries = args['num_queries']
-        hidden_dim = self.transformer.d_model
+        self.positional_embedding = posmethod(args['hidden_dim'] // 2,device=self.device)
+       
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 6)
         self.query_embed = nn.Parameter(nn.Embedding(self.num_queries, hidden_dim).weight)
-        self.query_embed.to(self.device) # changing to nn,Parameter(*)
         self.input_proj = nn.Conv2d(self.backbone.num_channels, hidden_dim, kernel_size=1)
         self.aux_loss = args['aux_loss']
 
@@ -78,6 +79,8 @@ class PairDETR(pl.LightningModule):
         # init bbox_mebed
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
+        #init the self.input_proj
+        nn.init.constant_(self.input_proj.weight.data, 0)
         # if args.masks:
         #     model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
         self.matcher = HungarianMatcher(cost_class=args['set_cost_class'], cost_bbox=args['set_cost_bbox'], cost_giou=args['set_cost_giou'])
@@ -87,7 +90,7 @@ class PairDETR(pl.LightningModule):
                        'loss_giou': args['giou_loss_coef']}
 
         self.criterion = SetCriterion(matcher=self.matcher, weight_dict=self.weight_dict,
-                                focal_alpha=args['focal_alpha'], losses=['labels', 'boxes', 'cardinality'])
+                                focal_alpha=args['focal_alpha'], losses=['labels', 'boxes', 'cardinality'],device=self.device)
         self.postprocessors = {'bbox': PostProcess()}
         
     #config optimizer
@@ -95,80 +98,57 @@ class PairDETR(pl.LightningModule):
     
 
     def forward(self, samples: NestedTensor):
-        """ The forward expects a NestedTensor, which consists of:
-               - samples.tensor: batched images, of shape [batch_size x 3 x H x W]
-               - samples.mask: a binary mask of shape [batch_size x H x W], containing 1 on padded pixels
 
-            It returns a dict with the following elements:
-               - "pred_logits": the classification logits (including no-object) for all queries.
-                                Shape= [batch_size x num_queries x num_classes]
-               - "pred_boxes": The normalized boxes coordinates for all queries, represented as
-                               (center_x, center_y, width, height). These values are normalized in [0, 1],
-                               relative to the size of each individual image (disregarding possible padding).
-                               See PostProcess for information on how to retrieve the unnormalized bounding box.
-               - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
-                                dictionnaries containing the two above keys for each decoder layer.
-        """
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
         #features, pos = self.backbone(samples) this called Joiner which is a wrapper for the backbone:
 
-        src,mask = self.backbone(samples.tensors,samples.mask)
-        #print(src.shape)
-        src,mask=src[-1],mask[-1]
-        #src,mask=xs["0"].decompose() # pull it into the tensor, mask. 
-        #print(src.shape,mask.shape) #orch.Size([16, 2048, 38, 35]) torch.Size([16, 38, 35])
-        assert mask is not None
-
-
-        # print("self.input_proj(src)",self.input_proj(src).shape)#([8, 256, 29, 34])
-        # print("self.query_embed.weight",self.query_embed.weight.shape)#([300, 256])
-        # print("self.positional_embedding(src,mask).to(src.dtype)",self.positional_embedding(src,mask).to(src.dtype).shape)#([8, 256, 29, 34])
-        # print("mask",mask.shape)#mask torch.Size([8, 29, 34])
-
-        #print("h,w",src.shape[-2],src.shape[-1])# now regular size! 
+        src = self.backbone(samples.tensors)
+        src=src[-1]
+        mask=F.interpolate(samples.mask[None].float(),size=src.shape[-2:]).bool()[0]        
+        #mask=torch.randint(0,1,(src.shape[0],src.shape[-2],src.shape[-1]),device=self.device,dtype=torch.bool)
         hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed, self.positional_embedding(src).to(src.dtype))
-        #
-        #print("reference",reference.shape) # B, n_q, 2
-        #print("reference_before_sigmoid",reference_before_sigmoid.shape) #   B, n_q, 2
-        # outputs_coords = []
-        #hs torch.Size([1, 200, 14, 512])
-        #torch.Size([14, 200, 2])
-        #print("hs",hs.shape) # torch.Size([layers, B, n_queries, F]
-        #print(reference.shape) # torch.Size([layers, B, n_queries, 2]
         tmp=self.bbox_embed(hs)
-        
+
         tmp[..., :2] +=  inverse_sigmoid(reference) 
         outputs_coord = tmp.sigmoid()
-        
-        outputs_class = hs@self.clip_projection # torch.Size([9, B, n_queries, C])
-        #print("outputs_class",outputs_class.shape)
+        outputs_class = hs@self.clip_projection
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
         if self.aux_loss:
-            out['aux_outputs'] = self._set_aux_loss(outputs_class, outputs_coord)
+            out['aux_outputs'] = [{'pred_logits': a, 'pred_boxes': b} for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
         return out
-    # this can be optimized better! to remove the above if statement! 
-    @torch.jit.unused
-    def _set_aux_loss(self, outputs_class, outputs_coord):
-        # this is a workaround to make torchscript happy, as torchscript
-        # doesn't support dictionary with non-homogeneous values, such
-        # as a dict having both a Tensor and a list.
-        return [{'pred_logits': a, 'pred_boxes': b}
-                for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
+
 
     def configure_optimizers(self):
-            
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate,
+
+        param_dicts = [{"params": self.transformer.parameters()},
+                       {"params": self.input_proj.parameters()},
+                       {"params": self.query_embed},
+                       {"params": self.bbox_embed.parameters()},
+                       {"params": self.clip_projection},
+                       {"params": self.positional_embedding.parameters(), "lr": self.learning_rate * 0.1},
+                       ]
+        optimizer = torch.optim.AdamW(param_dicts,
+                                    lr=self.learning_rate,
                                     weight_decay=self.args['weight_decay'])
         # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, self.args['lr_drop'])
         return [optimizer]
 
     def training_step(self, batch, batch_idx):
         samples, targets ,classencodings = batch
-        #print("batch targets",targets)
-        #print("batch classes",classes.shape)
-        #targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+        targets = [{k: v.to(self.device,non_blocking=True) for k, v in t.items()} for t in targets]
+        classencodings = {k: v.to(self.device,non_blocking=True) for k, v in  classencodings.items()}
         outputs = self(samples)
+        count=0
+        for k in outputs.keys():
+            
+            if isinstance(outputs[k],Tensor) and torch.any(torch.isnan(outputs[k])):
+                #we should really work out how and why this happens! 
+                print("{} has nan".format(k))
+                outputs[k]=torch.nan_to_num(outputs[k],nan=1e-8,posinf=0.0,neginf=0.0)
+                count+=1
+        if count>1:
+            return None
 
         # I also want a list of the class labels from COCO to be comparing against in the first instance, this is essentially the classes we're told to go and grab, and the labels are the GT, which when deployed will come from Text to as well.
         loss_dict = self.criterion(classencodings,outputs, targets)
@@ -262,13 +242,12 @@ if __name__ == '__main__':
     from argparser import get_args_parser
     import argparse
     parser = argparse.ArgumentParser('Conditional DETR training and evaluation script', parents=[get_args_parser()])
-    from pytorch_lightning.callbacks import ModelCheckpoint
     args = parser.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     from datasets.coco import COCODataModule
-    data=COCODataModule(Cache_dir=args.coco_path,batch_size=8)
+    data=COCODataModule(Cache_dir=args.coco_path,batch_size=16)
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
@@ -276,10 +255,10 @@ if __name__ == '__main__':
                          precision=32,
                          max_epochs=args['epochs'], 
                          num_sanity_val_steps=0,
-                        #  gradient_clip_val=0.25,
+                         gradient_clip_val=0.25,
                          accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
-                         accelerator='cuda',
+                         accelerator='auto',
                          fast_dev_run=False,  
                          devices="auto",
     )
