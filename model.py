@@ -828,8 +828,10 @@ class PositionalTransformer(nn.Module):
         decoder_norm = nn.LayerNorm(d_model)
         self.decoder = TransformerDecoder(args,num_decoder_layers, decoder_norm,
                                           return_intermediate=return_intermediate_dec,
-                                          d_model=d_model,device=device)
-
+                                          d_model=d_model)
+        self.decoder2=TransformerDecoder(args,num_decoder_layers, decoder_norm,
+                                            return_intermediate=return_intermediate_dec,
+                                            d_model=d_model)
         self._reset_parameters()
 
         self.d_model = d_model
@@ -853,7 +855,9 @@ class PositionalTransformer(nn.Module):
       
         hs, references = self.decoder(tgt, memory, memory_key_padding_mask=mask,
                           pos=pos_embed, query_pos=query_embed)
-        return hs, references
+        hs2, references2 = self.decoder2(tgt, memory, memory_key_padding_mask=mask,
+                            pos=pos_embed, query_pos=query_embed)
+        return hs, references ,hs2, references2
 
 
 class PosTransformerEncoder(nn.Module):
@@ -883,24 +887,26 @@ class PosTransformerEncoder(nn.Module):
 
 class TransformerDecoder(nn.Module):
 
-    def __init__(self,args, num_layers, norm=None, return_intermediate=False, d_model=256,device="cuda"):
+    def __init__(self,args, num_layers, norm=None, return_intermediate=False, d_model=256):
         super().__init__()
         self.query_scale = MLP(d_model, d_model, d_model, 2)
-        self.device=device
         self.layers = nn.Sequential(*[TransformerDecoderLayer(*args,first_layer=True)]+[TransformerDecoderLayer(*args, query_scale=self.query_scale) for i in range(num_layers)])   # Can I make this squential?
         self.num_layers = num_layers
         self.norm = norm
         self.dim2_t = torch.pow(10000** (2 / (d_model/2)), torch.arange(d_model//4, dtype=torch.float32))
-
+        self.intermediate = []
         self.return_intermediate = return_intermediate
         self.ref_point_head = MLP(d_model, d_model, 2, 2)
-        if self.return_intermediate:
-            self._register_hook()
+        self._register_hook()
         #instead of doing a list to append to for intermediate layers, we could just register a hook to the layer and get the output from there
     def _register_hook(self):
-        self.intermediate = []
-        for layer in self.layers:
-            layer.register_forward_hook(self._get_intermediate_output)
+        
+        if self.return_intermediate:
+
+            for layer in self.layers:
+                layer.register_forward_hook(self._get_intermediate_output)
+        else:
+            self.layers[-1].register_forward_hook(self._get_intermediate_output)
     def _get_intermediate_output(self, layer, input, output):
         self.intermediate.append(self.norm(output["tgt"]))
     
@@ -922,7 +928,8 @@ class TransformerDecoder(nn.Module):
                 memory_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None,
                 query_pos: Optional[Tensor] = None):
-
+        
+        self.intermediate = []
         reference_points = self.ref_point_head(query_pos).sigmoid()
         output=self.layers(dict( tgt=output, memory=memory,
                                 tgt_mask = tgt_mask,
@@ -933,14 +940,9 @@ class TransformerDecoder(nn.Module):
                                 query_pos = query_pos,
                                 query_sine_embed = self.gen_sineembed_for_position(reference_points[..., :2]) ,
                                 is_first = False))["tgt"]
-
-        if self.return_intermediate:
-            out=[torch.stack(self.intermediate).transpose(1, 2), reference_points.transpose(0, 1)]
-            #print("out shape",out[0].shape)
-            self.intermediate = []
-            return out
-
-        return output.transpose(0,1).unsqueeze(0), reference_points.transpose(0, 1)
+        return (torch.stack(self.intermediate).transpose(1, 2), reference_points.transpose(0, 1))
+        
+        
 
 
 class TransformerEncoderLayer(nn.Module):

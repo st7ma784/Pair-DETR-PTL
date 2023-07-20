@@ -70,7 +70,7 @@ class PairDETR(pl.LightningModule):
         self.query_embed = nn.Parameter(nn.Embedding(self.num_queries, hidden_dim).weight)
         self.input_proj = nn.Conv2d(self.backbone.num_channels, hidden_dim, kernel_size=1)
         self.aux_loss = args['aux_loss']
-
+        self.loss=nn.CrossEntropyLoss()
         # init prior_prob setting for focal loss
         # prior_prob = 0.01
         # bias_value = -math.log((1 - prior_prob) / prior_prob)
@@ -87,7 +87,8 @@ class PairDETR(pl.LightningModule):
 
         self.weight_dict = {'loss_ce': args['cls_loss_coef'],
                        'loss_bbox': args['bbox_loss_coef'],
-                       'loss_giou': args['giou_loss_coef']}
+                       'loss_giou': args['giou_loss_coef'],
+                       'CELoss':1}
 
         self.criterion = SetCriterion(matcher=self.matcher, weight_dict=self.weight_dict,
                                 focal_alpha=args['focal_alpha'], losses=['labels', 'boxes', 'cardinality'],device=self.device)
@@ -107,16 +108,29 @@ class PairDETR(pl.LightningModule):
         src=src[-1]
         mask=F.interpolate(samples.mask[None].float(),size=src.shape[-2:]).bool()[0]        
         #mask=torch.randint(0,1,(src.shape[0],src.shape[-2],src.shape[-1]),device=self.device,dtype=torch.bool)
-        hs, reference = self.transformer(self.input_proj(src), mask, self.query_embed, self.positional_embedding(src).to(src.dtype))
+        hs, reference ,hs2,ref2= self.transformer(self.input_proj(src), mask, self.query_embed, self.positional_embedding(src).to(src.dtype))
         tmp=self.bbox_embed(hs)
-
         tmp[..., :2] +=  inverse_sigmoid(reference) 
         outputs_coord = tmp.sigmoid()
         outputs_class = hs#@self.clip_projection
+
+        # print("outputs_class",outputs_class.shape)
+        # print("outputs_coord",outputs_coord.shape)
+        # print("ref",reference.shape)
+        # print("ref2",ref2.shape)
+        # print("hs",hs.shape)
+        # print("hs2",hs2.shape)
+        hs=hs.flatten(0,2)
+        hs2=hs2.flatten(0,2)
+        logits=hs/hs.norm(dim=-1,keepdim=True)
+        logits2=hs2/hs2.norm(dim=-1,keepdim=True)
+
+        CELoss=self.loss(logits@logits2.T,torch.arange(logits.shape[0],device=self.device))
+
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
         if self.aux_loss:
             out['aux_outputs'] = [{'pred_logits': a, 'pred_boxes': b} for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
-        return out
+        return out,CELoss
 
 
     def configure_optimizers(self):
@@ -138,7 +152,7 @@ class PairDETR(pl.LightningModule):
         samples, targets ,classencodings = batch
         targets = [{k: v.to(self.device,non_blocking=True) for k, v in t.items()} for t in targets]
         classencodings = {k: v.to(self.device,non_blocking=True) for k, v in  classencodings.items()}
-        outputs = self(samples)
+        outputs,CELoss = self(samples)
         count=0
         for k in outputs.keys():
             
@@ -152,7 +166,7 @@ class PairDETR(pl.LightningModule):
 
         # I also want a list of the class labels from COCO to be comparing against in the first instance, this is essentially the classes we're told to go and grab, and the labels are the GT, which when deployed will come from Text to as well.
         loss_dict = self.criterion(classencodings,outputs, targets)
-
+        loss_dict['CELoss']=CELoss
         losses = sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
 
         loss_dict_scaled = {k: v * self.weight_dict[k]
@@ -247,7 +261,7 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     from datasets.coco import COCODataModule
-    data=COCODataModule(Cache_dir=args.coco_path,batch_size=16)
+    data=COCODataModule(Cache_dir=args.coco_path,batch_size=12)
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
