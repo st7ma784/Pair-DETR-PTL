@@ -20,17 +20,53 @@ from util.misc import inverse_sigmoid
 from model import *
 import pytorch_lightning as pl
 from transformers import CLIPTokenizer
+
+class DETRsegm(nn.Module):
+    def __init__(self, detr, freeze_detr=False):
+        super().__init__()
+        self.detr = detr
+
+        if freeze_detr:
+            for p in self.parameters():
+                p.requires_grad_(False)
+
+        hidden_dim, nheads = detr.transformer.d_model, detr.transformer.nhead
+        self.bbox_attention = MHAttentionMap(hidden_dim, hidden_dim, nheads, dropout=0.0)
+        self.mask_head = MaskHeadSmallConv(hidden_dim + nheads, [1024, 512, 256], hidden_dim)
+
+    def forward(self, samples: NestedTensor):
+        if isinstance(samples, (list, torch.Tensor)):
+            samples = nested_tensor_from_tensor_list(samples)
+        features, pos = self.detr.backbone(samples)
+
+        bs = features[-1].tensors.shape[0]
+
+        src, mask = features[-1].decompose()
+        assert mask is not None
+        src_proj = self.detr.input_proj(src)
+        hs, memory = self.detr.transformer(src_proj, mask, self.detr.query_embed.weight, pos[-1])
+
+        outputs_class = self.detr.class_embed(hs)
+        outputs_coord = self.detr.bbox_embed(hs).sigmoid()
+        out = {"pred_logits": outputs_class[-1], "pred_boxes": outputs_coord[-1]}
+        if self.detr.aux_loss:
+            out['aux_outputs'] = self.detr._set_aux_loss(outputs_class, outputs_coord)
+
+        # FIXME h_boxes takes the last one computed, keep this in mind
+        bbox_mask = self.bbox_attention(hs[-1], memory, mask=mask)
+
+        seg_masks = self.mask_head(src_proj, bbox_mask, [features[2].tensors, features[1].tensors, features[0].tensors])
+        outputs_seg_masks = seg_masks.view(bs, self.detr.num_queries, seg_masks.shape[-2], seg_masks.shape[-1])
+
+        out["pred_masks"] = outputs_seg_masks
+        return out
+
 class PairDETR(pl.LightningModule):
     def __init__(self,**args):
         super().__init__()
         self.save_hyperparameters()
         self.args = args
-        #self.kwargs = kwargs
         self.learning_rate = args['lr']
-        # num_classes = 20 if args['dataset_file'] != 'coco' else 91
-        # if args['dataset_file'] == "coco_panoptic":
-        #     num_classes = 250
-        # self.class_embed = nn.Linear(hidden_dim, num_classes)
         self.Tokenizer=CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
         self.tokenize=lambda x: self.Tokenizer(x, # Sentence to encode.
                     add_special_tokens = True, # Add '[CLS]' and '[SEP]'
@@ -40,17 +76,13 @@ class PairDETR(pl.LightningModule):
                     return_attention_mask = False,   # Construct attn. masks.
                     return_tensors = 'pt',     # Return pytorch tensors.
                 )['input_ids']
-        #myclip,_=clip.load('ViT-B/32',device=self.device)
-        #self.clip_projection= myclip.text_projection #this is usuallyy if text onto vis, not the other way round....
         posmethod=PositionEmbeddingLearned
         if args['position_embedding'] in ('v2', 'sine'):
             #TODO find a better way of exposing other arguments
             posmethod = PositionEmbeddingSine
         self.backbone = Backbone(args['backbone'], False, False,False)
-        #self.backbone.num_channels = self.backbone.num_channels
         self.num_queries = args['num_queries']
         hidden_dim = args['hidden_dim']
-
         self.transformer = PositionalTransformer(
             d_model=args['hidden_dim'],
             dropout=args['dropout'],
@@ -65,24 +97,19 @@ class PairDETR(pl.LightningModule):
         self.positional_embedding = posmethod(args['hidden_dim'] // 2,device=self.device)
        
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 6)
-        #self.query_embed = nn.Parameter(nn.Embedding(hidden_dim,self.num_queries).weight)
         self.input_proj = nn.Conv2d(self.backbone.num_channels, hidden_dim, kernel_size=1)
         self.aux_loss = args['aux_loss']
-        self.loss=nn.CrossEntropyLoss()
+        self.loss=nn.CrossEntropyLoss(reduction="mean")
         self.clip_projection=nn.Linear(512,hidden_dim)
-        # init prior_prob setting for focal loss
-        # prior_prob = 0.01
-        # bias_value = -math.log((1 - prior_prob) / prior_prob)
-        #self.class_embed.bias.data = torch.ones(num_classes) * bias_value
-
-        # init bbox_mebed
+   
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
-        #init the self.input_proj
         nn.init.constant_(self.input_proj.weight.data, 0)
         # if args.masks:
         #     model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
-        self.matcher = HungarianMatcher(cost_class=args['set_cost_class'], cost_bbox=args['set_cost_bbox'], cost_giou=args['set_cost_giou'])
+        self.matcher = HungarianMatcher(cost_class=args['set_cost_class'], 
+                                        cost_bbox=args['set_cost_bbox'],
+                                        cost_giou=args['set_cost_giou'])
 
         self.weight_dict = {'loss_ce': args['cls_loss_coef'],
                        'loss_bbox': args['bbox_loss_coef'],
@@ -91,11 +118,21 @@ class PairDETR(pl.LightningModule):
 
         self.criterion = SetCriterion(matcher=self.matcher, weight_dict=self.weight_dict,
                                 focal_alpha=args['focal_alpha'], losses=['labels', 'boxes', 'cardinality'],device=self.device)
+        # TO DO : CREATE SECOND CRTIERION FOR THE SECOND HEAD
+        
+        
         self.postprocessors = {'bbox': PostProcess()}
         
-    #config optimizer
+
 
     
+    def configure_optimizers(self):
+
+        optimizer = torch.optim.AdamW(self.parameters(),
+                                    lr=self.learning_rate,
+                                    weight_decay=self.args['weight_decay'])
+        # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, self.args['lr_drop'])
+        return [optimizer]
 
     def forward(self, samples: NestedTensor,classencodings):
 
@@ -135,20 +172,6 @@ class PairDETR(pl.LightningModule):
         return out,out2
 
 
-    def configure_optimizers(self):
-
-        # param_dicts = [{"params": self.transformer.parameters()},
-        #                {"params": self.input_proj.parameters()},
-        #                {"params": self.query_embed},
-        #                {"params": self.bbox_embed.parameters()},
-        #                {"params": self.clip_projection},
-        #                {"params": self.positional_embedding.parameters(), "lr": self.learning_rate * 0.1},
-        #                ]
-        optimizer = torch.optim.AdamW(self.parameters(),
-                                    lr=self.learning_rate,
-                                    weight_decay=self.args['weight_decay'])
-        # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, self.args['lr_drop'])
-        return [optimizer]
 
     def training_step(self, batch, batch_idx):
         samples, targets ,classencodings = batch
@@ -171,8 +194,8 @@ class PairDETR(pl.LightningModule):
         losses = sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
         loss_dict2,predictions2 = self.criterion(classencodings,out2, targets)
 
-        logits=predictions/predictions.norm(dim=-1,keepdim=True)
-        logits2=predictions2/predictions2.norm(dim=-1,keepdim=True)
+        logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
+        logits2=predictions2/torch.norm(predictions2,dim=-1,keepdim=True)
         CELoss=self.loss(logits@logits2.T,torch.arange(logits.shape[0],device=self.device))
         
         

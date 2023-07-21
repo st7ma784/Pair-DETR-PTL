@@ -73,45 +73,6 @@ class FrozenBatchNorm2d(torch.nn.Module):
         scale = w * (rv + eps).rsqrt()
         bias = b - rm * scale
         return x * scale + bias
-class DETRsegm(nn.Module):
-    def __init__(self, detr, freeze_detr=False):
-        super().__init__()
-        self.detr = detr
-
-        if freeze_detr:
-            for p in self.parameters():
-                p.requires_grad_(False)
-
-        hidden_dim, nheads = detr.transformer.d_model, detr.transformer.nhead
-        self.bbox_attention = MHAttentionMap(hidden_dim, hidden_dim, nheads, dropout=0.0)
-        self.mask_head = MaskHeadSmallConv(hidden_dim + nheads, [1024, 512, 256], hidden_dim)
-
-    def forward(self, samples: NestedTensor):
-        if isinstance(samples, (list, torch.Tensor)):
-            samples = nested_tensor_from_tensor_list(samples)
-        features, pos = self.detr.backbone(samples)
-
-        bs = features[-1].tensors.shape[0]
-
-        src, mask = features[-1].decompose()
-        assert mask is not None
-        src_proj = self.detr.input_proj(src)
-        hs, memory = self.detr.transformer(src_proj, mask, self.detr.query_embed.weight, pos[-1])
-
-        outputs_class = self.detr.class_embed(hs)
-        outputs_coord = self.detr.bbox_embed(hs).sigmoid()
-        out = {"pred_logits": outputs_class[-1], "pred_boxes": outputs_coord[-1]}
-        if self.detr.aux_loss:
-            out['aux_outputs'] = self.detr._set_aux_loss(outputs_class, outputs_coord)
-
-        # FIXME h_boxes takes the last one computed, keep this in mind
-        bbox_mask = self.bbox_attention(hs[-1], memory, mask=mask)
-
-        seg_masks = self.mask_head(src_proj, bbox_mask, [features[2].tensors, features[1].tensors, features[0].tensors])
-        outputs_seg_masks = seg_masks.view(bs, self.detr.num_queries, seg_masks.shape[-2], seg_masks.shape[-1])
-
-        out["pred_masks"] = outputs_seg_masks
-        return out
 
 
 
@@ -530,10 +491,10 @@ class SetCriterion(nn.Module):
         # print("targets",targets.shape) # targets torch.Size([8, 200, 512])
         inputs=inputs/torch.norm(inputs,dim=-1,keepdim=True)
         targets=targets/torch.norm(targets,dim=-1,keepdim=True)
-        match=F.relu(torch.sum(inputs*targets,dim=-1))
-        loss=self.loss(match,torch.ones(match.shape,device=match.device))
-  
-        return loss / num_boxes
+        loss=1-torch.sum(inputs*targets,dim=-1)
+        # loss=self.loss(match,torch.ones(match.shape,device=match.device))
+        #loss=self.loss(inputs,targets)
+        return loss.mean() / num_boxes
 
     def loss_labels(self,target_classes_o, outputs, targets, indices, num_boxes, log=True):
      
@@ -819,9 +780,12 @@ class PositionalTransformer(nn.Module):
         src = src.flatten(2).permute(2, 0, 1)
         pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
         query_embed = query_embed.unsqueeze(1).repeat(1, src.shape[1], 1)
+        #print("query embed",query_embed.shape) #240 , B,F
         mask = mask.flatten(1)
     
         tgt = torch.zeros_like(query_embed) 
+        #print("tgt",tgt.shape) #240 , B,F
+
         memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
       
         hs, references = self.decoder(tgt, memory, memory_key_padding_mask=mask,
@@ -869,7 +833,9 @@ class TransformerDecoder(nn.Module):
         self.return_intermediate = return_intermediate
         self.ref_point_head = MLP(d_model, d_model, 2, 2)
         self._register_hook()
-        #instead of doing a list to append to for intermediate layers, we could just register a hook to the layer and get the output from there
+        #if is aux, then I want to generate things slightly differently
+
+
     def _register_hook(self):
         
         if self.return_intermediate:
