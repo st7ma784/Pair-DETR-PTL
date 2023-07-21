@@ -19,7 +19,6 @@ from util.misc import inverse_sigmoid
 
 from model import *
 import pytorch_lightning as pl
-import clip
 from transformers import CLIPTokenizer
 class PairDETR(pl.LightningModule):
     def __init__(self,**args):
@@ -56,7 +55,6 @@ class PairDETR(pl.LightningModule):
             d_model=args['hidden_dim'],
             dropout=args['dropout'],
             nhead=args['nheads'],
-            num_queries=args['num_queries'],
             dim_feedforward=args['dim_feedforward'],
             num_encoder_layers=args['enc_layers'],
             num_decoder_layers=args['dec_layers'],
@@ -67,10 +65,11 @@ class PairDETR(pl.LightningModule):
         self.positional_embedding = posmethod(args['hidden_dim'] // 2,device=self.device)
        
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 6)
-        self.query_embed = nn.Parameter(nn.Embedding(self.num_queries, hidden_dim).weight)
+        #self.query_embed = nn.Parameter(nn.Embedding(hidden_dim,self.num_queries).weight)
         self.input_proj = nn.Conv2d(self.backbone.num_channels, hidden_dim, kernel_size=1)
         self.aux_loss = args['aux_loss']
         self.loss=nn.CrossEntropyLoss()
+        self.clip_projection=nn.Linear(512,hidden_dim)
         # init prior_prob setting for focal loss
         # prior_prob = 0.01
         # bias_value = -math.log((1 - prior_prob) / prior_prob)
@@ -98,7 +97,7 @@ class PairDETR(pl.LightningModule):
 
     
 
-    def forward(self, samples: NestedTensor):
+    def forward(self, samples: NestedTensor,classencodings):
 
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
@@ -107,30 +106,33 @@ class PairDETR(pl.LightningModule):
         src = self.backbone(samples.tensors)
         src=src[-1]
         mask=F.interpolate(samples.mask[None].float(),size=src.shape[-2:]).bool()[0]        
-        #mask=torch.randint(0,1,(src.shape[0],src.shape[-2],src.shape[-1]),device=self.device,dtype=torch.bool)
-        hs, reference ,hs2,ref2= self.transformer(self.input_proj(src), mask, self.query_embed, self.positional_embedding(src).to(src.dtype))
+        #my class encoding is going to be shape (n_classes, 512) I want this query embed to be (n_queries,hidden_dim)
+        
+        #print(self.query_embed.shape)
+        classencodings=self.clip_projection(classencodings)
+        #repeat by the number of queries
+        classencodings=classencodings.repeat(1,self.num_queries,1).flatten(0,1)
+        #print(classencodings.shape)
+
+        hs, reference ,hs2,ref2= self.transformer(self.input_proj(src), mask, classencodings, self.positional_embedding(src).to(src.dtype))
         tmp=self.bbox_embed(hs)
         tmp[..., :2] +=  inverse_sigmoid(reference) 
         outputs_coord = tmp.sigmoid()
         outputs_class = hs#@self.clip_projection
 
-        # print("outputs_class",outputs_class.shape)
-        # print("outputs_coord",outputs_coord.shape)
-        # print("ref",reference.shape)
-        # print("ref2",ref2.shape)
-        # print("hs",hs.shape)
-        # print("hs2",hs2.shape)
-        hs=hs.flatten(0,2)
-        hs2=hs2.flatten(0,2)
-        logits=hs/hs.norm(dim=-1,keepdim=True)
-        logits2=hs2/hs2.norm(dim=-1,keepdim=True)
+        tmp2=self.bbox_embed(hs2)
+        tmp2[..., :2] +=  inverse_sigmoid(ref2)
+        outputs_coord2 = tmp2.sigmoid()
+        outputs_class2 =hs2
 
-        CELoss=self.loss(logits@logits2.T,torch.arange(logits.shape[0],device=self.device))
+        
 
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
+        out2= {'pred_logits': outputs_class2[-1], 'pred_boxes': outputs_coord2[-1]}
         if self.aux_loss:
             out['aux_outputs'] = [{'pred_logits': a, 'pred_boxes': b} for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
-        return out,CELoss
+            out2['aux_outputs'] = [{'pred_logits': a, 'pred_boxes': b} for a, b in zip(outputs_class2[:-1], outputs_coord2[:-1])]
+        return out,out2
 
 
     def configure_optimizers(self):
@@ -152,7 +154,7 @@ class PairDETR(pl.LightningModule):
         samples, targets ,classencodings = batch
         targets = [{k: v.to(self.device,non_blocking=True) for k, v in t.items()} for t in targets]
         classencodings = {k: v.to(self.device,non_blocking=True) for k, v in  classencodings.items()}
-        outputs,CELoss = self(samples)
+        outputs,out2 = self(samples,torch.stack(list(classencodings.values())))
         count=0
         for k in outputs.keys():
             
@@ -165,16 +167,24 @@ class PairDETR(pl.LightningModule):
             return None
 
         # I also want a list of the class labels from COCO to be comparing against in the first instance, this is essentially the classes we're told to go and grab, and the labels are the GT, which when deployed will come from Text to as well.
-        loss_dict = self.criterion(classencodings,outputs, targets)
-        loss_dict['CELoss']=CELoss
+        loss_dict, predictions= self.criterion(classencodings,outputs, targets)
         losses = sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
+        loss_dict2,predictions2 = self.criterion(classencodings,out2, targets)
 
+        logits=predictions/predictions.norm(dim=-1,keepdim=True)
+        logits2=predictions2/predictions2.norm(dim=-1,keepdim=True)
+        CELoss=self.loss(logits@logits2.T,torch.arange(logits.shape[0],device=self.device))
+        
+        
+        loss_dict['CELoss']=CELoss
+        loss_dict2['CELoss']=CELoss
+        losses2 = sum(loss_dict2[k] * self.weight_dict[k] for k in loss_dict2.keys() if k in self.weight_dict)
         loss_dict_scaled = {k: v * self.weight_dict[k]
                                     for k, v in loss_dict.items() if k in self.weight_dict}
         for k,v in loss_dict_scaled.items():
             self.log(k,v,prog_bar=True,enable_graph=False)
         #self.log('train_loss', loss_value)
-        return losses
+        return losses+losses2
    
     def on_test_start(self) -> None:
         print(" Looking for Datamodule :\n",self.__dir__())     
@@ -270,7 +280,7 @@ if __name__ == '__main__':
                          max_epochs=args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
-                         accumulate_grad_batches=4,
+                         #accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
                          fast_dev_run=False,  

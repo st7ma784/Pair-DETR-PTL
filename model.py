@@ -463,41 +463,16 @@ class HungarianMatcher(nn.Module):
         #print("out prob, out box",out_prob.shape, out_bbox.shape)#1600,F   1600,4
         # Also concat the target labels and boxes
         tgt_ids = torch.cat([v["labels"] for v in targets]) # [n ]
-        #print("tgt ids",tgt_ids)
         tgt_bbox = torch.cat([v["boxes"] for v in targets])
-        #print("tgt ids, tgt box",tgt_ids.shape, tgt_bbox.shape)# torch.Size([120]) torch.Size([120, 4])
-        # Compute the classification cost.
-        # alpha = 0.25
-        # gamma = 2.0
-
-
-        # neg_cost_class =  (out_prob ** gamma) * (-(1 - out_prob + 1e-8).log())
-        # pos_cost_class =  ((1 - out_prob) ** gamma) * (-(out_prob + 1e-8).log())
-        # cost_class = alpha *pos_cost_class[:, tgt_ids] - (1 - alpha)*neg_cost_class[:, tgt_ids]
-        #print("aiming for ..." ,cost_class.shape)#torch.Size([1600, 49])
-        #print("cost class",cost_class[0])
-
-        
         tgt_embs= torch.stack([encodings[int(i)] for i in tgt_ids],dim=0).squeeze()
         out_prob=out_prob/torch.norm(out_prob,dim=-1,keepdim=True) #can get away with no grad...
         tgt_embs=tgt_embs/torch.norm(tgt_embs,dim=-1,keepdim=True)
-
         cost_class=F.relu(out_prob@tgt_embs.T)
-        #neg_cost_class =  (probs ** gamma) * (-(1 - probs + 1e-8).log())
-        #pos_cost_class =  ((1 - probs) ** gamma) * (-(probs + 1e-8).log())
-        #cost_class = alpha *pos_cost_class - (1 - alpha)*neg_cost_class
-        #cost_class=-cost_class
-        #print("cost class",cost_class.shape)
-        # Compute the L1 cost between boxes
         cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
         # Compute the giou cost betwen boxes
         cost_giou = -generalized_box_iou(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
        
-        # Final cost matrix
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
-        #must be a better way than this: 
-        #can i use torch.topk instead? but I need the index in batch*nqueries space rather than in target
-        
         C = C.view(bs, num_queries, -1).cpu().sigmoid()
 
         sizes = [len(v["boxes"]) for v in targets]
@@ -512,8 +487,6 @@ class HungarianMatcher(nn.Module):
         batch_idx = torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]).unsqueeze(0)
         indices=torch.cat([batch_idx,idxs],dim=0)
         return indices, target_classes_o
-#        out=[(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices]
-#       return out, target_classes_o
 
 
 class SetCriterion(nn.Module):
@@ -552,11 +525,11 @@ class SetCriterion(nn.Module):
         Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
 
         """
-        #do similarity of inputs to targets,
+        # #do similarity of inputs to targets,
         # print("inputs",inputs.shape) # inputs torch.Size([8, 200, 512])
         # print("targets",targets.shape) # targets torch.Size([8, 200, 512])
-        inputs=inputs#/torch.norm(inputs,dim=-1,keepdim=True)
-        targets=targets#/torch.norm(targets,dim=-1,keepdim=True)
+        inputs=inputs/torch.norm(inputs,dim=-1,keepdim=True)
+        targets=targets/torch.norm(targets,dim=-1,keepdim=True)
         match=F.relu(torch.sum(inputs*targets,dim=-1))
         loss=self.loss(match,torch.ones(match.shape,device=match.device))
   
@@ -567,12 +540,12 @@ class SetCriterion(nn.Module):
         assert 'pred_logits' in outputs
 
         idx= (indices[0], indices[2])
-        src_logits = outputs['pred_logits']
-
-        target_classes = torch.zeros((*src_logits.shape[:2],512), device=src_logits.device) 
-        target_classes[idx] = target_classes_o
-       
-        loss_ce = self.sigmoid_focal_loss(src_logits, target_classes, num_boxes) * src_logits.shape[1]
+        src_idx= (indices[0], indices[1])
+        src_logits = outputs['pred_logits'][src_idx]
+        # target_classes = torch.zeros((*src_logits.shape[:2],512), device=src_logits.device) 
+        # target_classes[idx] = target_classes_o
+        # print(torch.allclose(target_classes[idx], target_classes_o))#True
+        loss_ce = self.sigmoid_focal_loss(src_logits, target_classes_o, num_boxes) * src_logits.shape[1]
         losses = {'loss_ce': loss_ce}
 
         return losses
@@ -600,10 +573,7 @@ class SetCriterion(nn.Module):
         idx = (indices[0],indices[1])
         src_boxes = outputs['pred_boxes'][idx]
         target_boxes = torch.stack([targets[t]['boxes'][i] for (t, i) in zip(indices[0],indices[2])], dim=0)
-        # print("target_boxes shape: ", target_boxes.shape) # [n_boxes, 4]
-        # print("src_boxes shape: ", src_boxes.shape) # [ n_boxes, 4]
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
-
         losses = {}
         losses['loss_bbox'] = loss_bbox.sum() / num_boxes
 
@@ -666,8 +636,9 @@ class SetCriterion(nn.Module):
                     l_dict = self.loss_map[loss](target_classes_o,outputs, targets, indices, num_boxes)
                     l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
-
-        return losses
+        src_idx= (indices[0], indices[1])
+        src_logits = outputs['pred_logits'][src_idx]
+        return losses, src_logits
 
 
 class PostProcess(nn.Module):
@@ -814,7 +785,7 @@ class Backbone(BackboneBase):
 
 class PositionalTransformer(nn.Module):
 
-    def __init__(self, d_model=512, nhead=8, num_queries=300, num_encoder_layers=6,
+    def __init__(self, d_model=512, nhead=8, num_encoder_layers=6,
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False,
                  return_intermediate_dec=False,device="cuda"):

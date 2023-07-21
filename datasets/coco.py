@@ -45,13 +45,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         img, target = self.prepare(img, target)
         if self._transforms is not None:
             img, target = self._transforms(img, target)
-        #print("labels",target['labels'])      
-        
-        #Can be improved in future by returning clip.encode(im.crop(box)) for each box's labels!!
-        
-        
-        
-        #target.update({"labels":torch.stack([self.tokenized_classnames[int(l)] for l in target['labels']])})
+        #pr
         return img, target, self.tokenized_classnames
 
 
