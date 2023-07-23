@@ -151,7 +151,7 @@ class TransformerDecoder(nn.Module):
                 pos_transformation = self.query_scale(output)
 
             # get sine embedding for the query vector
-            query_sine_embed = gen_sineembed_for_position(obj_center)     
+            query_sine_embed = gen_sineembed_for_position(reference_points[..., :2].transpose(0, 1))     
             # apply transformation
             query_sine_embed = query_sine_embed * pos_transformation
             output = layer(output, memory, tgt_mask=tgt_mask,

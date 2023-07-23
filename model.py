@@ -13,6 +13,7 @@
 from util.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
 from util import box_ops
 from util.misc import (NestedTensor, nested_tensor_from_tensor_list, interpolate)
+from util.misc import inverse_sigmoid
 
 from typing import Optional, List
 import math
@@ -160,7 +161,7 @@ class MHAttentionMap(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         self.q_linear = nn.Linear(query_dim, hidden_dim, bias=bias)
-        self.k_linear = nn.Linear(query_dim, hidden_dim, bias=bias)
+        self.k_linear = nn.Linear(2, hidden_dim//num_heads, bias=bias)
 
         nn.init.zeros_(self.k_linear.bias)
         nn.init.zeros_(self.q_linear.bias)
@@ -169,10 +170,28 @@ class MHAttentionMap(nn.Module):
         self.normalize_fact = float(hidden_dim / self.num_heads) ** -0.5
 
     def forward(self, q, k, mask: Optional[Tensor] = None):
+
+        #q - B, NQ, F  
+        #k - B, NQ, 2
         q = self.q_linear(q)
-        k = F.conv2d(k, self.k_linear.weight.unsqueeze(-1).unsqueeze(-1), self.k_linear.bias)
-        qh = q.view(q.shape[0], q.shape[1], self.num_heads, self.hidden_dim // self.num_heads)
-        kh = k.view(k.shape[0], self.num_heads, self.hidden_dim // self.num_heads, k.shape[-2], k.shape[-1])
+        k = self.k_linear(k)      
+        # print("q",q.shape)# B NQ,F
+
+        # print("k",k.shape)# B, NQ, F//Nheads
+        #input= b,NQ, F
+        #k should be nq, nq h,w
+        k = F.conv2d(q.permute(2,1,0), k[0].unsqueeze(-1).unsqueeze(-1),groups=self.num_heads)
+
+        # print("conv k",k.shape)# F//Nheads, B, NQ, 1,1
+        k=k.unsqueeze(-1).unsqueeze(-1)
+        '''
+        input - (B,In, H, W)
+        weight - (Out, In, KH, KW)
+        .transpose(0, 1).transpose(0, 1)
+        '''
+        # print("k",k.shape)
+        qh = q.view(q.shape[0], q.shape[1], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,Nheads,hidden//Nheads
+        kh = k.view(k.shape[0], self.num_heads, self.hidden_dim // self.num_heads, k.shape[-2], k.shape[-1]) # shape B,numQ,hidden//Nheads,H,W
         weights = torch.einsum("bqnc,bnchw->bqnhw", qh * self.normalize_fact, kh)
 
         if mask is not None:
@@ -666,24 +685,25 @@ class PositionEmbeddingSine(nn.Module):
             scale = 2 * math.pi
         self.scale = scale
         
-        dim_t = torch.arange(self.num_pos_feats//2, dtype=torch.float32)
+        dim_t = torch.arange(self.num_pos_feats//2, dtype=torch.float32,device=self.device)
         self.dim_t = self.temperature ** (2 * (dim_t) / self.num_pos_feats)
     def forward(self, x: Tensor, mask: Tensor):
         assert mask is not None
-        not_mask = ~mask
-        y_embed = not_mask.cumsum(1, dtype=torch.float32)
-        x_embed = not_mask.cumsum(2, dtype=torch.float32)
+        not_mask = ~mask.to(self.device)
+        y_embed = not_mask.cumsum(1, dtype=torch.float32).to(x.device)
+        x_embed = not_mask.cumsum(2, dtype=torch.float32).to(x.device)
         if self.normalize:
             eps = 1e-6
             y_embed = y_embed / (y_embed[:, -1:, :] + eps) * self.scale
             x_embed = x_embed / (x_embed[:, :, -1:] + eps) * self.scale
 
 
-        pos_x = x_embed[:, :, :, None] / self.dim_t
-        pos_y = y_embed[:, :, :, None] / self.dim_t
+        pos_x = x_embed[:, :, :, None] / self.dim_t.to(x.device)
+        pos_y = y_embed[:, :, :, None] / self.dim_t.to(x.device)
         pos_x = torch.stack((pos_x.sin(), pos_x.cos()), dim=4).flatten(3)
         pos_y = torch.stack((pos_y.sin(), pos_y.cos()), dim=4).flatten(3)
         pos = torch.cat((pos_y, pos_x), dim=3).permute(0, 3, 1, 2)
+        # print(pos.device)
         return pos
 
 
@@ -702,7 +722,7 @@ class PositionEmbeddingLearned(nn.Module):
         nn.init.uniform_(self.row_embed)
         nn.init.uniform_(self.col_embed)
 
-    def forward(self, x: Tensor):
+    def forward(self, x: Tensor,mask: Tensor=None):
         return torch.cat([
             self.col_embed.unsqueeze(0).repeat(self.row_embed.shape[0], 1, 1),
             self.row_embed.unsqueeze(1).repeat(1, self.col_embed.shape[0], 1),
@@ -751,10 +771,13 @@ class PositionalTransformer(nn.Module):
                  activation="relu", normalize_before=False,
                  return_intermediate_dec=False,device="cuda"):
         super().__init__()
+        self.bbox_embed = MLP(d_model, d_model, 4, 6)
 
         args=(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
-        
+        self.bbox_attention = MHAttentionMap(d_model, d_model, nhead, dropout=0.0)
+        self.mask_head = MaskHeadSmallConv(d_model + nhead, [1024, 512, 256], d_model)
+
         self.encoder = PosTransformerEncoder(args, num_encoder_layers, normalize_before)
 
         decoder_norm = nn.LayerNorm(d_model)
@@ -764,35 +787,55 @@ class PositionalTransformer(nn.Module):
         self.decoder2=TransformerDecoder(args,num_decoder_layers, decoder_norm,
                                             return_intermediate=return_intermediate_dec,
                                             d_model=d_model)
-        self._reset_parameters()
+        # self._reset_parameters()
 
         self.d_model = d_model
         self.nhead = nhead
         self.dec_layers = num_decoder_layers
 
-    def _reset_parameters(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
+    # def _reset_parameters(self):
+    #     for p in self.parameters():
+    #         if p.dim() > 1:
+    #             nn.init.xavier_uniform_(p)
 
-    def forward(self, src, mask, query_embed, pos_embed):
+    def forward(self, src, query_embed, pos_embed, mask=None):
         # flatten NxCxHxW to HWxNxC
-        src = src.flatten(2).permute(2, 0, 1)
-        pos_embed = pos_embed.flatten(2).permute(2, 0, 1)
-        query_embed = query_embed.unsqueeze(1).repeat(1, src.shape[1], 1)
+        src2 = src.flatten(2).permute(2, 0, 1)
+        pos_embed2 = pos_embed.flatten(2).permute(2, 0, 1)
+        query_embed = query_embed.unsqueeze(1).repeat(1, src2.shape[1], 1)
         #print("query embed",query_embed.shape) #240 , B,F
         mask = mask.flatten(1)
     
         tgt = torch.zeros_like(query_embed) 
         #print("tgt",tgt.shape) #240 , B,F
 
-        memory = self.encoder(src, src_key_padding_mask=mask, pos=pos_embed)
+        memory = self.encoder(src2, src_key_padding_mask=mask, pos=pos_embed2)
       
         hs, references = self.decoder(tgt, memory, memory_key_padding_mask=mask,
-                          pos=pos_embed, query_pos=query_embed)
+                          pos=pos_embed2, query_pos=query_embed)
         hs2, references2 = self.decoder2(tgt, memory, memory_key_padding_mask=mask,
-                            pos=pos_embed, query_pos=query_embed)
-        return hs, references ,hs2, references2
+                            pos=pos_embed2, query_pos=query_embed)
+        tmp=self.bbox_embed(hs)
+        #print(references.shape)#B,nq,512
+        tmp[..., :2] +=  inverse_sigmoid(references) 
+        outputs_coord = tmp.sigmoid()
+        outputs_class = hs
+        tmp=self.bbox_embed(hs2)
+        tmp[..., :2] +=  inverse_sigmoid(references2) 
+        outputs_coord2 = tmp.sigmoid()
+        outputs_class2 = hs2
+        # to do this, we  have a set of class features,  and a list of object coords. 
+        #bbox_mask = self.bbox_attention(hs[-1], references, mask=mask)
+        #WE could pair the 2... 
+        # the bbox mask ideally should be a image shape with features in the object locations, I want an output C,NQ,Confidence,H,W?
+        
+        #make a B,h,w, c tensor, then use the bbox mask to select the features, then use the mask head to get the masks
+        #seg_masks = self.mask_head(src, bbox_mask, src) #x: Tensor, bbox_mask: Tensor, fpns: List[Tensor]):
+
+        ##outputs_seg_masks = seg_masks.view(src.shape[0], query_embed.shape[0], seg_masks.shape[-2], seg_masks.shape[-1])
+        #print("bbox mask",bbox_mask.shape)
+        #print("src",src.shape)
+        return outputs_coord, outputs_class ,outputs_coord2, outputs_class2#,outputs_seg_masks
 
 
 class PosTransformerEncoder(nn.Module):
@@ -833,6 +876,8 @@ class TransformerDecoder(nn.Module):
         self.return_intermediate = return_intermediate
         self.ref_point_head = MLP(d_model, d_model, 2, 2)
         self._register_hook()
+        self.obj_centre=self.obj_centre_to_query
+
         #if is aux, then I want to generate things slightly differently
 
 
@@ -849,15 +894,35 @@ class TransformerDecoder(nn.Module):
     
     def gen_sineembed_for_position(self,pos_tensor):
          
-            pos_tensor = torch.mul(pos_tensor,2 * math.pi)
-            pos2_x = pos_tensor[:, :, 0].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
-            pos2_y = pos_tensor[:, :, 1].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
-            #shapes are 300,B,128          
-            pos2_x = torch.stack((pos2_x.sin(), pos2_x.cos()), dim=3).flatten(2)
-            pos2_y = torch.stack((pos2_y.sin(), pos2_y.cos()), dim=3).flatten(2)
-            return torch.cat((pos2_y, pos2_x), dim=2)
-        
+        pos_tensor = torch.mul(pos_tensor,2 * math.pi)
+        pos2_x = pos_tensor[:, :, 0].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
+        pos2_y = pos_tensor[:, :, 1].unsqueeze(-1) / self.dim2_t.to(pos_tensor.device)
+        #shapes are 300,B,128          
+        pos2_x = torch.stack((pos2_x.sin(), pos2_x.cos()), dim=3).flatten(2)
+        pos2_y = torch.stack((pos2_y.sin(), pos2_y.cos()), dim=3).flatten(2)
+        return torch.cat((pos2_y, pos2_x), dim=2)
+    
+    # def gen_learnt_embed_for_position(self,pos_tensor):
+    #     class PositionEmbeddingLearned(nn.Module):
+    
+    #     def __init__(self, num_pos_feats=512,device='cuda'):
+    #         super().__init__()
+    #         self.device=device
+    #         self.row_embed = nn.Parameter(torch.ones(25, num_pos_feats,device=self.device))
+    #         self.col_embed = nn.Parameter(torch.ones(25, num_pos_feats,device=self.device))
 
+    #     return torch.cat([
+    #         self.col_embed.unsqueeze(0).repeat(self.row_embed.shape[0], 1, 1),
+    #         self.row_embed.unsqueeze(1).repeat(1, self.col_embed.shape[0], 1),
+    #     ], dim=-1).permute(2, 0, 1).unsqueeze(0).repeat(x.shape[0], 1, 1, 1) # returns [ B,F,H,W]
+
+
+
+    def obj_centre_to_query(self,query_pos):
+        reference_points = self.ref_point_head(query_pos).sigmoid()
+        objcentres = reference_points[..., :2]#.transpose(0, 1)
+        return objcentres
+    
     def forward(self, output, memory,
                 tgt_mask: Optional[Tensor] = None,
                 memory_mask: Optional[Tensor] = None,
@@ -867,7 +932,9 @@ class TransformerDecoder(nn.Module):
                 query_pos: Optional[Tensor] = None):
         
         self.intermediate = []
-        reference_points = self.ref_point_head(query_pos).sigmoid()
+        reference_points_before_sigmoid = self.ref_point_head(query_pos)    # [num_queries, batch_size, 2]
+        reference_points = reference_points_before_sigmoid.sigmoid().transpose(0, 1)
+        query_sine_embed = self.gen_sineembed_for_position(reference_points[..., :2].transpose(0, 1))
         output=self.layers(dict( tgt=output, memory=memory,
                                 tgt_mask = tgt_mask,
                                 memory_mask = memory_mask,
@@ -875,9 +942,9 @@ class TransformerDecoder(nn.Module):
                                 memory_key_padding_mask = memory_key_padding_mask,
                                 pos = pos,
                                 query_pos = query_pos,
-                                query_sine_embed = self.gen_sineembed_for_position(reference_points[..., :2]) ,
+                                query_sine_embed = query_sine_embed,
                                 is_first = False))["tgt"]
-        return (torch.stack(self.intermediate).transpose(1, 2), reference_points.transpose(0, 1))
+        return (torch.stack(self.intermediate).transpose(1, 2), reference_points)
         
         
 

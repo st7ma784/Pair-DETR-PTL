@@ -21,45 +21,28 @@ from model import *
 import pytorch_lightning as pl
 from transformers import CLIPTokenizer
 
-class DETRsegm(nn.Module):
-    def __init__(self, detr, freeze_detr=False):
-        super().__init__()
-        self.detr = detr
+# class DETRsegm(nn.Module):
+#     def __init__(self, detr, freeze_detr=False):
+#         super().__init__()
+#         self.detr = detr
 
-        if freeze_detr:
-            for p in self.parameters():
-                p.requires_grad_(False)
+#         if freeze_detr:
+#             for p in self.parameters():
+#                 p.requires_grad_(False)
 
-        hidden_dim, nheads = detr.transformer.d_model, detr.transformer.nhead
-        self.bbox_attention = MHAttentionMap(hidden_dim, hidden_dim, nheads, dropout=0.0)
-        self.mask_head = MaskHeadSmallConv(hidden_dim + nheads, [1024, 512, 256], hidden_dim)
+#         hidden_dim, nheads = detr.transformer.d_model, detr.transformer.nhead
+#         self.bbox_attention = MHAttentionMap(hidden_dim, hidden_dim, nheads, dropout=0.0)
+#         self.mask_head = MaskHeadSmallConv(hidden_dim + nheads, [1024, 512, 256], hidden_dim)
 
-    def forward(self, samples: NestedTensor):
-        if isinstance(samples, (list, torch.Tensor)):
-            samples = nested_tensor_from_tensor_list(samples)
-        features, pos = self.detr.backbone(samples)
+#     def forward(self, samples: NestedTensor):
+        
+#         bbox_mask = self.bbox_attention(hs[-1], memory, mask=mask)
 
-        bs = features[-1].tensors.shape[0]
+#         seg_masks = self.mask_head(src_proj, bbox_mask, [features[2].tensors, features[1].tensors, features[0].tensors])
+#         outputs_seg_masks = seg_masks.view(bs, self.detr.num_queries, seg_masks.shape[-2], seg_masks.shape[-1])
 
-        src, mask = features[-1].decompose()
-        assert mask is not None
-        src_proj = self.detr.input_proj(src)
-        hs, memory = self.detr.transformer(src_proj, mask, self.detr.query_embed.weight, pos[-1])
-
-        outputs_class = self.detr.class_embed(hs)
-        outputs_coord = self.detr.bbox_embed(hs).sigmoid()
-        out = {"pred_logits": outputs_class[-1], "pred_boxes": outputs_coord[-1]}
-        if self.detr.aux_loss:
-            out['aux_outputs'] = self.detr._set_aux_loss(outputs_class, outputs_coord)
-
-        # FIXME h_boxes takes the last one computed, keep this in mind
-        bbox_mask = self.bbox_attention(hs[-1], memory, mask=mask)
-
-        seg_masks = self.mask_head(src_proj, bbox_mask, [features[2].tensors, features[1].tensors, features[0].tensors])
-        outputs_seg_masks = seg_masks.view(bs, self.detr.num_queries, seg_masks.shape[-2], seg_masks.shape[-1])
-
-        out["pred_masks"] = outputs_seg_masks
-        return out
+#         out["pred_masks"] = outputs_seg_masks
+#         return out
 
 class PairDETR(pl.LightningModule):
     def __init__(self,**args):
@@ -76,10 +59,10 @@ class PairDETR(pl.LightningModule):
                     return_attention_mask = False,   # Construct attn. masks.
                     return_tensors = 'pt',     # Return pytorch tensors.
                 )['input_ids']
-        posmethod=PositionEmbeddingLearned
-        if args['position_embedding'] in ('v2', 'sine'):
+        #posmethod=PositionEmbeddingLearned
+        #if args['position_embedding'] in ('v2', 'sine'):
             #TODO find a better way of exposing other arguments
-            posmethod = PositionEmbeddingSine
+        posmethod = PositionEmbeddingSine
         self.backbone = Backbone(args['backbone'], False, False,False)
         self.num_queries = args['num_queries']
         hidden_dim = args['hidden_dim']
@@ -114,7 +97,7 @@ class PairDETR(pl.LightningModule):
         self.weight_dict = {'loss_ce': args['cls_loss_coef'],
                        'loss_bbox': args['bbox_loss_coef'],
                        'loss_giou': args['giou_loss_coef'],
-                       'CELoss':1}
+                       'CELoss':0.25}
 
         self.criterion = SetCriterion(matcher=self.matcher, weight_dict=self.weight_dict,
                                 focal_alpha=args['focal_alpha'], losses=['labels', 'boxes', 'cardinality'],device=self.device)
@@ -142,33 +125,25 @@ class PairDETR(pl.LightningModule):
 
         src = self.backbone(samples.tensors)
         src=src[-1]
-        mask=F.interpolate(samples.mask[None].float(),size=src.shape[-2:]).bool()[0]        
+        mask=F.interpolate(samples.mask[None].float(),size=src.shape[-2:]).bool()[-1]        
         #my class encoding is going to be shape (n_classes, 512) I want this query embed to be (n_queries,hidden_dim)
-        
+
         #print(self.query_embed.shape)
         classencodings=self.clip_projection(classencodings)
         #repeat by the number of queries
         classencodings=classencodings.repeat(1,self.num_queries,1).flatten(0,1)
         #print(classencodings.shape)
-
-        hs, reference ,hs2,ref2= self.transformer(self.input_proj(src), mask, classencodings, self.positional_embedding(src).to(src.dtype))
-        tmp=self.bbox_embed(hs)
-        tmp[..., :2] +=  inverse_sigmoid(reference) 
-        outputs_coord = tmp.sigmoid()
-        outputs_class = hs#@self.clip_projection
-
-        tmp2=self.bbox_embed(hs2)
-        tmp2[..., :2] +=  inverse_sigmoid(ref2)
-        outputs_coord2 = tmp2.sigmoid()
-        outputs_class2 =hs2
-
+        #print("src shape",src.shape,src.device)
         
 
-        out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}
-        out2= {'pred_logits': outputs_class2[-1], 'pred_boxes': outputs_coord2[-1]}
+        outputs_coord, outputs_class ,outputs_coord2, outputs_class2= self.transformer( self.input_proj(src) , classencodings, self.positional_embedding(src,mask), mask)
+
+        out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}#,'pred_masks':masks}
+        out2= {'pred_logits': outputs_class2[-1], 'pred_boxes': outputs_coord2[-1]}#,'pred_masks':masks}
         if self.aux_loss:
             out['aux_outputs'] = [{'pred_logits': a, 'pred_boxes': b} for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
             out2['aux_outputs'] = [{'pred_logits': a, 'pred_boxes': b} for a, b in zip(outputs_class2[:-1], outputs_coord2[:-1])]
+        
         return out,out2
 
 
@@ -193,9 +168,12 @@ class PairDETR(pl.LightningModule):
         loss_dict, predictions= self.criterion(classencodings,outputs, targets)
         losses = sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
         loss_dict2,predictions2 = self.criterion(classencodings,out2, targets)
-
+        # print("predictions",predictions.shape)
+        # print("predictions2",predictions2.shape)
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
         logits2=predictions2/torch.norm(predictions2,dim=-1,keepdim=True)
+        # logits=logits.flatten(0,1)
+        # logits2=logits2.flatten(0,1)
         CELoss=self.loss(logits@logits2.T,torch.arange(logits.shape[0],device=self.device))
         
         
@@ -215,38 +193,19 @@ class PairDETR(pl.LightningModule):
     #     # print(self.data.__dir__())
     #     self.coco_evaluator = CocoEvaluator(self.val_dataloader().dataset, iou_types)
     #     self.panoptic_evaluator = None
-    #     if 'panoptic' in self.postprocessors.keys():
-    #         self.panoptic_evaluator = PanopticEvaluator(
-    #             self.val_dataloader().dataset.ann_file,
-    #             self.val_dataloader().dataset.ann_folder,
-    #     )
-    #     return super().on_test_start()
+          # self.coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
+
+
+
     # def test_step(self, batch, batch_idx):
-    
-
-
-    # # coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
-
-        
-    #     samples, targets = batch
+    #
+    #     samples, targets ,classencodings = batch
     #     samples = samples.to(self.device)
     #     targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
 
-    #     outputs = self.model(samples)
+    #     outputs, out2= self(samples, torch.stack(list(classencodings.values())) )# we need to find coco classes for this!?
     #     loss_dict = self.criterion(outputs, targets)
     #     weight_dict = self.criterion.weight_dict
-
-    #     # reduce losses over all GPUs for logging purposes
-    #     loss_dict_reduced = utils.reduce_dict(loss_dict)
-    #     loss_dict_reduced_scaled = {k: v * weight_dict[k]
-    #                                 for k, v in loss_dict_reduced.items() if k in weight_dict}
-    #     loss_dict_reduced_unscaled = {f'{k}_unscaled': v
-    #                                   for k, v in loss_dict_reduced.items()}
-    #     self.log("loss",sum(loss_dict_reduced_scaled.values()))
-    #     #  **loss_dict_reduced_scaled,
-    #     #  **loss_dict_reduced_unscaled)
-    #     self.log("class_error",loss_dict_reduced['class_error'])
-
     #     orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
     #     results = self.postprocessors['bbox'](outputs, orig_target_sizes)
     #     if 'segm' in self.postprocessors.keys():
@@ -294,7 +253,7 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     from datasets.coco import COCODataModule
-    data=COCODataModule(Cache_dir=args.coco_path,batch_size=12)
+    data=COCODataModule(Cache_dir=args.coco_path,batch_size=24)
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
