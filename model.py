@@ -601,7 +601,7 @@ class SetCriterion(nn.Module):
                                 mode="bilinear", align_corners=False)[:, 0].flatten(1)
 
         target_masks = target_masks.flatten(1)
-        target_masks = target_masks.view(src_masks.shape)
+        target_masks = target_masks.view(sc_masks.shape)
         return {
             "loss_mask": sigmoid_focal_loss(sc_masks, target_masks, num_boxes),
             "loss_dice": dice_loss(sc_masks, target_masks, num_boxes),
