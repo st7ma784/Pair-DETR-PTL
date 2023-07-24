@@ -85,7 +85,9 @@ class PairDETR(pl.LightningModule):
         #     model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
         self.matcher = HungarianMatcher(cost_class=args['set_cost_class'], 
                                         cost_bbox=args['set_cost_bbox'],
-                                        cost_giou=args['set_cost_giou'])
+                                        cost_giou=args['set_cost_giou'],
+                                        
+                                        )
 
         self.weight_dict = {'loss_ce': args['cls_loss_coef'],
                        'loss_bbox': args['bbox_loss_coef'],
