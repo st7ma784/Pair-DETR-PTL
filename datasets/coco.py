@@ -45,6 +45,8 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         if self._transforms is not None:
             img, target = self._transforms(img, target)
         #pr
+        #need to create mask
+
         return img, target, self.tokenized_classnames
 
 
@@ -161,7 +163,7 @@ def _onnx_nested_tensor_from_tensor_list(tensor_list: List[Tensor]) -> NestedTen
 
 
 class ConvertCocoPolysToMask(object):
-    def __init__(self, return_masks=False):
+    def __init__(self, return_masks=True):
         self.return_masks = return_masks
 
     def __call__(self, image, target):
