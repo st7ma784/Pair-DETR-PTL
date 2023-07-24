@@ -113,12 +113,12 @@ class MaskHeadSmallConv(nn.Module):
 
     def forward(self, x: Tensor, bbox_mask: Tensor, fpns):
 
-        print("in mask conv head")
-        print("x shape",x.shape) # B, F, H,W
-        print("bbox mask shape",bbox_mask.shape) # B, 240, n_heads, 1, 1 
-        for i,fpn in enumerate(fpns):
-            print("fpn {} shape {}".format(i,fpn.shape))
-        #        print("fpn {} shape {}".format(1,fpns[0].shape)) # B, F, H,W
+        # print("in mask conv head")
+        # print("x shape",x.shape) # B, F, H,W
+        # print("bbox mask shape",bbox_mask.shape) # B, 240, n_heads, 1, 1 
+        # for i,fpn in enumerate(fpns):
+        #     print("fpn {} shape {}".format(i,fpn.shape))
+        # #        print("fpn {} shape {}".format(1,fpns[0].shape)) # B, F, H,W
         x =torch.cat([x.repeat(bbox_mask.shape[1],1,1,1), bbox_mask.repeat(1,1,1,x.shape[-2],x.shape[-1]).flatten(0, 1)], dim=1)
         print("x shape",x.shape) # B, F+240, H,W
         x = self.lay1(x)

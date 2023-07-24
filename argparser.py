@@ -35,7 +35,7 @@ def get_args_parser():
                         help="Dropout applied in the transformer")
     parser.add_argument('--nheads', default=8, type=int,
                         help="Number of attention heads inside the transformer's attentions")
-    parser.add_argument('--num_queries', default=2, type=int,
+    parser.add_argument('--num_queries', default=1, type=int,
                         help="Number of query slots") # per classs  you want classes in batch bboxs * nqueries < 200
     parser.add_argument('--pre_norm', action='store_true')
 
