@@ -578,11 +578,11 @@ class SetCriterion(nn.Module):
         """Compute the losses related to the masks: the focal loss and the dice loss.
            targets dicts must contain the key "masks" containing a tensor of dim [nb_target_boxes, h, w]
         """
-        #assert "pred_masks" in outputs
+        #when I include this, I get a fail at line 641. 
 
-        src_idx =(indices[0],indices[2])
+        src_idx =(indices[0],indices[1])
         #print("src idx",src_idx)
-        tgt_idx = (indices[0],indices[1])
+        tgt_idx = (indices[0],indices[2])
         #print("tgt idx",tgt_idx)
         src_masks = outputs["pred_masks"]
         #print("src masks",src_masks.shape)
@@ -597,15 +597,14 @@ class SetCriterion(nn.Module):
         target_masks = target_masks[tgt_idx]
 
         # upsample predictions to the target size
-        src_masks = interpolate(src_masks[:, None], size=target_masks.shape[-2:],
-                                mode="bilinear", align_corners=False)
-        src_masks = src_masks[:, 0].flatten(1)
+        sc_masks = interpolate(src_masks[:, None], size=target_masks.shape[-2:],
+                                mode="bilinear", align_corners=False)[:, 0].flatten(1)
 
         target_masks = target_masks.flatten(1)
         target_masks = target_masks.view(src_masks.shape)
         return {
-            "loss_mask": sigmoid_focal_loss(src_masks, target_masks, num_boxes),
-            "loss_dice": dice_loss(src_masks, target_masks, num_boxes),
+            "loss_mask": sigmoid_focal_loss(sc_masks, target_masks, num_boxes),
+            "loss_dice": dice_loss(sc_masks, target_masks, num_boxes),
         }
 
     def forward(self, encodings,outputs, targets):
