@@ -584,6 +584,7 @@ class SetCriterion(nn.Module):
         tgt_idx = (indices[0],indices[1])
         src_masks = outputs["pred_masks"]
         src_masks = src_masks[src_idx]
+        print("keys in targets",targets[0].keys())#dict_keys(['labels', 'boxes', 'masks', 'image_id', 'area', 'iscrowd'])
         masks = [t["masks"] for t in targets]
         # TODO use valid to mask invalid areas due to padding in loss
         target_masks, valid = nested_tensor_from_tensor_list(masks).decompose()
