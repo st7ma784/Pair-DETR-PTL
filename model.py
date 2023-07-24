@@ -635,6 +635,7 @@ class SetCriterion(nn.Module):
                     losses.update(l_dict)
 
         #Jici suis? 
+        
         src_idx= (indices[0], indices[1]) #0,1 was the original version, 
         print("src idx",src_idx)
         print("pred logits",outputs['pred_logits'].shape)

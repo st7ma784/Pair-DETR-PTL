@@ -90,14 +90,14 @@ class PairDETR(pl.LightningModule):
         self.weight_dict = {'loss_ce': args['cls_loss_coef'],
                        'loss_bbox': args['bbox_loss_coef'],
                        'loss_giou': args['giou_loss_coef'],
-                       'loss_dice': args['dice_loss_coef'],
-                       'loss_mask': args['mask_loss_coef'],
+                       #'loss_dice': args['dice_loss_coef'],
+                       #'loss_mask': args['mask_loss_coef'],
                        'CELoss':0.25}
 
         self.criterion = SetCriterion(matcher=self.matcher, 
                                       weight_dict=self.weight_dict,
                                     focal_alpha=args['focal_alpha'],
-                                     losses=['labels', 'boxes', 'cardinality','masks'],
+                                     losses=['labels', 'boxes', 'cardinality',],#'masks'],
                                      device=self.device)
         # TO DO : CREATE SECOND CRTIERION FOR THE SECOND HEAD
         
