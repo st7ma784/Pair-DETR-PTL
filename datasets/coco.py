@@ -23,8 +23,12 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         self.Tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
         self.myclip,_=clip.load('ViT-B/32',device="cpu")
         self.myclip.eval()
+        self._transforms = transforms
+        self.tokenized_classnames={int(i):self.tokenize(" ".join(["a",c["name"]])) for i,c in self.coco.cats.items()}
+        self.prepare = ConvertCocoPolysToMask(return_masks)
 
-        self.tokenize=lambda x:  self.myclip.encode_text(self.Tokenizer(x, # Sentence to encode.
+    def tokenize(self, x):
+        return self.myclip.encode_text(self.Tokenizer(x, # Sentence to encode.
                     add_special_tokens = True, # Add '[CLS]' and '[SEP]'
                     max_length = 77,           # Pad & truncate all sentences.
                     padding = "max_length",
@@ -32,11 +36,6 @@ class CocoDetection(torchvision.datasets.CocoDetection):
                     return_attention_mask = False,   # Construct attn. masks.
                     return_tensors = 'pt',     # Return pytorch tensors.
                 )['input_ids'].squeeze(1)).detach().cpu()
-        self._transforms = transforms
-        self.tokenized_classnames={int(i):self.tokenize(" ".join(["a",c["name"]])) for i,c in self.coco.cats.items()}
-        self.prepare = ConvertCocoPolysToMask(return_masks)
-
-
     def __getitem__(self, idx):
         img, target = super(CocoDetection, self).__getitem__(idx)
         image_id = self.ids[idx]
