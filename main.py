@@ -93,7 +93,7 @@ class PairDETR(pl.LightningModule):
                        'CELoss':0.25}
 
         self.criterion = SetCriterion(matcher=self.matcher, weight_dict=self.weight_dict,
-                                focal_alpha=args['focal_alpha'], losses=['labels', 'boxes', 'cardinality'],device=self.device)
+                                focal_alpha=args['focal_alpha'], losses=['labels', 'boxes', 'cardinality','masks'],device=self.device)
         # TO DO : CREATE SECOND CRTIERION FOR THE SECOND HEAD
         
         
