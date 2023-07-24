@@ -1038,7 +1038,7 @@ class TransformerDecoderLayer(nn.Module):
         self.query_scale = query_scale
         if first_layer:
             self.ca_qpos_proj = nn.Linear(d_model, d_model)
-            self.query_scale = lambda x: 1.0
+            
         
         # Decoder Cross-Attention
         self.ca_qcontent_proj = nn.Linear(d_model, d_model)
@@ -1070,7 +1070,8 @@ class TransformerDecoderLayer(nn.Module):
             self.forward = self.forward_pre
         else:
             self.forward = self.forward_post
-
+    def query_scale(self,query):
+        return 1.0
     def forward_post(self,  kwargs):
         
         tgt=kwargs['tgt']
