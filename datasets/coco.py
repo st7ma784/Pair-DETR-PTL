@@ -341,9 +341,9 @@ class COCODataModule(pl.LightningDataModule):
         }
 
         img_folder, ann_file = PATHS["train"]
-        self.train = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("train"), return_masks=False)
+        self.train = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("train"), return_masks=True)
         img_folder, ann_file = PATHS["val"]
-        self.val = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("val"), return_masks=False)
+        self.val = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("val"), return_masks=True)
         # img_folder, ann_file = PATHS["test"]
         # self.test=CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("test"), return_masks=False)
 

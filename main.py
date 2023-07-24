@@ -284,7 +284,7 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     from datasets.coco import COCODataModule
-    data=COCODataModule(Cache_dir=args.coco_path,batch_size=4,return_masks=True)
+    data=COCODataModule(Cache_dir=args.coco_path,batch_size=4)
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
