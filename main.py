@@ -289,9 +289,9 @@ if __name__ == '__main__':
                          gradient_clip_val=0.25,
                          #accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
-                         accelerator='cpu',
-                         fast_dev_run=True,  
-                         devices="auto",
-    )
+                         accelerator='auto',
+                         fast_dev_run=False,  
+                         devices=1,
+                            )
     trainer.fit(model,data)
     #trainer.test(model,data)
