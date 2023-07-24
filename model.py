@@ -508,7 +508,7 @@ class SetCriterion(nn.Module):
             'labels': self.loss_labels,
             'cardinality': self.loss_cardinality,
             'boxes': self.loss_boxes,
-            'masks': self.loss_masks
+            #'masks': self.loss_masks
         }
         self.loss=nn.CrossEntropyLoss(reduction="mean")
     def sigmoid_focal_loss(self,inputs, targets, num_boxes):
