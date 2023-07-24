@@ -1034,8 +1034,8 @@ class TransformerDecoderLayer(nn.Module):
         self.sa_v_proj = nn.Linear(d_model, d_model)
         self.self_attn = MultiheadAttention(d_model, nhead, dropout=dropout, vdim=d_model)
         self.first_layer = first_layer
-        self.ca_qpos_proj= None
-        self.query_scale = query_scale
+        if query_scale is not None:
+            self.query_scale = query_scale
         if first_layer:
             self.ca_qpos_proj = nn.Linear(d_model, d_model)
             
