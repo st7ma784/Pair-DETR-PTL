@@ -636,8 +636,8 @@ class SetCriterion(nn.Module):
         #Jici suis? 
         
         src_idx= (indices[0], indices[1]) #0,1 was the original version, 
-        print("src idx",src_idx)
-        print("pred logits",outputs['pred_logits'].shape)
+        # print("src idx",src_idx)
+        # print("pred logits",outputs['pred_logits'].shape)
         src_logits = outputs['pred_logits'][src_idx]
         return losses, src_logits
 
