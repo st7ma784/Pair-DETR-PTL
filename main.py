@@ -284,13 +284,13 @@ if __name__ == '__main__':
     args = vars(args)
     model=PairDETR(**args)
     trainer = pl.Trainer(
-                         precision=16,
+                         precision=32,
                          max_epochs=args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
                          accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
-                         accelerator='auto',
+                         accelerator='cpu',
                          fast_dev_run=False,  
                          devices="auto",
                             )
