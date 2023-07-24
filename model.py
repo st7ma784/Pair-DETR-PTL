@@ -587,10 +587,10 @@ class SetCriterion(nn.Module):
         src_masks = outputs["pred_masks"]
         #print("src masks",src_masks.shape)
         src_masks = src_masks[src_idx]
-        print("src masks",src_masks.shape)
+        #print("src masks",src_masks.shape)
         
         masks = [t["masks"] for t in targets]
-        print("masks",[mask.shape for mask in masks])
+        #print("masks",[mask.shape for mask in masks])
         # TODO use _ to mask invalid areas due to padding in loss
         target_masks, _ = nested_tensor_from_tensor_list(masks).decompose()
         target_masks = target_masks.to(src_masks)
