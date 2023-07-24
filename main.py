@@ -51,14 +51,7 @@ class PairDETR(pl.LightningModule):
         self.args = args
         self.learning_rate = args['lr']
         self.Tokenizer=CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
-        self.tokenize=lambda x: self.Tokenizer(x, # Sentence to encode.
-                    add_special_tokens = True, # Add '[CLS]' and '[SEP]'
-                    max_length = 77,           # Pad & truncate all sentences.
-                    padding = "max_length",
-                    truncation=True,
-                    return_attention_mask = False,   # Construct attn. masks.
-                    return_tensors = 'pt',     # Return pytorch tensors.
-                )['input_ids']
+
         #posmethod=PositionEmbeddingLearned
         #if args['position_embedding'] in ('v2', 'sine'):
             #TODO find a better way of exposing other arguments
@@ -109,7 +102,15 @@ class PairDETR(pl.LightningModule):
         self.mask_head = MaskHeadSmallConv(hidden_dim + args['nheads'], [1024, 512, 256], hidden_dim)
         self.threshold = 0.75
 
-    
+    def tokenize(self,x):
+            return self.Tokenizer(x, # Sentence to encode.
+                    add_special_tokens = True, # Add '[CLS]' and '[SEP]'
+                    max_length = 77,           # Pad & truncate all sentences.
+                    padding = "max_length",
+                    truncation=True,
+                    return_attention_mask = False,   # Construct attn. masks.
+                    return_tensors = 'pt',     # Return pytorch tensors.
+                )['input_ids']
     def configure_optimizers(self):
 
         optimizer = torch.optim.AdamW(self.parameters(),
