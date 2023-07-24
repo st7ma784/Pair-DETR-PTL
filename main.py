@@ -151,8 +151,9 @@ class PairDETR(pl.LightningModule):
         #reverse the order of feats 
         feats=feats[::-1]
         seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
-        outputs_seg_masks = seg_masks.view(src.shape[0], self.num_queries, seg_masks.shape[-2], seg_masks.shape[-1])
-
+        print("seg_masks",seg_masks.shape)
+        outputs_seg_masks = seg_masks.view(src.shape[0], -1, seg_masks.shape[-2], seg_masks.shape[-1])
+        print("outputs_seg_masks",outputs_seg_masks.shape)
 #         return out
 
 
