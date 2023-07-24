@@ -63,7 +63,7 @@ class PairDETR(pl.LightningModule):
         #if args['position_embedding'] in ('v2', 'sine'):
             #TODO find a better way of exposing other arguments
         posmethod = PositionEmbeddingSine
-        self.backbone = Backbone(args['backbone'], False, False,False)
+        self.backbone = Backbone(args['backbone'], False, False,True)
         self.num_queries = args['num_queries']
         hidden_dim = args['hidden_dim']
         self.transformer = PositionalTransformer(
@@ -105,8 +105,9 @@ class PairDETR(pl.LightningModule):
         
         
         self.postprocessors = {'bbox': PostProcess()}
-        
-
+        self.bbox_attention = MHAttentionMap(hidden_dim, hidden_dim, args['nheads'], dropout=0.01)
+        self.mask_head = MaskHeadSmallConv(hidden_dim + args['nheads'], [1024, 512, 256], hidden_dim)
+        self.threshold = 0.75
 
     
     def configure_optimizers(self):
@@ -117,29 +118,53 @@ class PairDETR(pl.LightningModule):
         # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, self.args['lr_drop'])
         return [optimizer]
 
-    def forward(self, samples: NestedTensor,classencodings):
+    def forward(self, samples: NestedTensor,classencoding):
 
         if isinstance(samples, (list, torch.Tensor)):
             samples = nested_tensor_from_tensor_list(samples)
         #features, pos = self.backbone(samples) this called Joiner which is a wrapper for the backbone:
 
         src = self.backbone(samples.tensors)
-        src=src[-1]
+        src,feats=src[-1],src[0:-1]
         mask=F.interpolate(samples.mask[None].float(),size=src.shape[-2:]).bool()[-1]        
         #my class encoding is going to be shape (n_classes, 512) I want this query embed to be (n_queries,hidden_dim)
 
         #print(self.query_embed.shape)
-        classencodings=self.clip_projection(classencodings)
+        classencodings=self.clip_projection(classencoding)
         #repeat by the number of queries
         classencodings=classencodings.repeat(1,self.num_queries,1).flatten(0,1)
-        #print(classencodings.shape)
+        print("classencs",classencoding.shape)
         #print("src shape",src.shape,src.device)
         
 
         outputs_coord, outputs_class ,outputs_coord2, outputs_class2= self.transformer( self.input_proj(src) , classencodings, self.positional_embedding(src,mask), mask)
+        #print("outputs_coord",outputs_coord.shape) # 1 ,24,240,4
+        #print("outputs_class",outputs_class.shape) # 1,24,240,512
+        #filter these outputs by the cosine similarity of the class encodings, we want to find the most similar class encoding to each of the outputs, and ensure that its above a threshold
+
+        similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
+        max_similarities=torch.max(similarities,dim=-1) # shape (24,240) which is the max similarity for each of the 240 outputs
+        #use this as a mask to filter the outputs
+        pred_to_keep_mask=max_similarities.values>self.threshold
+
+        print("similarities",similarities.shape)
+        print("max_similarities",max_similarities.values.shape)
+        bbox_mask = self.bbox_attention(outputs_class[-1], classencodings, mask=mask)
+        #feats should be a list of at least 3 sets of inputs not an empty tensor?!?!
+        seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
+        outputs_seg_masks = seg_masks.view(src.shape[0], self.num_queries, seg_masks.shape[-2], seg_masks.shape[-1])
+
+#         return out
+
+
+
+
 
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}#,'pred_masks':masks}
         out2= {'pred_logits': outputs_class2[-1], 'pred_boxes': outputs_coord2[-1]}#,'pred_masks':masks}
+        out["pred_masks"] = outputs_seg_masks
+        out2["pred_masks"] = outputs_seg_masks
+
         if self.aux_loss:
             out['aux_outputs'] = [{'pred_logits': a, 'pred_boxes': b} for a, b in zip(outputs_class[:-1], outputs_coord[:-1])]
             out2['aux_outputs'] = [{'pred_logits': a, 'pred_boxes': b} for a, b in zip(outputs_class2[:-1], outputs_coord2[:-1])]
@@ -264,8 +289,8 @@ if __name__ == '__main__':
                          gradient_clip_val=0.25,
                          #accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
-                         accelerator='auto',
-                         fast_dev_run=False,  
+                         accelerator='cpu',
+                         fast_dev_run=True,  
                          devices="auto",
     )
     trainer.fit(model,data)

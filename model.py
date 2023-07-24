@@ -14,6 +14,7 @@ from util.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
 from util import box_ops
 from util.misc import (NestedTensor, nested_tensor_from_tensor_list, interpolate)
 from util.misc import inverse_sigmoid
+from models.attention import MultiheadAttention
 
 from typing import Optional, List
 import math
@@ -110,8 +111,13 @@ class MaskHeadSmallConv(nn.Module):
                 nn.init.kaiming_uniform_(m.weight, a=1)
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x: Tensor, bbox_mask: Tensor, fpns: List[Tensor]):
-        x = torch.cat([_expand(x, bbox_mask.shape[1]), bbox_mask.flatten(0, 1)], 1)
+    def forward(self, x: Tensor, bbox_mask: Tensor, fpn):
+
+        print("in mask conv head")
+        print("x shape",x.shape) # B, F, H,W
+        print("bbox mask shape",bbox_mask.shape) # B, 240, n_heads, 1, 1 
+        print("fpn {} shape {}".format(1,fpn))
+        x =torch.cat([x.repeat(bbox_mask.shape[1],1,1,1), bbox_mask.repeat(1,1,1,x.shape[-2],x.shape[-1]).flatten(0, 1)], dim=1)
 
         x = self.lay1(x)
         x = self.gn1(x)
@@ -160,8 +166,8 @@ class MHAttentionMap(nn.Module):
         self.hidden_dim = hidden_dim
         self.dropout = nn.Dropout(dropout)
 
-        self.q_linear = nn.Linear(query_dim, hidden_dim, bias=bias)
-        self.k_linear = nn.Linear(2, hidden_dim//num_heads, bias=bias)
+        self.q_linear = nn.Linear(hidden_dim, hidden_dim, bias=bias)
+        self.k_linear = nn.Linear(query_dim, hidden_dim, bias=bias)
 
         nn.init.zeros_(self.k_linear.bias)
         nn.init.zeros_(self.q_linear.bias)
@@ -171,33 +177,37 @@ class MHAttentionMap(nn.Module):
 
     def forward(self, q, k, mask: Optional[Tensor] = None):
 
-        #q - B, NQ, F  
-        #k - B, NQ, 2
-        q = self.q_linear(q)
-        k = self.k_linear(k)      
-        # print("q",q.shape)# B NQ,F
-
-        # print("k",k.shape)# B, NQ, F//Nheads
-        #input= b,NQ, F
-        #k should be nq, nq h,w
-        k = F.conv2d(q.permute(2,1,0), k[0].unsqueeze(-1).unsqueeze(-1),groups=self.num_heads)
-
-        # print("conv k",k.shape)# F//Nheads, B, NQ, 1,1
-        k=k.unsqueeze(-1).unsqueeze(-1)
-        '''
-        input - (B,In, H, W)
-        weight - (Out, In, KH, KW)
-        .transpose(0, 1).transpose(0, 1)
-        '''
-        # print("k",k.shape)
-        qh = q.view(q.shape[0], q.shape[1], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,Nheads,hidden//Nheads
-        kh = k.view(k.shape[0], self.num_heads, self.hidden_dim // self.num_heads, k.shape[-2], k.shape[-1]) # shape B,numQ,hidden//Nheads,H,W
-        weights = torch.einsum("bqnc,bnchw->bqnhw", qh * self.normalize_fact, kh)
-
+        #B,P 4,
+        #B,P,F
+        #this function takes the query and key values as batch, Predictions , F and batch, Predictions , 2 
+        # and calculates where to look in an image for each query
+        print("Q shape",q.shape) # NQs,4 # BBoxs for each prediction
+        print("k shape",k.shape) # NQs,Class # Class ref for each prediction
+        q = self.q_linear(q) # B,P,hidden_dim
+        k = self.k_linear(k) # P,hidden_dim
+        print("q",q.shape) # B,P,hidden_dim
+        print("k",k.shape) # P,hidden_dim//numheads
+        q= q.permute(1,2,0) # P,hidden_dim,B
+        k=k.permute(1,0).unsqueeze(-1).unsqueeze(-1) # P,hidden_dim,1,1
+        #k = F.conv2d(q,k,stride=1) # P,B,P
+        print("k",k.shape) # preds , preds , B # but I want this to be B, F, H, W
+        
+        print("qh",q.shape) # preds ,B, preds,1,1")
+        qh = q.reshape(q.shape[2], q.shape[0], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,Nheads,hidden//Nheads
+        #           Preds ,     B,     Preds,           1,                  1
+        kh = k.reshape(k.shape[1], self.num_heads, self.hidden_dim // self.num_heads, k.shape[-2], k.shape[-1]) # shape B,numQ,hidden//Nheads,H,W
+        print("qh",qh.shape) # B, Q  , Nheads,hidden//Nheads
+        print("kh2",kh.shape) # Q ,Nheads,hidden//Nheads,1,1
+        weights = torch.einsum("bqnc,qnchw->bqnhw", qh * self.normalize_fact, kh)#.flatten(2,3)
         if mask is not None:
-            weights.masked_fill_(mask.unsqueeze(1).unsqueeze(1), float("-inf"))
+            print("mask",mask.shape) # B,_1,_1, 25,25
+            print("weights",weights.shape) # B, Q  , Nheads,H,W
+            weights.repeat(1,1,1,mask.shape[-2],mask.shape[-1]).masked_fill_(mask.unsqueeze(1).unsqueeze(1).repeat(1,qh.shape[1],self.num_heads,1,1), float("-inf"))
+        print("weights",weights.shape) # B, Q  , Nheads,H,W
         weights = F.softmax(weights.flatten(2), dim=-1).view(weights.size())
         weights = self.dropout(weights)
+        print("weights",weights.shape) # B, Q  , Nheads,H,W
+        #but I want B,Preds,F,H,W
         return weights
 
 
@@ -211,8 +221,7 @@ def dice_loss(inputs, targets, num_boxes):
                  classification label for each element in inputs
                 (0 for the negative class and 1 for the positive class).
     """
-    inputs = inputs.sigmoid()
-    inputs = inputs.flatten(1)
+    inputs = inputs.sigmoid().flatten(1)
     numerator = 2 * (inputs * targets).sum(1)
     denominator = inputs.sum(-1) + targets.sum(-1)
     loss = 1 - (numerator + 1) / (denominator + 1)
@@ -731,7 +740,7 @@ class PositionEmbeddingLearned(nn.Module):
 
 class BackboneBase(nn.Module):
 
-    def __init__(self, backbone: nn.Module, train_backbone: bool, num_channels: int, return_interm_layers: bool):
+    def __init__(self, backbone: nn.Module, train_backbone: bool, num_channels: int, return_interm_layers: bool=True):
 
         super().__init__()
         for name, parameter in backbone.named_parameters():
@@ -944,6 +953,7 @@ class TransformerDecoder(nn.Module):
                                 query_pos = query_pos,
                                 query_sine_embed = query_sine_embed,
                                 is_first = False))["tgt"]
+        #print("out shape:",output.shape)
         return (torch.stack(self.intermediate).transpose(1, 2), reference_points)
         
         
@@ -1012,7 +1022,6 @@ class TransformerEncoderLayer(nn.Module):
         kwargs['src']=src
         return kwargs
 
-from models.attention import MultiheadAttention
 
 class TransformerDecoderLayer(nn.Module):
 
