@@ -120,7 +120,7 @@ class MaskHeadSmallConv(nn.Module):
         #     print("fpn {} shape {}".format(i,fpn.shape))
         # #        print("fpn {} shape {}".format(1,fpns[0].shape)) # B, F, H,W
         x =torch.cat([x.repeat(bbox_mask.shape[1],1,1,1), bbox_mask.repeat(1,1,1,x.shape[-2],x.shape[-1]).flatten(0, 1)], dim=1)
-        print("x shape",x.shape) # B, F+240, H,W
+        #print("x shape",x.shape) # B, F+240, H,W
         x = self.lay1(x)
         x = self.gn1(x)
         x = F.relu(x)

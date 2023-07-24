@@ -134,7 +134,7 @@ class PairDETR(pl.LightningModule):
         classencodings=self.clip_projection(classencoding)
         #repeat by the number of queries
         classencodings=classencodings.repeat(1,self.num_queries,1).flatten(0,1)
-        print("classencs",classencoding.shape)
+        #print("classencs",classencoding.shape)
         #print("src shape",src.shape,src.device)
         
 
@@ -143,18 +143,18 @@ class PairDETR(pl.LightningModule):
         #print("outputs_class",outputs_class.shape) # 1,24,240,512
         #filter these outputs by the cosine similarity of the class encodings, we want to find the most similar class encoding to each of the outputs, and ensure that its above a threshold
 
-        similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
+        #similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
         #use this as a mask to filter the outputs
-        pred_to_keep_mask=torch.max(similarities,dim=-1).values>self.threshold
+        #pred_to_keep_mask=torch.max(similarities,dim=-1).values>self.threshold
 
-        print("max_similarities",pred_to_keep_mask.shape)
+        #print("max_similarities",pred_to_keep_mask.shape) #B,C
         bbox_mask = self.bbox_attention(outputs_class[-1], classencodings, mask=mask)
         #reverse the order of feats 
         feats=feats[::-1]
         seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
-        print("seg_masks",seg_masks.shape)
+        #print("seg_masks",seg_masks.shape)
         outputs_seg_masks = seg_masks.view(src.shape[0], -1, seg_masks.shape[-2], seg_masks.shape[-1])
-        print("outputs_seg_masks",outputs_seg_masks.shape)
+        #print("outputs_seg_masks",outputs_seg_masks.shape)
 #         return out
 
 
@@ -284,13 +284,13 @@ if __name__ == '__main__':
     args = vars(args)
     model=PairDETR(**args)
     trainer = pl.Trainer(
-                         precision=32,
+                         precision=16,
                          max_epochs=args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
                          accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
-                         accelerator='cpu',
+                         accelerator='auto',
                          fast_dev_run=False,  
                          devices="auto",
                             )
