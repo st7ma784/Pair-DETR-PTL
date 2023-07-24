@@ -633,7 +633,11 @@ class SetCriterion(nn.Module):
                     l_dict = self.loss_map[loss](target_classes_o,outputs, targets, indices, num_boxes)
                     l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
+
+        #Jici suis? 
         src_idx= (indices[0], indices[1])
+        print("src idx",src_idx)
+        print("pred logits",outputs['pred_logits'].shape)
         src_logits = outputs['pred_logits'][src_idx]
         return losses, src_logits
 
