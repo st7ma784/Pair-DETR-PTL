@@ -578,9 +578,8 @@ class SetCriterion(nn.Module):
         """Compute the losses related to the masks: the focal loss and the dice loss.
            targets dicts must contain the key "masks" containing a tensor of dim [nb_target_boxes, h, w]
         """
-        #when I include this, I get a fail at line 641. 
 
-        src_idx =(indices[0],indices[1])
+        src_idx =(indices[0],indices[1])   # should probably just check these are the right way around.     
         #print("src idx",src_idx)
         tgt_idx = (indices[0],indices[2])
         #print("tgt idx",tgt_idx)
