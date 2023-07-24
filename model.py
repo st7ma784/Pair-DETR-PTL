@@ -111,14 +111,16 @@ class MaskHeadSmallConv(nn.Module):
                 nn.init.kaiming_uniform_(m.weight, a=1)
                 nn.init.constant_(m.bias, 0)
 
-    def forward(self, x: Tensor, bbox_mask: Tensor, fpn):
+    def forward(self, x: Tensor, bbox_mask: Tensor, fpns):
 
         print("in mask conv head")
         print("x shape",x.shape) # B, F, H,W
         print("bbox mask shape",bbox_mask.shape) # B, 240, n_heads, 1, 1 
-        print("fpn {} shape {}".format(1,fpn))
+        for i,fpn in enumerate(fpns):
+            print("fpn {} shape {}".format(i,fpn.shape))
+        #        print("fpn {} shape {}".format(1,fpns[0].shape)) # B, F, H,W
         x =torch.cat([x.repeat(bbox_mask.shape[1],1,1,1), bbox_mask.repeat(1,1,1,x.shape[-2],x.shape[-1]).flatten(0, 1)], dim=1)
-
+        print("x shape",x.shape) # B, F+240, H,W
         x = self.lay1(x)
         x = self.gn1(x)
         x = F.relu(x)
@@ -181,32 +183,32 @@ class MHAttentionMap(nn.Module):
         #B,P,F
         #this function takes the query and key values as batch, Predictions , F and batch, Predictions , 2 
         # and calculates where to look in an image for each query
-        print("Q shape",q.shape) # NQs,4 # BBoxs for each prediction
-        print("k shape",k.shape) # NQs,Class # Class ref for each prediction
+        # print("Q shape",q.shape) # NQs,4 # BBoxs for each prediction
+        # print("k shape",k.shape) # NQs,Class # Class ref for each prediction
         q = self.q_linear(q) # B,P,hidden_dim
         k = self.k_linear(k) # P,hidden_dim
-        print("q",q.shape) # B,P,hidden_dim
-        print("k",k.shape) # P,hidden_dim//numheads
+        # print("q",q.shape) # B,P,hidden_dim
+        # print("k",k.shape) # P,hidden_dim//numheads
         q= q.permute(1,2,0) # P,hidden_dim,B
         k=k.permute(1,0).unsqueeze(-1).unsqueeze(-1) # P,hidden_dim,1,1
         #k = F.conv2d(q,k,stride=1) # P,B,P
-        print("k",k.shape) # preds , preds , B # but I want this to be B, F, H, W
+        # print("k",k.shape) # preds , preds , B # but I want this to be B, F, H, W
         
-        print("qh",q.shape) # preds ,B, preds,1,1")
+        # print("qh",q.shape) # preds ,B, preds,1,1")
         qh = q.reshape(q.shape[2], q.shape[0], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,Nheads,hidden//Nheads
         #           Preds ,     B,     Preds,           1,                  1
         kh = k.reshape(k.shape[1], self.num_heads, self.hidden_dim // self.num_heads, k.shape[-2], k.shape[-1]) # shape B,numQ,hidden//Nheads,H,W
-        print("qh",qh.shape) # B, Q  , Nheads,hidden//Nheads
-        print("kh2",kh.shape) # Q ,Nheads,hidden//Nheads,1,1
+        # print("qh",qh.shape) # B, Q  , Nheads,hidden//Nheads
+        # print("kh2",kh.shape) # Q ,Nheads,hidden//Nheads,1,1
         weights = torch.einsum("bqnc,qnchw->bqnhw", qh * self.normalize_fact, kh)#.flatten(2,3)
         if mask is not None:
-            print("mask",mask.shape) # B,_1,_1, 25,25
-            print("weights",weights.shape) # B, Q  , Nheads,H,W
+            # print("mask",mask.shape) # B,_1,_1, 25,25
+            # print("weights",weights.shape) # B, Q  , Nheads,H,W
             weights.repeat(1,1,1,mask.shape[-2],mask.shape[-1]).masked_fill_(mask.unsqueeze(1).unsqueeze(1).repeat(1,qh.shape[1],self.num_heads,1,1), float("-inf"))
-        print("weights",weights.shape) # B, Q  , Nheads,H,W
+        # print("weights",weights.shape) # B, Q  , Nheads,H,W
         weights = F.softmax(weights.flatten(2), dim=-1).view(weights.size())
         weights = self.dropout(weights)
-        print("weights",weights.shape) # B, Q  , Nheads,H,W
+        # print("weights",weights.shape) # B, Q  , Nheads,H,W
         #but I want B,Preds,F,H,W
         return weights
 
@@ -754,12 +756,8 @@ class BackboneBase(nn.Module):
         self.num_channels = num_channels
     def forward(self, im):
         xs = self.body(im)
-        # for k,v in xs.items():
-        #     if v.isnan().any():
-        #         print(k)
-        #         print('nan')
-                
-        return torch.stack(list(xs.values()))
+             
+        return list(xs.values())
 
 class Backbone(BackboneBase):
     """ResNet backbone with frozen BatchNorm."""

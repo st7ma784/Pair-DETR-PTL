@@ -63,7 +63,7 @@ class PairDETR(pl.LightningModule):
         #if args['position_embedding'] in ('v2', 'sine'):
             #TODO find a better way of exposing other arguments
         posmethod = PositionEmbeddingSine
-        self.backbone = Backbone(args['backbone'], False, False,True)
+        self.backbone = Backbone(args['backbone'], False, True,False)
         self.num_queries = args['num_queries']
         hidden_dim = args['hidden_dim']
         self.transformer = PositionalTransformer(
@@ -125,7 +125,7 @@ class PairDETR(pl.LightningModule):
         #features, pos = self.backbone(samples) this called Joiner which is a wrapper for the backbone:
 
         src = self.backbone(samples.tensors)
-        src,feats=src[-1],src[0:-1]
+        src,feats=src[-1],src[:-1]
         mask=F.interpolate(samples.mask[None].float(),size=src.shape[-2:]).bool()[-1]        
         #my class encoding is going to be shape (n_classes, 512) I want this query embed to be (n_queries,hidden_dim)
 
@@ -143,14 +143,13 @@ class PairDETR(pl.LightningModule):
         #filter these outputs by the cosine similarity of the class encodings, we want to find the most similar class encoding to each of the outputs, and ensure that its above a threshold
 
         similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
-        max_similarities=torch.max(similarities,dim=-1) # shape (24,240) which is the max similarity for each of the 240 outputs
         #use this as a mask to filter the outputs
-        pred_to_keep_mask=max_similarities.values>self.threshold
+        pred_to_keep_mask=torch.max(similarities,dim=-1).values>self.threshold
 
-        print("similarities",similarities.shape)
-        print("max_similarities",max_similarities.values.shape)
+        print("max_similarities",pred_to_keep_mask.shape)
         bbox_mask = self.bbox_attention(outputs_class[-1], classencodings, mask=mask)
-        #feats should be a list of at least 3 sets of inputs not an empty tensor?!?!
+        #reverse the order of feats 
+        feats=feats[::-1]
         seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
         outputs_seg_masks = seg_masks.view(src.shape[0], self.num_queries, seg_masks.shape[-2], seg_masks.shape[-1])
 
@@ -278,7 +277,7 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     from datasets.coco import COCODataModule
-    data=COCODataModule(Cache_dir=args.coco_path,batch_size=24)
+    data=COCODataModule(Cache_dir=args.coco_path,batch_size=8)
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
