@@ -578,19 +578,24 @@ class SetCriterion(nn.Module):
         """Compute the losses related to the masks: the focal loss and the dice loss.
            targets dicts must contain the key "masks" containing a tensor of dim [nb_target_boxes, h, w]
         """
-        assert "pred_masks" in outputs
+        #assert "pred_masks" in outputs
 
         src_idx =(indices[0],indices[2])
+        print("src idx",src_idx)
         tgt_idx = (indices[0],indices[1])
+        print("tgt idx",tgt_idx)
         src_masks = outputs["pred_masks"]
+        print("src masks",src_masks.shape)
         src_masks = src_masks[src_idx]
-        print("keys in targets",targets[0].keys())#dict_keys(['labels', 'boxes', 'masks', 'image_id', 'area', 'iscrowd'])
+        print("src masks",src_masks.shape)
+        
         masks = [t["masks"] for t in targets]
+        print("masks",masks.shape)
         # TODO use valid to mask invalid areas due to padding in loss
         target_masks, valid = nested_tensor_from_tensor_list(masks).decompose()
         target_masks = target_masks.to(src_masks)
         target_masks = target_masks[tgt_idx]
-
+        
         # upsample predictions to the target size
         src_masks = interpolate(src_masks[:, None], size=target_masks.shape[-2:],
                                 mode="bilinear", align_corners=False)
