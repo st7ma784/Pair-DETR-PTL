@@ -590,12 +590,12 @@ class SetCriterion(nn.Module):
         print("src masks",src_masks.shape)
         
         masks = [t["masks"] for t in targets]
-        print("masks",masks.shape)
+        print("masks",[mask.shape for mask in masks])
         # TODO use valid to mask invalid areas due to padding in loss
         target_masks, valid = nested_tensor_from_tensor_list(masks).decompose()
         target_masks = target_masks.to(src_masks)
         target_masks = target_masks[tgt_idx]
-        
+
         # upsample predictions to the target size
         src_masks = interpolate(src_masks[:, None], size=target_masks.shape[-2:],
                                 mode="bilinear", align_corners=False)
