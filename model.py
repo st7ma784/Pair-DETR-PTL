@@ -581,11 +581,11 @@ class SetCriterion(nn.Module):
         #assert "pred_masks" in outputs
 
         src_idx =(indices[0],indices[2])
-        print("src idx",src_idx)
+        #print("src idx",src_idx)
         tgt_idx = (indices[0],indices[1])
-        print("tgt idx",tgt_idx)
+        #print("tgt idx",tgt_idx)
         src_masks = outputs["pred_masks"]
-        print("src masks",src_masks.shape)
+        #print("src masks",src_masks.shape)
         src_masks = src_masks[src_idx]
         print("src masks",src_masks.shape)
         

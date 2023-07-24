@@ -86,7 +86,7 @@ class PairDETR(pl.LightningModule):
         self.matcher = HungarianMatcher(cost_class=args['set_cost_class'], 
                                         cost_bbox=args['set_cost_bbox'],
                                         cost_giou=args['set_cost_giou'],
-                                        
+
                                         )
 
         self.weight_dict = {'loss_ce': args['cls_loss_coef'],
@@ -286,7 +286,7 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
     from datasets.coco import COCODataModule
-    data=COCODataModule(Cache_dir=args.coco_path,batch_size=4)
+    data=COCODataModule(Cache_dir=args.coco_path,batch_size=2)
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
@@ -295,7 +295,7 @@ if __name__ == '__main__':
                          max_epochs=args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
-                         accumulate_grad_batches=4,
+                         #accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
                          fast_dev_run=False,  
