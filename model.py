@@ -508,7 +508,7 @@ class SetCriterion(nn.Module):
             'labels': self.loss_labels,
             'cardinality': self.loss_cardinality,
             'boxes': self.loss_boxes,
-            #'masks': self.loss_masks
+            'masks': self.loss_masks
         }
         self.loss=nn.CrossEntropyLoss(reduction="mean")
     def sigmoid_focal_loss(self,inputs, targets, num_boxes):
@@ -591,8 +591,8 @@ class SetCriterion(nn.Module):
         
         masks = [t["masks"] for t in targets]
         print("masks",[mask.shape for mask in masks])
-        # TODO use valid to mask invalid areas due to padding in loss
-        target_masks, valid = nested_tensor_from_tensor_list(masks).decompose()
+        # TODO use _ to mask invalid areas due to padding in loss
+        target_masks, _ = nested_tensor_from_tensor_list(masks).decompose()
         target_masks = target_masks.to(src_masks)
         target_masks = target_masks[tgt_idx]
 
@@ -603,11 +603,10 @@ class SetCriterion(nn.Module):
 
         target_masks = target_masks.flatten(1)
         target_masks = target_masks.view(src_masks.shape)
-        losses = {
+        return {
             "loss_mask": sigmoid_focal_loss(src_masks, target_masks, num_boxes),
             "loss_dice": dice_loss(src_masks, target_masks, num_boxes),
         }
-        return losses
 
     def forward(self, encodings,outputs, targets):
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
