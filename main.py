@@ -283,15 +283,15 @@ if __name__ == '__main__':
     args = vars(args)
     model=PairDETR(**args)
     trainer = pl.Trainer(
-                         precision=32,
+                         precision=16,
                          max_epochs=args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
-                         #accumulate_grad_batches=4,
+                         accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
                          fast_dev_run=False,  
-                         devices=1,
+                         devices="auto",
                             )
     trainer.fit(model,data)
     #trainer.test(model,data)
