@@ -175,29 +175,48 @@ class MHAttentionMap(nn.Module):
         self.normalize_fact = float(hidden_dim / self.num_heads) ** -0.5
 
     def forward(self, q, k, mask: Optional[Tensor] = None):
-
-        #currently we get an 80 x 512 for k,  where the orignal has B, 80 ,2 
-
         q = self.q_linear(q) 
         k = self.k_linear(k) 
         qh = q.reshape(q.shape[0], q.shape[1], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,Nheads,hidden//Nheads               1
         kh = k.reshape(k.shape[0], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,hidden//Nheads,H,W
-        # k=F.conv2d(qh,k,groups=self.num_heads)
-        # print(k.shape)
-        # print("kh",kh.shape)
         weights = torch.einsum("bqnc,qnchw->bqnhw", qh * self.normalize_fact, kh.unsqueeze(-1).unsqueeze(-1))#.flatten(2,3)
+        return self.dropout(F.softmax(weights.flatten(2), dim=-1).view(weights.size()))
     
-        #print("weights",weights.shape) # B, Q  , Nheads,H,W
+
+class MHAttentionMapRef(nn.Module):
+    """This is a 2D attention module, which only returns the attention softmax (no multiplication by value)"""
+
+    def __init__(self, query_dim, hidden_dim, num_heads, dropout=0.0, bias=True):
+        super().__init__()
+        self.num_heads = num_heads
+        self.hidden_dim = hidden_dim
+        self.dropout = nn.Dropout(dropout)
+
+        self.q_linear = nn.Linear(hidden_dim, hidden_dim, bias=bias)
+        self.k_linear = nn.Linear(2, hidden_dim, bias=bias)
+
+        nn.init.zeros_(self.k_linear.bias)
+        nn.init.zeros_(self.q_linear.bias)
+        nn.init.xavier_uniform_(self.k_linear.weight)
+        nn.init.xavier_uniform_(self.q_linear.weight)
+        self.normalize_fact = float(hidden_dim / self.num_heads) ** -0.5
+
+    def forward(self, q, k, mask: Optional[Tensor] = None):
+
+        #currently we get an 80 x 512 for k,  where the orignal has B, 80 ,2 
+
+        q = self.q_linear(q) 
+        k = torch.mean(self.k_linear(k),dim=0) #B,80,512
+        qh = q.reshape(q.shape[0], q.shape[1], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,Nheads,hidden//Nheads               1
+        kh = k.reshape(k.shape[0], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,hidden//Nheads,H,W
+        
+        weights = torch.einsum("bqnc,qnchw->bqnhw", qh * self.normalize_fact, kh.unsqueeze(-1).unsqueeze(-1))#.flatten(2,3)
+
+    
         # if mask is not None:
-        #     # print("mask",mask.shape) # B,_1,_1, 25,25
-        #     # print("weights",weights.shape) # B, Q  , Nheads,H,W
         #     weights.repeat(1,1,1,mask.shape[-2],mask.shape[-1]).masked_fill_(mask.unsqueeze(1).unsqueeze(1).repeat(1,qh.shape[1],self.num_heads,1,1), float("-inf"))
-        ##      I Dont understand this because it doesnt save the weights to the new size?
-        #print("weights",weights.shape) # B, Q  , Nheads,H,W
         weights = F.softmax(weights.flatten(2), dim=-1).view(weights.size())
         return self.dropout(weights)
-
-
 def dice_loss(inputs, targets, num_boxes):
     """
     Compute the DICE loss, similar to generalized IOU for masks
@@ -449,9 +468,6 @@ class HungarianMatcher(nn.Module):
         cost_class=F.relu(out_prob@tgt_embs.T)
         cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
         # Compute the giou cost betwen boxes
-        # print("out bbox",out_bbox.shape)
-        # print("tgt bbox",tgt_bbox.shape)
-        #print("out bbox",out_bbox.min(),out_bbox.max())
         cost_giou = -generalized_box_iou(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
        
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
@@ -503,18 +519,11 @@ class SetCriterion(nn.Module):
         }
         self.loss=nn.CrossEntropyLoss(reduction="mean")
     def sigmoid_focal_loss(self,inputs, targets, num_boxes):
-        """
-        Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
 
-        """
         # #do similarity of inputs to targets,
-        # print("inputs",inputs.shape) # inputs torch.Size([8, 200, 512])
-        # print("targets",targets.shape) # targets torch.Size([8, 200, 512])
         inputs=inputs/torch.norm(inputs,dim=-1,keepdim=True)
         targets=targets/torch.norm(targets,dim=-1,keepdim=True)
         loss=1-torch.sum(inputs*targets,dim=-1)
-        # loss=self.loss(match,torch.ones(match.shape,device=match.device))
-        #loss=self.loss(inputs,targets)
         return loss.mean() / num_boxes
 
     def loss_labels(self,target_classes_o, outputs,targets, indices, num_boxes):
@@ -544,8 +553,6 @@ class SetCriterion(nn.Module):
         idx = (indices[0],indices[1])
         src_boxes = outputs['pred_boxes'][idx]
         target_boxes = torch.stack([targets[t]['boxes'][i] for (t, i) in zip(indices[0],indices[2])], dim=0)
-        # print("Target boxes",target_boxes)
-        # print("src boxes",src_boxes)
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
 
 
@@ -748,7 +755,7 @@ class PositionalTransformer(nn.Module):
 
         args=(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
-        self.bbox_attention = MHAttentionMap(d_model, d_model, nhead, dropout=0.0)
+        self.bbox_attention = MHAttentionMapRef(d_model, d_model, nhead, dropout=0.0)
         self.mask_head = MaskHeadSmallConv(d_model + nhead, [1024, 512, 256], d_model)
 
         self.encoder = PosTransformerEncoder(args, num_encoder_layers, normalize_before)
@@ -760,8 +767,6 @@ class PositionalTransformer(nn.Module):
         self.decoder2=TransformerDecoder(args,num_decoder_layers, decoder_norm,
                                             return_intermediate=return_intermediate_dec,
                                             d_model=d_model)
-        # self._reset_parameters()
-
         self.d_model = d_model
         self.nhead = nhead
         self.dec_layers = num_decoder_layers
@@ -771,27 +776,17 @@ class PositionalTransformer(nn.Module):
         src2 = src.flatten(2).permute(2, 0, 1)
         pos_embed2 = pos_embed.flatten(2).permute(2, 0, 1)
         query_embed = query_embed.unsqueeze(1).repeat(1, src2.shape[1], 1)
-        #print("query embed",query_embed.shape) #240 , B,F
         mask = mask.flatten(1)
 
         #tgt = torch.zeros_like(query_embed) 
         tgt = query_embed.sigmoid()
-        #check mask si not nonetype 
         memory = self.encoder(src2, src_key_padding_mask=torch.zeros_like(mask), pos=pos_embed2)
-        # if torch.isnan(memory).any():
-        #     print(mask.type())
-
-        #     print("src2", torch.isnan(src2).any())
-        #     print("memory", torch.isnan(memory).any())
-        #     print("posembed2", torch.isnan(pos_embed2).any())
-        #     #print("mask", mask.shape)
         hs, references = self.decoder(tgt, memory, memory_key_padding_mask=torch.zeros_like(mask),
                           pos=pos_embed2, query_pos=query_embed)
         hs2, references2 = self.decoder2(tgt, memory, memory_key_padding_mask=torch.zeros_like(mask),
                             pos=pos_embed2, query_pos=query_embed)
 
         tmp=self.bbox_embed(hs)
-        #print(references.shape)#B,nq,512
         tmp[..., :2] +=  inverse_sigmoid(references) 
         outputs_coord = tmp.sigmoid()
         outputs_class = hs
@@ -799,16 +794,13 @@ class PositionalTransformer(nn.Module):
         tmp[..., :2] +=  inverse_sigmoid(references2) 
         outputs_coord2 = tmp.sigmoid()
         outputs_class2 = hs2
-        # to do this, we  have a set of class features,  and a list of object coords. 
-        #print("references",references.shape) #B,nq,2
-        #bbox_mask = self.bbox_attention(hs[-1], references, mask=mask)
+        bbox_mask = self.bbox_attention(hs[-1], references, mask=mask)
 
-        #make a B,h,w, c tensor, then use the bbox mask to select the features, then use the mask head to get the masks
-        #seg_masks = self.mask_head(src, bbox_mask, src) #x: Tensor, bbox_mask: Tensor, fpns: List[Tensor]):
+        # make a B,h,w, c tensor, then use the bbox mask to select the features, then use the mask head to get the masks
+        seg_masks = self.mask_head(src, bbox_mask, src) #x: Tensor, bbox_mask: Tensor, fpns: List[Tensor]):
 
-        ##outputs_seg_masks = seg_masks.view(src.shape[0], query_embed.shape[0], seg_masks.shape[-2], seg_masks.shape[-1])
-        #print("bbox mask",bbox_mask.shape)
-        #print("src",src.shape)
+        #outputs_seg_masks = seg_masks.view(src.shape[0], query_embed.shape[0], seg_masks.shape[-2], seg_masks.shape[-1])
+
         return outputs_coord, outputs_class ,outputs_coord2, outputs_class2#,outputs_seg_masks
 
 
@@ -819,12 +811,8 @@ class PosTransformerEncoder(nn.Module):
         self.layers =nn.Sequential(*[TransformerEncoderLayer(*args) for i in range(num_layers)])
     
         self.num_layers = num_layers
-        #if norm is not None:
         self.norm =  nn.LayerNorm(args[0])
-        # else:
-        #     #set norm to do nothing
-        #     self.norm = lambda x: x
-
+      
     def forward(self, output:Tensor,
                 mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
