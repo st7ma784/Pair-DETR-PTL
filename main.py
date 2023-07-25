@@ -264,15 +264,8 @@ class PairDETR(pl.LightningModule):
         self.coco_evaluator.accumulate()
         self.coco_evaluator.summarize()
         #self.log("mAP",self.coco_evaluator.coco_eval["bbox"].stats[0], prog_bar=True, logger=True)
-
-    def on_test_epoch_end(self):
-        # combine the stats from all test steps
         all_ids={}
 
-
-        self.coco_evaluator.accumulate()
-        self.coco_evaluator.summarize()
-        panoptic_res = None
         if self.panoptic_evaluator is not None:
             panoptic_res = self.panoptic_evaluator.summarize()
         
