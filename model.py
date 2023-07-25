@@ -755,8 +755,8 @@ class PositionalTransformer(nn.Module):
 
         args=(d_model, nhead, dim_feedforward,
                                                 dropout, activation, normalize_before)
-        self.bbox_attention = MHAttentionMapRef(d_model, d_model, nhead, dropout=0.0)
-        self.mask_head = MaskHeadSmallConv(d_model + nhead, [1024, 512, 256], d_model)
+        # self.bbox_attention = MHAttentionMapRef(d_model, d_model, nhead, dropout=0.0)
+        # self.mask_head = MaskHeadSmallConv(d_model + nhead, [1024, 512, 256], d_model)
 
         self.encoder = PosTransformerEncoder(args, num_encoder_layers, normalize_before)
 
@@ -780,7 +780,9 @@ class PositionalTransformer(nn.Module):
 
         #tgt = torch.zeros_like(query_embed) 
         tgt = query_embed.sigmoid()
+
         memory = self.encoder(src2, src_key_padding_mask=torch.zeros_like(mask), pos=pos_embed2)
+
         hs, references = self.decoder(tgt, memory, memory_key_padding_mask=torch.zeros_like(mask),
                           pos=pos_embed2, query_pos=query_embed)
         hs2, references2 = self.decoder2(tgt, memory, memory_key_padding_mask=torch.zeros_like(mask),
@@ -794,12 +796,12 @@ class PositionalTransformer(nn.Module):
         tmp[..., :2] +=  inverse_sigmoid(references2) 
         outputs_coord2 = tmp.sigmoid()
         outputs_class2 = hs2
-        bbox_mask = self.bbox_attention(hs[-1], references, mask=mask)
+        #bbox_mask = self.bbox_attention(hs[-1], references, mask=mask)
 
-        # make a B,h,w, c tensor, then use the bbox mask to select the features, then use the mask head to get the masks
-        seg_masks = self.mask_head(src, bbox_mask, src) #x: Tensor, bbox_mask: Tensor, fpns: List[Tensor]):
+        #make a B,h,w, c tensor, then use the bbox mask to select the features, then use the mask head to get the masks
+        #seg_masks = self.mask_head(src, bbox_mask, src) #x: Tensor, bbox_mask: Tensor, fpns: List[Tensor]):
 
-        #outputs_seg_masks = seg_masks.view(src.shape[0], query_embed.shape[0], seg_masks.shape[-2], seg_masks.shape[-1])
+        ##outputs_seg_masks = seg_masks.view(src.shape[0], query_embed.shape[0], seg_masks.shape[-2], seg_masks.shape[-1])
 
         return outputs_coord, outputs_class ,outputs_coord2, outputs_class2#,outputs_seg_masks
 
