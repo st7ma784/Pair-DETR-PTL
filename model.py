@@ -622,8 +622,9 @@ class PostProcess(nn.Module):
         assert target_sizes.shape[1] == 2
 
         prob = out_logits.sigmoid()
-        topk_values, topk_indexes = torch.topk(prob.view(out_logits.shape[0], -1), 100, dim=1)
-        scores = topk_values
+        print(out_logits.shape)
+        
+        scores, topk_indexes = torch.topk(prob.reshape(out_logits.shape[0], -1), 100, dim=1)
         topk_boxes = topk_indexes // out_logits.shape[2]
         labels = topk_indexes % out_logits.shape[2]
         boxes = box_ops.box_cxcywh_to_xyxy(out_bbox)

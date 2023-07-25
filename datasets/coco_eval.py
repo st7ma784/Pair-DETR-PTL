@@ -52,7 +52,7 @@ class CocoEvaluator(object):
 
     def accumulate(self):
         for coco_eval in self.coco_eval.values():
-            coco_eval.accumulate()
+            coco_eval.accumulate() # Calls to E in CocoEval Object which is straight from EvalImages
 
     def summarize(self):
         for iou_type, coco_eval in self.coco_eval.items():

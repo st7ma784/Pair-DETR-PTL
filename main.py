@@ -205,20 +205,23 @@ class PairDETR(pl.LightningModule):
                 self.log(k,v * self.weight_dict[k],prog_bar=True,enable_graph=False)
         return losses+losses2
    
-    def on_test_start(self) -> None:
-            
-        iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
-        #print(self.trainer.datamodule.__dir__())
-        #point the coco eval at the underlying dataset
-        self.coco_evaluator = CocoEvaluator(self.trainer.datamodule.val.coco, iou_types)
-                                            
-        self.panoptic_evaluator = None
-        self.coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
 
 
+    def test_step(self,batch,batch_idx):
+        
+        # outputs = self.model(batch["pixel_values"])
+        # targets=batch["labels"]#,input_ids=imids)
+        # #print("targets", targets)
+        # #need resizing from relative xywh to absolute xyxy
+        # targ=[]
+        # for t in targets:
+        #     t["boxes"]=torchvision.ops.box_convert(t["boxes"], in_fmt="xywh", out_fmt="xyxy").to(self.device)
+        #     targ.append({"boxes":t["boxes"],"labels":t["class_labels"].to(self.device)})
+        # outputs = [{k: v.to("cpu") for k, v in t.items()} for t in outputs]
 
-    def test_step(self, batch, batch_idx):
-    
+        # res = {target["image_id"].item(): output for target, output in zip(targ, outputs)}
+        
+        # self.coco_evaluator.update(res)    
         samples, targets ,classencodings,masks = batch
 
         samples = samples.to(self.device)
@@ -230,32 +233,54 @@ class PairDETR(pl.LightningModule):
         if 'segm' in self.postprocessors.keys():
             target_sizes = torch.stack([t["size"] for t in targets], dim=0)
             results = self.postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
-        res = {target['image_id'].item(): output for target, output in zip(targets, results)}
-        if self.coco_evaluator is not None:
-            self.coco_evaluator.update(res)
+        # I Probably want .evaluate() here
 
-        if self.panoptic_evaluator is not None:
-            res_pano = self.postprocessors["panoptic"](outputs, target_sizes, orig_target_sizes)
-            for i, target in enumerate(targets):
-                image_id = target["image_id"].item()
-                file_name = f"{image_id:012d}.png"
-                res_pano[i]["image_id"] = image_id
-                res_pano[i]["file_name"] = file_name
+        # if self.panoptic_evaluator is not None:
+        #     res_pano = self.postprocessors["panoptic"](outputs, target_sizes, orig_target_sizes)
+        #     for i, target in enumerate(targets):
+        #         image_id = target["image_id"].item()
+        #         file_name = f"{image_id:012d}.png"
+        #         res_pano[i]["image_id"] = image_id
+        #         res_pano[i]["file_name"] = file_name
 
-            self.panoptic_evaluator.update(res_pano)
-    def on_test_end(self):
-        if self.coco_evaluator is not None:
-            self.coco_evaluator.accumulate()
-            self.coco_evaluator.summarize()
+        #     self.panoptic_evaluator.update(res_pano)
+        outputs={target['image_id'].item(): output for target, output in zip(targets, results)}
+        #self.coco_evaluator.update(outputs)
+        return outputs
+    def test_epoch_end(self,outputs):
+        #self.coco_evaluator.synchronize_between_processes()
+            
+        iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
+        #print(self.trainer.datamodule.__dir__())
+        #point the coco eval at the underlying dataset
+        self.coco_evaluator = CocoEvaluator(self.trainer.datamodule.val.coco, iou_types)
+                                            
+        self.panoptic_evaluator = None
+        self.coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
+
+        for output in outputs:
+            self.coco_evaluator.update(output)
+        self.coco_evaluator.synchronize_between_processes()
+        self.coco_evaluator.accumulate()
+        self.coco_evaluator.summarize()
+        #self.log("mAP",self.coco_evaluator.coco_eval["bbox"].stats[0], prog_bar=True, logger=True)
+
+    def on_test_epoch_end(self):
+        # combine the stats from all test steps
+        all_ids={}
+
+
+        self.coco_evaluator.accumulate()
+        self.coco_evaluator.summarize()
         panoptic_res = None
         if self.panoptic_evaluator is not None:
             panoptic_res = self.panoptic_evaluator.summarize()
         
-        if self.coco_evaluator is not None:
-            if 'bbox' in self.postprocessors.keys():
-                self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
-            if 'segm' in self.postprocessors.keys():
-                self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
+#        if self.coco_evaluator is not None:
+        if 'bbox' in self.postprocessors.keys():
+            self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
+        if 'segm' in self.postprocessors.keys():
+            self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
         if panoptic_res is not None:
             self.log("PQ_all", panoptic_res["All"])
             self.log("PQ_th", panoptic_res["Things"])
@@ -283,7 +308,7 @@ if __name__ == '__main__':
                          #accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
-                         fast_dev_run=False,  
+                         fast_dev_run=True,  
                          devices="auto",
                             )
     trainer.fit(model,data)

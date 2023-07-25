@@ -101,8 +101,7 @@ def all_gather(data):
     Returns:
         list[data]: list of data gathered from each rank
     """
-    world_size = get_world_size()
-    if world_size == 1:
+    if True:
         return [data]
 
     # serialized to a Tensor
