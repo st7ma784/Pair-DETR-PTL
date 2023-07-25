@@ -9,7 +9,7 @@
 
 
 from pathlib import Path
-# from datasets.coco_eval import CocoEvaluator
+from datasets.coco_eval import CocoEvaluator
 # from datasets.panoptic_eval import PanopticEvaluator
 
 # from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
@@ -135,37 +135,22 @@ class PairDETR(pl.LightningModule):
         src = self.backbone(samples.tensors)
         src,feats=src[-1],src[:-1]
         mask=F.interpolate(samples.mask[None].float(),size=src.shape[-2:]).bool()[-1]        
-        #my class encoding is going to be shape (n_classes, 512) I want this query embed to be (n_queries,hidden_dim)
 
-        #print(self.query_embed.shape)
         classencodings=self.clip_projection(classencoding)
-        #repeat by the number of queries
         classencodings=classencodings.repeat(1,self.num_queries,1).flatten(0,1)
-        #print("classencs",classencoding.shape)
-        #print("src shape",src.shape,src.device)
-        
+
 
         outputs_coord, outputs_class ,outputs_coord2, outputs_class2= self.transformer( self.input_proj(src) , classencodings, self.positional_embedding(src,mask), mask)
-        #print("outputs_coord",outputs_coord.shape) # 1 ,24,240,4
-        #print("outputs_class",outputs_class.shape) # 1,24,240,512
         #filter these outputs by the cosine similarity of the class encodings, we want to find the most similar class encoding to each of the outputs, and ensure that its above a threshold
 
         #similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
         #use this as a mask to filter the outputs
         #pred_to_keep_mask=torch.max(similarities,dim=-1).values>self.threshold
 
-        #print("max_similarities",pred_to_keep_mask.shape) #B,C
         bbox_mask = self.bbox_attention(outputs_class[-1], classencodings, mask=mask)
-        #reverse the order of feats 
         feats=feats[::-1]
         seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
-        #print("seg_masks",seg_masks.shape)
         outputs_seg_masks = seg_masks.view(src.shape[0], -1, seg_masks.shape[-2], seg_masks.shape[-1])
-        #print("outputs_seg_masks",outputs_seg_masks.shape)
-#         return out
-
-
-
 
 
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}#,'pred_masks':masks}
@@ -222,59 +207,56 @@ class PairDETR(pl.LightningModule):
    
     def on_test_start(self) -> None:
         print(" Looking for Datamodule :\n",self.__dir__())     
-    #     iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
-    #     # print(self.data.__dir__())
-    #     self.coco_evaluator = CocoEvaluator(self.val_dataloader().dataset, iou_types)
-    #     self.panoptic_evaluator = None
-          # self.coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
+        iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
+        # print(self.data.__dir__())
+        self.coco_evaluator = CocoEvaluator(self.val_dataloader().dataset, iou_types)
+        self.panoptic_evaluator = None
+        self.coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
 
 
 
-    # def test_step(self, batch, batch_idx):
-    #
-    #     samples, targets ,classencodings = batch
-    #     samples = samples.to(self.device)
-    #     targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+    def test_step(self, batch, batch_idx):
+    
+        samples, targets ,classencodings = batch
+        samples = samples.to(self.device)
+        targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+        classencodings = {k: v.to(self.device,non_blocking=True) for k, v in  classencodings.items()}
+        outputs, _ = self(samples, torch.stack(list(classencodings.values())) )# we need to find coco classes for this!?
+        orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
+        results = self.postprocessors['bbox'](outputs, orig_target_sizes)
+        if 'segm' in self.postprocessors.keys():
+            target_sizes = torch.stack([t["size"] for t in targets], dim=0)
+            results = self.postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
+        res = {target['image_id'].item(): output for target, output in zip(targets, results)}
+        if self.coco_evaluator is not None:
+            self.coco_evaluator.update(res)
 
-    #     outputs, out2= self(samples, torch.stack(list(classencodings.values())) )# we need to find coco classes for this!?
-    #     loss_dict = self.criterion(outputs, targets)
-    #     weight_dict = self.criterion.weight_dict
-    #     orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
-    #     results = self.postprocessors['bbox'](outputs, orig_target_sizes)
-    #     if 'segm' in self.postprocessors.keys():
-    #         target_sizes = torch.stack([t["size"] for t in targets], dim=0)
-    #         results = self.postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
-    #     res = {target['image_id'].item(): output for target, output in zip(targets, results)}
-    #     if self.coco_evaluator is not None:
-    #         self.coco_evaluator.update(res)
+        if self.panoptic_evaluator is not None:
+            res_pano = self.postprocessors["panoptic"](outputs, target_sizes, orig_target_sizes)
+            for i, target in enumerate(targets):
+                image_id = target["image_id"].item()
+                file_name = f"{image_id:012d}.png"
+                res_pano[i]["image_id"] = image_id
+                res_pano[i]["file_name"] = file_name
 
-    #     if self.panoptic_evaluator is not None:
-    #         res_pano = self.postprocessors["panoptic"](outputs, target_sizes, orig_target_sizes)
-    #         for i, target in enumerate(targets):
-    #             image_id = target["image_id"].item()
-    #             file_name = f"{image_id:012d}.png"
-    #             res_pano[i]["image_id"] = image_id
-    #             res_pano[i]["file_name"] = file_name
-
-    #         self.panoptic_evaluator.update(res_pano)
-    # def on_test_end(self):
-    #     if self.coco_evaluator is not None:
-    #         self.coco_evaluator.accumulate()
-    #         self.coco_evaluator.summarize()
-    #     panoptic_res = None
-    #     if self.panoptic_evaluator is not None:
-    #         panoptic_res = self.panoptic_evaluator.summarize()
+            self.panoptic_evaluator.update(res_pano)
+    def on_test_end(self):
+        if self.coco_evaluator is not None:
+            self.coco_evaluator.accumulate()
+            self.coco_evaluator.summarize()
+        panoptic_res = None
+        if self.panoptic_evaluator is not None:
+            panoptic_res = self.panoptic_evaluator.summarize()
         
-    #     if self.coco_evaluator is not None:
-    #         if 'bbox' in self.postprocessors.keys():
-    #             self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
-    #         if 'segm' in self.postprocessors.keys():
-    #             self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
-    #     if panoptic_res is not None:
-    #         self.log("PQ_all", panoptic_res["All"])
-    #         self.log("PQ_th", panoptic_res["Things"])
-    #         self.log("PQ_st", panoptic_res["Stuff"])
-    #     return super().on_test_end()
+        if self.coco_evaluator is not None:
+            if 'bbox' in self.postprocessors.keys():
+                self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
+            if 'segm' in self.postprocessors.keys():
+                self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
+        if panoptic_res is not None:
+            self.log("PQ_all", panoptic_res["All"])
+            self.log("PQ_th", panoptic_res["Things"])
+            self.log("PQ_st", panoptic_res["Stuff"])
 
 
 if __name__ == '__main__':
