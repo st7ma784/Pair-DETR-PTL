@@ -63,17 +63,14 @@ class FrozenBatchNorm2d(torch.nn.Module):
         super(FrozenBatchNorm2d, self)._load_from_state_dict(
             state_dict, prefix, local_metadata, strict,
             missing_keys, unexpected_keys, error_msgs)
-
+        self.weight= self.weight.reshape(1, -1, 1, 1)
+        self.bias= self.bias.reshape(1, -1, 1, 1)
+        self.running_mean= self.running_mean.reshape(1, -1, 1, 1)
+        self.running_var= self.running_var.reshape(1, -1, 1, 1)
     def forward(self, x):
-        # move reshapes to the beginning
-        # to make it fuser-friendly
-        w = self.weight.reshape(1, -1, 1, 1)
-        b = self.bias.reshape(1, -1, 1, 1)
-        rv = self.running_var.reshape(1, -1, 1, 1)
-        rm = self.running_mean.reshape(1, -1, 1, 1)
-        eps = 1e-5
-        scale = w * (rv + eps).rsqrt()
-        bias = b - rm * scale
+
+        scale = self.weight * (self.running_var + 1e-5).rsqrt()
+        bias = self.bias - self.running_mean * scale
         return x * scale + bias
 
 
