@@ -449,7 +449,7 @@ class HungarianMatcher(nn.Module):
 
         sizes = [len(v["boxes"]) for v in targets]
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
-        target_classes_o=torch.cat([encodings[int(i.item())] for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
+        target_classes_o=torch.cat([encodings[i] for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
         #print("target classes o",target_classes_o.shape)
         x,y=zip(*indices)
         src=torch.cat([torch.as_tensor(x) for x in x])
