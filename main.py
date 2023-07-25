@@ -100,7 +100,7 @@ class PairDETR(pl.LightningModule):
                                       weight_dict=self.weight_dict,
                                     focal_alpha=args['focal_alpha'],
                                      losses=['labels', 'boxes', 'cardinality','masks'],# fina l unx
-                                     device=self.device)
+                                    )
         # TO DO : CREATE SECOND CRTIERION FOR THE SECOND HEAD
         
         
@@ -146,8 +146,9 @@ class PairDETR(pl.LightningModule):
         #similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
         #use this as a mask to filter the outputs
         #pred_to_keep_mask=torch.max(similarities,dim=-1).values>self.threshold
-
+        print(classencodings.shape)  #80 #512
         bbox_mask = self.bbox_attention(outputs_class[-1], classencodings, mask=mask)
+        #it feels like this should have references and not class encodings, but I'm not sure how to get them
         feats=feats[::-1]
         seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
         outputs_seg_masks = seg_masks.view(src.shape[0], -1, seg_masks.shape[-2], seg_masks.shape[-1])
@@ -171,27 +172,14 @@ class PairDETR(pl.LightningModule):
         targets = [{k: v.to(self.device,non_blocking=True) for k, v in t.items()} for t in targets]
         classencodings = {k: v.to(self.device,non_blocking=True) for k, v in  classencodings.items()}
         outputs,out2 = self(samples,torch.stack(list(classencodings.values())))
-        count=0
-        for k in outputs.keys():
-            
-            if isinstance(outputs[k],Tensor) and torch.any(torch.isnan(outputs[k])):
-                #we should really work out how and why this happens! 
-                print("{} has nan".format(k))
-                outputs[k]=torch.nan_to_num(outputs[k],nan=1e-8,posinf=0.0,neginf=0.0)
-                count+=1
-        if count>1:
-            return None
 
-        # I also want a list of the class labels from COCO to be comparing against in the first instance, this is essentially the classes we're told to go and grab, and the labels are the GT, which when deployed will come from Text to as well.
         loss_dict, predictions= self.criterion(classencodings,outputs, targets)
         losses = sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
         loss_dict2,predictions2 = self.criterion(classencodings,out2, targets)
-        # print("predictions",predictions.shape)
-        # print("predictions2",predictions2.shape)
+
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
         logits2=predictions2/torch.norm(predictions2,dim=-1,keepdim=True)
-        # logits=logits.flatten(0,1)
-        # logits2=logits2.flatten(0,1)
+       
         CELoss=self.loss(logits@logits2.T,torch.arange(logits.shape[0],device=self.device))
         
         

@@ -176,38 +176,22 @@ class MHAttentionMap(nn.Module):
 
     def forward(self, q, k, mask: Optional[Tensor] = None):
 
-        #B,P 4,
-        #B,P,F
-        #this function takes the query and key values as batch, Predictions , F and batch, Predictions , 2 
-        # and calculates where to look in an image for each query
-        # print("Q shape",q.shape) # NQs,4 # BBoxs for each prediction
-        # print("k shape",k.shape) # NQs,Class # Class ref for each prediction
-        q = self.q_linear(q) # B,P,hidden_dim
-        k = self.k_linear(k) # P,hidden_dim
-        # print("q",q.shape) # B,P,hidden_dim
-        # print("k",k.shape) # P,hidden_dim//numheads
-        q= q.permute(1,2,0) # P,hidden_dim,B
-        k=k.permute(1,0).unsqueeze(-1).unsqueeze(-1) # P,hidden_dim,1,1
-        #k = F.conv2d(q,k,stride=1) # P,B,P
-        # print("k",k.shape) # preds , preds , B # but I want this to be B, F, H, W
-        
-        # print("qh",q.shape) # preds ,B, preds,1,1")
-        qh = q.reshape(q.shape[2], q.shape[0], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,Nheads,hidden//Nheads
-        #           Preds ,     B,     Preds,           1,                  1
-        kh = k.reshape(k.shape[1], self.num_heads, self.hidden_dim // self.num_heads, k.shape[-2], k.shape[-1]) # shape B,numQ,hidden//Nheads,H,W
-        # print("qh",qh.shape) # B, Q  , Nheads,hidden//Nheads
-        # print("kh2",kh.shape) # Q ,Nheads,hidden//Nheads,1,1
+        #currently we get an 80 x 512 for k,  where the orignal has B, 80 ,2 
+
+        q = self.q_linear(q) 
+        k = self.k_linear(k) 
+        qh = q.reshape(q.shape[0], q.shape[1], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,Nheads,hidden//Nheads               1
+        kh = k.reshape(k.shape[0], self.num_heads, self.hidden_dim // self.num_heads, 1, 1) # shape B,numQ,hidden//Nheads,H,W
         weights = torch.einsum("bqnc,qnchw->bqnhw", qh * self.normalize_fact, kh)#.flatten(2,3)
-        if mask is not None:
-            # print("mask",mask.shape) # B,_1,_1, 25,25
-            # print("weights",weights.shape) # B, Q  , Nheads,H,W
-            weights.repeat(1,1,1,mask.shape[-2],mask.shape[-1]).masked_fill_(mask.unsqueeze(1).unsqueeze(1).repeat(1,qh.shape[1],self.num_heads,1,1), float("-inf"))
-        # print("weights",weights.shape) # B, Q  , Nheads,H,W
+        #print("weights",weights.shape) # B, Q  , Nheads,H,W
+        # if mask is not None:
+        #     # print("mask",mask.shape) # B,_1,_1, 25,25
+        #     # print("weights",weights.shape) # B, Q  , Nheads,H,W
+        #     weights.repeat(1,1,1,mask.shape[-2],mask.shape[-1]).masked_fill_(mask.unsqueeze(1).unsqueeze(1).repeat(1,qh.shape[1],self.num_heads,1,1), float("-inf"))
+        ##      I Dont understand this because it doesnt save the weights to the new size?
+        #print("weights",weights.shape) # B, Q  , Nheads,H,W
         weights = F.softmax(weights.flatten(2), dim=-1).view(weights.size())
-        weights = self.dropout(weights)
-        # print("weights",weights.shape) # B, Q  , Nheads,H,W
-        #but I want B,Preds,F,H,W
-        return weights
+        return self.dropout(weights)
 
 
 def dice_loss(inputs, targets, num_boxes):
@@ -483,7 +467,7 @@ class SetCriterion(nn.Module):
         1) we compute hungarian assignment between ground truth boxes and the outputs of the model
         2) we supervise each pair of matched ground-truth / prediction (supervise class and box)
     """
-    def __init__(self, matcher, weight_dict, focal_alpha, losses,device):
+    def __init__(self, matcher, weight_dict, focal_alpha, losses):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -494,7 +478,7 @@ class SetCriterion(nn.Module):
         """
 
         super().__init__()
-        self.device=device
+        #self.device=device
         self.matcher = matcher
         self.weight_dict = weight_dict
         self.losses = losses
@@ -527,7 +511,7 @@ class SetCriterion(nn.Module):
      
         assert 'pred_logits' in outputs
 
-        idx= (indices[0], indices[2])
+        #idx= (indices[0], indices[2])
         src_idx= (indices[0], indices[1])
         src_logits = outputs['pred_logits'][src_idx]
         # target_classes = torch.zeros((*src_logits.shape[:2],512), device=src_logits.device) 
@@ -562,14 +546,11 @@ class SetCriterion(nn.Module):
         src_boxes = outputs['pred_boxes'][idx]
         target_boxes = torch.stack([targets[t]['boxes'][i] for (t, i) in zip(indices[0],indices[2])], dim=0)
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
-        losses = {}
-        losses['loss_bbox'] = loss_bbox.sum() / num_boxes
-
         loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(
             box_ops.box_cxcywh_to_xyxy(src_boxes),
             box_ops.box_cxcywh_to_xyxy(target_boxes)))
-        losses['loss_giou'] = loss_giou.sum() / num_boxes
-        return losses
+        return {'loss_bbox':loss_bbox.sum() / num_boxes,
+                'loss_giou': loss_giou.sum() / num_boxes}
 
     def loss_masks(self, target_classes_o,outputs, targets, indices, num_boxes):
         """Compute the losses related to the masks: the focal loss and the dice loss.
@@ -577,16 +558,11 @@ class SetCriterion(nn.Module):
         """
 
         src_idx =(indices[0],indices[1])   # should probably just check these are the right way around.     
-        #print("src idx",src_idx)
         tgt_idx = (indices[0],indices[2])
-        #print("tgt idx",tgt_idx)
         src_masks = outputs["pred_masks"]
-        #print("src masks",src_masks.shape)
         src_masks = src_masks[src_idx]
-        #print("src masks",src_masks.shape)
         
         masks = [t["masks"] for t in targets]
-        #print("masks",[mask.shape for mask in masks])
         # TODO use _ to mask invalid areas due to padding in loss
         target_masks, _ = nested_tensor_from_tensor_list(masks).decompose()
         target_masks = target_masks.to(src_masks)
@@ -611,8 +587,8 @@ class SetCriterion(nn.Module):
          
         # Compute the average number of target boxes accross all nodes, for normalization purposes
         num_boxes = sum(len(t["labels"]) for t in targets)
-        num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=self.device)
-        num_boxes = torch.clamp(num_boxes, min=1).item()
+        num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=encodings.device)
+        num_boxes = torch.clamp(num_boxes, min=1)
 
         # Compute all the requested losses
         losses = {}
@@ -837,10 +813,9 @@ class PositionalTransformer(nn.Module):
         outputs_coord2 = tmp.sigmoid()
         outputs_class2 = hs2
         # to do this, we  have a set of class features,  and a list of object coords. 
+        print("references",references.shape) #B,nq,2
         #bbox_mask = self.bbox_attention(hs[-1], references, mask=mask)
-        #WE could pair the 2... 
-        # the bbox mask ideally should be a image shape with features in the object locations, I want an output C,NQ,Confidence,H,W?
-        
+
         #make a B,h,w, c tensor, then use the bbox mask to select the features, then use the mask head to get the masks
         #seg_masks = self.mask_head(src, bbox_mask, src) #x: Tensor, bbox_mask: Tensor, fpns: List[Tensor]):
 
