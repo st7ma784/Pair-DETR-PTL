@@ -18,12 +18,13 @@ import torchvision.transforms.v2 as T2
 from transformers import CLIPTokenizer
 import clip
 class CocoDetection(torchvision.datasets.CocoDetection):
-    def __init__(self, img_folder, ann_file, transforms, return_masks):
+    def __init__(self, img_folder, ann_file, transforms,mask_transform, return_masks):
         super(CocoDetection, self).__init__(img_folder, ann_file)
         self.Tokenizer = CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32")
         self.myclip,_=clip.load('ViT-B/32',device="cpu")
         self.myclip.eval()
         self._transforms = transforms
+        self.mask_transform=mask_transform
         self.tokenized_classnames={int(i):self.tokenize(" ".join(["a",c["name"]])) for i,c in self.coco.cats.items()}
         self.prepare = ConvertCocoPolysToMask(return_masks)
 
@@ -42,12 +43,16 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         target = {'image_id': image_id, 'annotations': target}
         #print("target",target)
         img, target = self.prepare(img, target)
+        mask=target.pop("masks")
         if self._transforms is not None:
             img, target = self._transforms(img, target)
-        #pr
-        #need to create mask
+        if self.mask_transform is not None:
+            target["masks"]=self.mask_transform(mask)
 
-        return img, target, self.tokenized_classnames
+        summed_mask=torch.sum(target["masks"],dim=0).bool().int()
+        
+        
+        return img, target, self.tokenized_classnames,1-summed_mask
 
 
 def convert_coco_poly_to_mask(segmentations, height, width):
@@ -70,10 +75,9 @@ def convert_coco_poly_to_mask(segmentations, height, width):
 def collate_fn(batch):
     batch = list(zip(*batch))
 
-    batch[0] = nested_tensor_from_tensor_list(batch[0])
-    #collate images
-    
+    batch[0] = torch.stack(batch[0], dim=0)
     batch[2] = batch[2][0]
+    batch[3]= torch.stack(batch[3], dim=0)
     return tuple(batch)
 
 class NestedTensor(object):
@@ -252,7 +256,7 @@ class COCODataModule(pl.LightningDataModule):
             B=self.batch_size
 
 
-        return torch.utils.data.DataLoader(self.test, batch_size=B, shuffle=True, num_workers=4, collate_fn=collate_fn, prefetch_factor=4, pin_memory=True,drop_last=True)
+        return torch.utils.data.DataLoader(self.val, batch_size=B, shuffle=True, num_workers=4, collate_fn=collate_fn, prefetch_factor=4, pin_memory=True,drop_last=True)
     def prepare_data(self):
         '''called only once and on 1 GPU'''
         # # download data
@@ -322,8 +326,12 @@ class COCODataModule(pl.LightningDataModule):
             
                 normalize,
         ])
+    def make_mask_transforms(self,x):
+        #mask is a one channel tensor which we wish to resize to 800,800
 
-        
+        return T2.Compose([
+                T2.Resize(800),
+                T2.CenterCrop(800),])
 
     def setup(self, stage=None):
         '''called on each GPU separately - stage defines if we are at fit or test step'''
@@ -341,9 +349,9 @@ class COCODataModule(pl.LightningDataModule):
         }
 
         img_folder, ann_file = PATHS["train"]
-        self.train = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("train"), return_masks=True)
+        self.train = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("train"),mask_transform=self.make_mask_transforms("train"), return_masks=True)
         img_folder, ann_file = PATHS["val"]
-        self.val = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("val"), return_masks=True)
+        self.val = CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("val"),mask_transform=self.make_mask_transforms("val"), return_masks=True)
         # img_folder, ann_file = PATHS["test"]
         # self.test=CocoDetection(img_folder, ann_file, transforms=self.make_coco_transforms("test"), return_masks=False)
 

@@ -126,24 +126,24 @@ class MaskHeadSmallConv(nn.Module):
         x = F.relu(x)
 
         cur_fpn = self.adapter1(fpns[0])
-        if cur_fpn.size(0) != x.size(0):
-            cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
+        # if cur_fpn.size(0) != x.size(0):
+        cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
         x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
         x = self.lay3(x)
         x = self.gn3(x)
         x = F.relu(x)
 
         cur_fpn = self.adapter2(fpns[1])
-        if cur_fpn.size(0) != x.size(0):
-            cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
+        # if cur_fpn.size(0) != x.size(0):
+        cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
         x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
         x = self.lay4(x)
         x = self.gn4(x)
         x = F.relu(x)
 
         cur_fpn = self.adapter3(fpns[2])
-        if cur_fpn.size(0) != x.size(0):
-            cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
+        # if cur_fpn.size(0) != x.size(0):
+        cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
         x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
         x = self.lay5(x)
         x = self.gn5(x)
@@ -181,8 +181,12 @@ class MHAttentionMap(nn.Module):
         q = self.q_linear(q) 
         k = self.k_linear(k) 
         qh = q.reshape(q.shape[0], q.shape[1], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,Nheads,hidden//Nheads               1
-        kh = k.reshape(k.shape[0], self.num_heads, self.hidden_dim // self.num_heads, 1, 1) # shape B,numQ,hidden//Nheads,H,W
-        weights = torch.einsum("bqnc,qnchw->bqnhw", qh * self.normalize_fact, kh)#.flatten(2,3)
+        kh = k.reshape(k.shape[0], self.num_heads, self.hidden_dim // self.num_heads) # shape B,numQ,hidden//Nheads,H,W
+        # k=F.conv2d(qh,k,groups=self.num_heads)
+        # print(k.shape)
+        # print("kh",kh.shape)
+        weights = torch.einsum("bqnc,qnchw->bqnhw", qh * self.normalize_fact, kh.unsqueeze(-1).unsqueeze(-1))#.flatten(2,3)
+    
         #print("weights",weights.shape) # B, Q  , Nheads,H,W
         # if mask is not None:
         #     # print("mask",mask.shape) # B,_1,_1, 25,25
@@ -228,6 +232,8 @@ def sigmoid_focal_loss(inputs, targets, num_boxes, alpha: float = 0.25, gamma: f
         Loss tensor
     """
     prob = inputs.sigmoid()
+    # print("inputs",inputs.dtype)
+    # print("targets",targets.dtype)
     ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
     p_t = prob * targets + (1 - prob) * (1 - targets)
     loss = ce_loss * ((1 - p_t) ** gamma)
@@ -261,7 +267,7 @@ class PostProcessSegm(nn.Module):
 
         return results
 
-
+#This needs some help!
 class PostProcessPanoptic(nn.Module):
     """This class converts the output of the model to the final panoptic result, in the format expected by the
     coco panoptic API """
@@ -426,6 +432,7 @@ class HungarianMatcher(nn.Module):
             For each batch element, it holds:
                 len(index_i) = len(index_j) = min(num_queries, num_target_boxes)
         """
+
         bs, num_queries = outputs["pred_logits"].shape[:2]
 
         # We flatten to compute the cost matrices in a batch
@@ -442,14 +449,17 @@ class HungarianMatcher(nn.Module):
         cost_class=F.relu(out_prob@tgt_embs.T)
         cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
         # Compute the giou cost betwen boxes
+        # print("out bbox",out_bbox.shape)
+        # print("tgt bbox",tgt_bbox.shape)
+        #print("out bbox",out_bbox.min(),out_bbox.max())
         cost_giou = -generalized_box_iou(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
        
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
-        C = C.view(bs, num_queries, -1).cpu().sigmoid()
+        C = C.view(bs, num_queries, -1).sigmoid().cpu()
 
-        sizes = [len(v["boxes"]) for v in targets]
+        sizes = [v["boxes"].shape[0] for v in targets]
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
-        target_classes_o=torch.cat([encodings[i] for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
+        target_classes_o=torch.cat([encodings[int(i.item())] for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
         #print("target classes o",target_classes_o.shape)
         x,y=zip(*indices)
         src=torch.cat([torch.as_tensor(x) for x in x])
@@ -507,45 +517,38 @@ class SetCriterion(nn.Module):
         #loss=self.loss(inputs,targets)
         return loss.mean() / num_boxes
 
-    def loss_labels(self,target_classes_o, outputs, targets, indices, num_boxes, log=True):
+    def loss_labels(self,target_classes_o, outputs,targets, indices, num_boxes):
      
         assert 'pred_logits' in outputs
 
         #idx= (indices[0], indices[2])
         src_idx= (indices[0], indices[1])
-        src_logits = outputs['pred_logits'][src_idx]
-        # target_classes = torch.zeros((*src_logits.shape[:2],512), device=src_logits.device) 
-        # target_classes[idx] = target_classes_o
-        # print(torch.allclose(target_classes[idx], target_classes_o))#True
-        loss_ce = self.sigmoid_focal_loss(src_logits, target_classes_o, num_boxes) * src_logits.shape[1]
-        losses = {'loss_ce': loss_ce}
-
-        return losses
+        return {'loss_ce': self.sigmoid_focal_loss(outputs['pred_logits'][src_idx], target_classes_o, num_boxes) * outputs['pred_logits'][src_idx].shape[1]}
 
     @torch.no_grad()
     def loss_cardinality(self, target_classes_o, outputs, targets, indices, num_boxes):
         """ Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes
         This is not really a loss, it is intended for logging purposes only. It doesn't propagate gradients
         """
-        pred_logits = outputs['pred_logits']
-        device = pred_logits.device
-        tgt_lengths = torch.as_tensor([len(v["labels"]) for v in targets], device=device)
+        pred_logits = outputs['pred_logits'] 
+        tgt_lengths = torch.as_tensor([v["labels"].shape[0] for v in targets], device=pred_logits.device)
         # Count the number of predictions that are NOT "no-object" (which is the last class)
         card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
-        card_err = F.l1_loss(card_pred.float(), tgt_lengths.float())
-        losses = {'cardinality_error': card_err}
-        return losses
+        return {'cardinality_error': F.l1_loss(card_pred.float(), tgt_lengths.float())}
 
     def loss_boxes(self, target_classes_o, outputs, targets, indices, num_boxes):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
            targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
            The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
         """
-        assert 'pred_boxes' in outputs
         idx = (indices[0],indices[1])
         src_boxes = outputs['pred_boxes'][idx]
         target_boxes = torch.stack([targets[t]['boxes'][i] for (t, i) in zip(indices[0],indices[2])], dim=0)
+        # print("Target boxes",target_boxes)
+        # print("src boxes",src_boxes)
         loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
+
+
         loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(
             box_ops.box_cxcywh_to_xyxy(src_boxes),
             box_ops.box_cxcywh_to_xyxy(target_boxes)))
@@ -558,38 +561,22 @@ class SetCriterion(nn.Module):
         """
 
         src_idx =(indices[0],indices[1])   # should probably just check these are the right way around.     
-        tgt_idx = (indices[0],indices[2])
-        src_masks = outputs["pred_masks"]
-        src_masks = src_masks[src_idx]
-        
-        masks = [t["masks"] for t in targets]
-        # TODO use _ to mask invalid areas due to padding in loss
-        target_masks, _ = nested_tensor_from_tensor_list(masks).decompose()
-        target_masks = target_masks.to(src_masks)
-        target_masks = target_masks[tgt_idx]
-
-        # upsample predictions to the target size
-        sc_masks = interpolate(src_masks[:, None], size=target_masks.shape[-2:],
+        #tgt_idx = (indices[0],indices[2])
+        src_masks = outputs["pred_masks"][src_idx]
+        masks=torch.stack([targets[t]['masks'][i] for (t, i) in zip(indices[0],indices[2])])
+        src_masks = interpolate(src_masks[:, None], size=masks.shape[-2:],
                                 mode="bilinear", align_corners=False)[:, 0].flatten(1)
-
-        target_masks = target_masks.flatten(1)
-        target_masks = target_masks.view(sc_masks.shape)
+        masks = masks.flatten(1).to(src_masks)
+        masks = masks.view(src_masks.shape)
         return {
-            "loss_mask": sigmoid_focal_loss(sc_masks, target_masks, num_boxes),
-            "loss_dice": dice_loss(sc_masks, target_masks, num_boxes),
+            "loss_mask": sigmoid_focal_loss(src_masks, masks, num_boxes),
+            "loss_dice": dice_loss(src_masks, masks, num_boxes),
         }
 
-    def forward(self, encodings,outputs, targets):
+    def forward(self, encodings,outputs, targets, num_boxes=1):
         outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
-
-        # Retrieve the matching between the outputs of the last layer and the targets
         indices ,target_classes_o= self.matcher(outputs_without_aux, targets,encodings)
          
-        # Compute the average number of target boxes accross all nodes, for normalization purposes
-        num_boxes = sum(len(t["labels"]) for t in targets)
-        num_boxes = torch.as_tensor([num_boxes], dtype=torch.float, device=encodings.device)
-        num_boxes = torch.clamp(num_boxes, min=1)
-
         # Compute all the requested losses
         losses = {}
         for loss in self.losses:
@@ -607,10 +594,8 @@ class SetCriterion(nn.Module):
         #Jici suis? 
         
         src_idx= (indices[0], indices[1]) #0,1 was the original version, 
-        # print("src idx",src_idx)
-        # print("pred logits",outputs['pred_logits'].shape)
-        src_logits = outputs['pred_logits'][src_idx]
-        return losses, src_logits
+        
+        return losses, outputs['pred_logits'][src_idx]
 
 
 class PostProcess(nn.Module):
@@ -781,11 +766,6 @@ class PositionalTransformer(nn.Module):
         self.nhead = nhead
         self.dec_layers = num_decoder_layers
 
-    # def _reset_parameters(self):
-    #     for p in self.parameters():
-    #         if p.dim() > 1:
-    #             nn.init.xavier_uniform_(p)
-
     def forward(self, src, query_embed, pos_embed, mask=None):
         # flatten NxCxHxW to HWxNxC
         src2 = src.flatten(2).permute(2, 0, 1)
@@ -793,16 +773,23 @@ class PositionalTransformer(nn.Module):
         query_embed = query_embed.unsqueeze(1).repeat(1, src2.shape[1], 1)
         #print("query embed",query_embed.shape) #240 , B,F
         mask = mask.flatten(1)
-    
-        tgt = torch.zeros_like(query_embed) 
-        #print("tgt",tgt.shape) #240 , B,F
 
-        memory = self.encoder(src2, src_key_padding_mask=mask, pos=pos_embed2)
-      
-        hs, references = self.decoder(tgt, memory, memory_key_padding_mask=mask,
+        #tgt = torch.zeros_like(query_embed) 
+        tgt = query_embed.sigmoid()
+        #check mask si not nonetype 
+        memory = self.encoder(src2, src_key_padding_mask=torch.zeros_like(mask), pos=pos_embed2)
+        # if torch.isnan(memory).any():
+        #     print(mask.type())
+
+        #     print("src2", torch.isnan(src2).any())
+        #     print("memory", torch.isnan(memory).any())
+        #     print("posembed2", torch.isnan(pos_embed2).any())
+        #     #print("mask", mask.shape)
+        hs, references = self.decoder(tgt, memory, memory_key_padding_mask=torch.zeros_like(mask),
                           pos=pos_embed2, query_pos=query_embed)
-        hs2, references2 = self.decoder2(tgt, memory, memory_key_padding_mask=mask,
+        hs2, references2 = self.decoder2(tgt, memory, memory_key_padding_mask=torch.zeros_like(mask),
                             pos=pos_embed2, query_pos=query_embed)
+
         tmp=self.bbox_embed(hs)
         #print(references.shape)#B,nq,512
         tmp[..., :2] +=  inverse_sigmoid(references) 
@@ -813,7 +800,7 @@ class PositionalTransformer(nn.Module):
         outputs_coord2 = tmp.sigmoid()
         outputs_class2 = hs2
         # to do this, we  have a set of class features,  and a list of object coords. 
-        print("references",references.shape) #B,nq,2
+        #print("references",references.shape) #B,nq,2
         #bbox_mask = self.bbox_attention(hs[-1], references, mask=mask)
 
         #make a B,h,w, c tensor, then use the bbox mask to select the features, then use the mask head to get the masks
@@ -843,11 +830,8 @@ class PosTransformerEncoder(nn.Module):
                 src_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None):
         
-        output= self.norm(self.layers(dict(src=output, src_mask=mask,
+        return self.norm(self.layers(dict(src=output, src_mask=mask,
                            src_key_padding_mask=src_key_padding_mask, pos=pos))["src"])
-       
-        return output
-
 
 
 class TransformerDecoder(nn.Module):
@@ -931,7 +915,6 @@ class TransformerDecoder(nn.Module):
                                 query_pos = query_pos,
                                 query_sine_embed = query_sine_embed,
                                 is_first = False))["tgt"]
-        #print("out shape:",output.shape)
         return (torch.stack(self.intermediate).transpose(1, 2), reference_points)
         
         
@@ -943,7 +926,6 @@ class TransformerEncoderLayer(nn.Module):
                  activation="relu", normalize_before=False):
         super().__init__()
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
-        # Implementation of Feedforward model
         self.linear1 = nn.Linear(d_model, dim_feedforward)
         self.dropout = nn.Dropout(dropout)
         self.linear2 = nn.Linear(dim_feedforward, d_model)
@@ -1007,6 +989,7 @@ class TransformerDecoderLayer(nn.Module):
                  activation="relu", normalize_before=False,first_layer=False,query_scale=None):
         super().__init__()
         # Decoder Self-Attention
+        
         self.sa_qcontent_proj = nn.Linear(d_model, d_model)
         self.sa_qpos_proj = nn.Linear(d_model, d_model)
         self.sa_kcontent_proj = nn.Linear(d_model, d_model)
@@ -1055,6 +1038,7 @@ class TransformerDecoderLayer(nn.Module):
     def forward_post(self,  kwargs):
         
         tgt=kwargs['tgt']
+        
         memory=kwargs['memory']
         tgt_mask=kwargs['tgt_mask']
         memory_mask=kwargs['memory_mask']
@@ -1063,10 +1047,7 @@ class TransformerDecoderLayer(nn.Module):
         pos=kwargs['pos']
         query_pos=kwargs['query_pos']
         query_sine_embed=kwargs['query_sine_embed']             
-        
-        # ========== Begin of Self-Attention =============
-        # Apply projections here
-        # shape: num_queries x batch_size x 256
+       
         q_content = self.sa_qcontent_proj(tgt)      # target is the input of the first decoder layer. zero by default.
         q_pos = self.sa_qpos_proj(query_pos)
         k_content = self.sa_kcontent_proj(tgt)

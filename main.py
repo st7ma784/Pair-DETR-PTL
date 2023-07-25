@@ -11,7 +11,7 @@
 from pathlib import Path
 from datasets.coco_eval import CocoEvaluator
 # from datasets.panoptic_eval import PanopticEvaluator
-
+from functools import reduce
 # from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
 import torch
 # from torch.utils.data import DataLoader
@@ -99,7 +99,7 @@ class PairDETR(pl.LightningModule):
         self.criterion = SetCriterion(matcher=self.matcher, 
                                       weight_dict=self.weight_dict,
                                     focal_alpha=args['focal_alpha'],
-                                     losses=['labels', 'boxes', 'cardinality','masks'],# fina l unx
+                                     losses=['labels', 'boxes','masks'], # final cardinality
                                     )
         # TO DO : CREATE SECOND CRTIERION FOR THE SECOND HEAD
         
@@ -126,15 +126,19 @@ class PairDETR(pl.LightningModule):
         # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, self.args['lr_drop'])
         return [optimizer]
 
-    def forward(self, samples: NestedTensor,classencoding):
+    def forward(self, samples,classencoding,masks=None):
 
-        if isinstance(samples, (list, torch.Tensor)):
-            samples = nested_tensor_from_tensor_list(samples)
+        # if isinstance(samples, (list, torch.Tensor)):
+        #     samples = nested_tensor_from_tensor_list(samples)
+        #     print("damn here! ")
         #features, pos = self.backbone(samples) this called Joiner which is a wrapper for the backbone:
 
-        src = self.backbone(samples.tensors)
+        src = self.backbone(samples)
         src,feats=src[-1],src[:-1]
-        mask=F.interpolate(samples.mask[None].float(),size=src.shape[-2:]).bool()[-1]        
+        # print(masks.shape) #B,800,800
+        # print(src.shape) 
+    
+        mask=F.interpolate(masks[None].float(),size=src.shape[-2:]).bool()[-1]        
 
         classencodings=self.clip_projection(classencoding)
         classencodings=classencodings.repeat(1,self.num_queries,1).flatten(0,1)
@@ -146,7 +150,7 @@ class PairDETR(pl.LightningModule):
         #similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
         #use this as a mask to filter the outputs
         #pred_to_keep_mask=torch.max(similarities,dim=-1).values>self.threshold
-        print(classencodings.shape)  #80 #512
+        # print(classencodings.shape)  #80 #512
         bbox_mask = self.bbox_attention(outputs_class[-1], classencodings, mask=mask)
         #it feels like this should have references and not class encodings, but I'm not sure how to get them
         feats=feats[::-1]
@@ -168,14 +172,23 @@ class PairDETR(pl.LightningModule):
 
 
     def training_step(self, batch, batch_idx):
-        samples, targets ,classencodings = batch
+        samples, targets ,classencodings,masks= batch
         targets = [{k: v.to(self.device,non_blocking=True) for k, v in t.items()} for t in targets]
         classencodings = {k: v.to(self.device,non_blocking=True) for k, v in  classencodings.items()}
-        outputs,out2 = self(samples,torch.stack(list(classencodings.values())))
-
-        loss_dict, predictions= self.criterion(classencodings,outputs, targets)
-        losses = sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
-        loss_dict2,predictions2 = self.criterion(classencodings,out2, targets)
+        outputs,out2 = self(samples,torch.stack(list(classencodings.values())),masks)
+       
+        num_boxes = reduce(torch.add, [t["labels"].shape[0] for t in targets]).to(dtype=torch.float, device=self.device)
+        num_boxes = torch.clamp(num_boxes, min=1)
+        # for key in outputs:
+        #     #check for nan
+        #     if isinstance(outputs[key],Tensor) and torch.isnan(outputs[key]).any():
+        #         #print("nan in outputs ",key)
+        #         #print(torch.isnan(samples).any())
+        #         #print(torch.isnan(masks).any())
+        loss_dict, predictions= self.criterion(classencodings,outputs, targets,num_boxes=num_boxes)
+        #losses = reduce(torch.add, [loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict])
+        losses=sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
+        loss_dict2,predictions2 = self.criterion(classencodings,out2, targets,num_boxes=num_boxes)
 
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
         logits2=predictions2/torch.norm(predictions2,dim=-1,keepdim=True)
@@ -186,18 +199,19 @@ class PairDETR(pl.LightningModule):
         loss_dict['CELoss']=CELoss
         loss_dict2['CELoss']=CELoss
         losses2 = sum(loss_dict2[k] * self.weight_dict[k] for k in loss_dict2.keys() if k in self.weight_dict)
-        loss_dict_scaled = {k: v * self.weight_dict[k]
-                                    for k, v in loss_dict.items() if k in self.weight_dict}
-        for k,v in loss_dict_scaled.items():
-            self.log(k,v,prog_bar=True,enable_graph=False)
-        #self.log('train_loss', loss_value)
+
+        for k, v in loss_dict.items():
+            if k in self.weight_dict:
+                self.log(k,v * self.weight_dict[k],prog_bar=True,enable_graph=False)
         return losses+losses2
    
     def on_test_start(self) -> None:
-        print(" Looking for Datamodule :\n",self.__dir__())     
+            
         iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
-        # print(self.data.__dir__())
-        self.coco_evaluator = CocoEvaluator(self.val_dataloader().dataset, iou_types)
+        #print(self.trainer.datamodule.__dir__())
+        #point the coco eval at the underlying dataset
+        self.coco_evaluator = CocoEvaluator(self.trainer.datamodule.val.coco, iou_types)
+                                            
         self.panoptic_evaluator = None
         self.coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
 
@@ -205,11 +219,12 @@ class PairDETR(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
     
-        samples, targets ,classencodings = batch
+        samples, targets ,classencodings,masks = batch
+
         samples = samples.to(self.device)
         targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
         classencodings = {k: v.to(self.device,non_blocking=True) for k, v in  classencodings.items()}
-        outputs, _ = self(samples, torch.stack(list(classencodings.values())) )# we need to find coco classes for this!?
+        outputs, _ = self(samples, torch.stack(list(classencodings.values())),masks)# we need to find coco classes for this!?
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         results = self.postprocessors['bbox'](outputs, orig_target_sizes)
         if 'segm' in self.postprocessors.keys():
@@ -272,4 +287,4 @@ if __name__ == '__main__':
                          devices="auto",
                             )
     trainer.fit(model,data)
-    #trainer.test(model,data)
+    trainer.test(model,data)
