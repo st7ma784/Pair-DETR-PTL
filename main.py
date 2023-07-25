@@ -301,7 +301,7 @@ if __name__ == '__main__':
                          #accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
-                         fast_dev_run=True,  
+                         fast_dev_run=False,  
                          devices="auto",
                             )
     trainer.fit(model,data)
