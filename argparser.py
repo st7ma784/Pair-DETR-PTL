@@ -6,7 +6,7 @@ def get_args_parser():
     parser.add_argument('--lr', default=1e-6, type=float)
     parser.add_argument('--lr_backbone', default=1e-6, type=float)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
-    parser.add_argument('--epochs', default=50, type=int)
+    parser.add_argument('--epochs', default=10, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
                         help='gradient clipping max norm')
 
@@ -56,8 +56,8 @@ def get_args_parser():
                         help="giou box coefficient in the matching cost")
 
     # * Loss coefficients
-    parser.add_argument('--mask_loss_coef', default=0.5, type=float)
-    parser.add_argument('--dice_loss_coef', default=0.5, type=float) # these should sum to one?
+    parser.add_argument('--mask_loss_coef', default=1, type=float)
+    parser.add_argument('--dice_loss_coef', default=1, type=float) # these should sum to one?
     parser.add_argument('--cls_loss_coef', default=1, type=float) # 1 /hdim
     parser.add_argument('--bbox_loss_coef', default=5, type=float)
     parser.add_argument('--giou_loss_coef', default=2, type=float)
