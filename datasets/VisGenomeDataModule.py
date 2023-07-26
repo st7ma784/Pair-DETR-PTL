@@ -134,9 +134,9 @@ class VisGenomeDatasetIterBigBoxes(VisGenomeDataset):
 
         
         l=datapoints.BoundingBox([min(r["object"]["x"],r["subject"]["x"]),
-                                 min(r["object"]["y"],r["subject"]["y"]),
-                                 max(r["object"]["w"],r["subject"]["w"]),
-                                 max(r["object"]["h"],r["subject"]["h"])], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
+                                 min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
+                                 max(r["object"]["x"],r["subject"]["x"])-min(r["object"]["x"],r["subject"]["x"]) +max(r["object"]["w"],r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
+                                max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
         r=self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]))
         img=item["image"]
 
