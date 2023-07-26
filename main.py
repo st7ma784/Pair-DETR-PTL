@@ -147,16 +147,20 @@ class PairDETR(pl.LightningModule):
         outputs_coord, outputs_class ,outputs_coord2, outputs_class2= self.transformer( self.input_proj(src) , classencodings, self.positional_embedding(src,mask), mask)
         #filter these outputs by the cosine similarity of the class encodings, we want to find the most similar class encoding to each of the outputs, and ensure that its above a threshold
 
-        #similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
+        similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
         #use this as a mask to filter the outputs
-        #pred_to_keep_mask=torch.max(similarities,dim=-1).values>self.threshold
-        # print(classencodings.shape)  #80 #512
+        pred_to_keep_mask=torch.max(similarities,dim=-1).values>self.threshold
+        # print("filter",pred_to_keep_mask.shape)  #B, NQ* N_classes
+        # print("outputs",outputs_class[-1].shape) #B, NQ*N_classes, 512
+        # print("mask",mask.shape) #B,25,25
         bbox_mask = self.bbox_attention(outputs_class[-1], classencodings, mask=mask)
         #it feels like this should have references and not class encodings, but I'm not sure how to get them
         feats=feats[::-1]
         seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
         outputs_seg_masks = seg_masks.view(src.shape[0], -1, seg_masks.shape[-2], seg_masks.shape[-1])
-
+        #print("seg_masks",outputs_seg_masks.shape) # B, NQ* N_classes, 200,200
+        #print("outputs_seg_masks",outputs_seg_masks.shape) # B, NQ* N_classes, 200,200
+        #outputs_seg_masks=outputs_seg_masks[pred_to_keep_mask]
 
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}#,'pred_masks':masks}
         out2= {'pred_logits': outputs_class2[-1], 'pred_boxes': outputs_coord2[-1]}#,'pred_masks':masks}
@@ -179,12 +183,6 @@ class PairDETR(pl.LightningModule):
        
         num_boxes = reduce(torch.add, [t["labels"].shape[0] for t in targets]).to(dtype=torch.float, device=self.device)
         num_boxes = torch.clamp(num_boxes, min=1)
-        # for key in outputs:
-        #     #check for nan
-        #     if isinstance(outputs[key],Tensor) and torch.isnan(outputs[key]).any():
-        #         #print("nan in outputs ",key)
-        #         #print(torch.isnan(samples).any())
-        #         #print(torch.isnan(masks).any())
         loss_dict, predictions= self.criterion(classencodings,outputs, targets,num_boxes=num_boxes)
         #losses = reduce(torch.add, [loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict])
         losses=sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
@@ -229,7 +227,7 @@ class PairDETR(pl.LightningModule):
         classencodings = {k: v.to(self.device,non_blocking=True) for k, v in  classencodings.items()}
         outputs, _ = self(samples, torch.stack(list(classencodings.values())),masks)# we need to find coco classes for this!?
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
-        results = self.postprocessors['bbox'](outputs, orig_target_sizes)
+        results = self.postprocessors['bbox'](outputs, orig_target_sizes,classencodings)
         if 'segm' in self.postprocessors.keys():
             target_sizes = torch.stack([t["size"] for t in targets], dim=0)
             results = self.postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
@@ -242,7 +240,6 @@ class PairDETR(pl.LightningModule):
         #         file_name = f"{image_id:012d}.png"
         #         res_pano[i]["image_id"] = image_id
         #         res_pano[i]["file_name"] = file_name
-
         #     self.panoptic_evaluator.update(res_pano)
         outputs={target['image_id'].item(): output for target, output in zip(targets, results)}
         #self.coco_evaluator.update(outputs)
@@ -270,8 +267,8 @@ class PairDETR(pl.LightningModule):
             panoptic_res = self.panoptic_evaluator.summarize()
         
 #        if self.coco_evaluator is not None:
-        if 'bbox' in self.postprocessors.keys():
-            self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
+        #if 'bbox' in self.postprocessors.keys():
+        #    self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
         if 'segm' in self.postprocessors.keys():
             self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
         if panoptic_res is not None:
@@ -295,7 +292,7 @@ if __name__ == '__main__':
     model=PairDETR(**args)
     trainer = pl.Trainer(
                          precision=16,
-                         max_epochs=args['epochs'], 
+                         max_epochs=1,#args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
                          #accumulate_grad_batches=4,

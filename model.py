@@ -608,7 +608,7 @@ class SetCriterion(nn.Module):
 class PostProcess(nn.Module):
     """ This module converts the model's output into the format expected by the coco api"""
     @torch.no_grad()
-    def forward(self, outputs, target_sizes):
+    def forward(self, outputs, target_sizes,classencodings):
         """ Perform the computation
         Parameters:
             outputs: raw outputs of the model
@@ -618,13 +618,16 @@ class PostProcess(nn.Module):
         """
         out_logits, out_bbox = outputs['pred_logits'], outputs['pred_boxes']
 
+        similarities=torch.einsum('bqf,gf->bqg', out_logits, classencodings.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
+        #use this as a mask to filter the outputs
+        #print("filter",classes.shape)  #B, NQ* N_classes
+
         assert len(out_logits) == len(target_sizes)
         assert target_sizes.shape[1] == 2
 
-        prob = out_logits.sigmoid()
-        print(out_logits.shape)
-        
-        scores, topk_indexes = torch.topk(prob.reshape(out_logits.shape[0], -1), 100, dim=1)
+        #print(out_logits.shape)
+        #compare to class embeddings, not index. For COCO, this should be the same...
+        scores, topk_indexes = torch.topk(similarities.reshape(out_logits.shape[0], -1), 100, dim=1)
         topk_boxes = topk_indexes // out_logits.shape[2]
         labels = topk_indexes % out_logits.shape[2]
         boxes = box_ops.box_cxcywh_to_xyxy(out_bbox)
