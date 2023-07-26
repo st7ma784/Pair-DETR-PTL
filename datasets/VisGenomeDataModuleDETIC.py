@@ -8,6 +8,13 @@ import pytorch_lightning as pl
 from transformers import CLIPTokenizer
 import time
 
+import base64,json,io
+from base64 import b64decode
+from PIL import Image
+import cv2
+import numpy as np
+from matplotlib import pyplot as plt
+from io import BytesIO
 #So I think you just need to update that line to:
 import io
 from torchvision.transforms import *
@@ -76,7 +83,7 @@ class VisGenomeDataset(torch.utils.data.Dataset):
         #print('Loading COCO dataset')
         self.data=load_dataset("visual_genome", "relationships_v1.2.0",streaming=False,cache_dir=dir)[split] #,download_mode="force_redownload"
         print("got datast")
-        self.data = dataset.map(self.process)
+        self.data = self.data.map(self.process)
         self.__getitem__ = self.data.__getitem__
         self.T=T
         self.tokenizer = tokenizer
