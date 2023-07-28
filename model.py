@@ -433,7 +433,7 @@ class HungarianMatcher(nn.Module):
         assert cost_class != 0 or cost_bbox != 0 or cost_giou != 0, "all costs cant be 0"
 
     @torch.no_grad()
-    def forward(self, outputs, targets,encodings):
+    def forward(self, outputs, tgt_sizes,tgt_embs,tgt_bbox):
         """ Performs the matching
         Params:
             outputs: This is a dict that contains at least these entries:
@@ -460,11 +460,8 @@ class HungarianMatcher(nn.Module):
 
         #print("out prob, out box",out_prob.shape, out_bbox.shape)#1600,F   1600,4
         # Also concat the target labels and boxes
-        tgt_ids = torch.cat([v["labels"] for v in targets]) # [n ]
-        tgt_bbox = torch.cat([v["boxes"] for v in targets])
-        tgt_embs= torch.stack([encodings[int(i)] for i in tgt_ids],dim=0).squeeze()
+  
         out_prob=out_prob/torch.norm(out_prob,dim=-1,keepdim=True) #can get away with no grad...
-        tgt_embs=tgt_embs/torch.norm(tgt_embs,dim=-1,keepdim=True)
         cost_class=F.relu(out_prob@tgt_embs.T)
         cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
         # Compute the giou cost betwen boxes
@@ -473,18 +470,16 @@ class HungarianMatcher(nn.Module):
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
         C = C.view(bs, num_queries, -1).sigmoid().cpu()
 
-        sizes = [v["boxes"].shape[0] for v in targets]
-        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(sizes, -1))]
-        target_classes_o=torch.cat([encodings[int(i.item())] for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
-        #print("target classes o",target_classes_o.shape)
-        x,y=zip(*indices)
+
+        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(tgt_sizes, -1))]
+        # GT_class_indexes=torch.stack([i for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
+        # target_classes_o=encodings[class_lookup[GT_class_indexes]]
+        # print(torch.allclose(target_classes_o/torch.norm(target_classes_o,dim=-1,keepdim=True),tgt_embs))
+        x,y=zip(*indices) #x is output idx, y is tgt idx
         src=torch.cat([torch.as_tensor(x) for x in x])
         tgt=torch.cat([torch.as_tensor(y) for y in y])
-        idxs = torch.stack([src,tgt])
-        #print("idxs",idxs.shape)
-        batch_idx = torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]).unsqueeze(0)
-        indices=torch.cat([batch_idx,idxs],dim=0)
-        return indices, target_classes_o
+        indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]), src,tgt])
+        return indices#, target_classes_o
 
 
 class SetCriterion(nn.Module):
@@ -580,25 +575,26 @@ class SetCriterion(nn.Module):
             "loss_dice": dice_loss(src_masks, masks, num_boxes),
         }
 
-    def forward(self, encodings,outputs, targets, num_boxes=1):
-        outputs_without_aux = {k: v for k, v in outputs.items() if k != 'aux_outputs'}
-        indices ,target_classes_o= self.matcher(outputs_without_aux, targets,encodings)
-         
-        # Compute all the requested losses
+    def forward(self, encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=1):
         losses = {}
-        for loss in self.losses:
-            losses.update(self.loss_map[loss](target_classes_o,outputs, targets, indices, num_boxes))
+        indices = self.matcher(outputs,tgt_sizes=tgt_sizes,tgt_embs=tgt_embs,tgt_bbox=tgt_bbox)        
+        #these refer to batch, then the index within batch and should be able to get the embeddings from this 
+        idx=torch.as_tensor([targets[i]['labels'][j] for (i,j) in zip(indices[0],indices[2])])
 
-        # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
         if 'aux_outputs' in outputs:
-            for i, aux_outputs in enumerate(outputs['aux_outputs']):
-                indices = self.matcher(aux_outputs, targets,encodings)
+            for i, aux_outputs in enumerate(outputs.pop('aux_outputs')):
+                indices = self.matcher(aux_outputs,tgt_sizes=tgt_sizes,tgt_embs=tgt_embs,tgt_bbox=tgt_bbox)
+                idx=torch.as_tensor([targets[i]['labels'][j] for (i,j) in zip(indices[0],indices[2])])
+
                 for loss in self.losses:
-                    l_dict = self.loss_map[loss](target_classes_o,outputs, targets, indices, num_boxes)
+                    l_dict = self.loss_map[loss](encodings[class_lookup[idx]],outputs, targets, indices, num_boxes)
                     l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
 
-        #Jici suis? 
+               #target_classes_o=encodings[class_lookup[idx]]
+        # print(torch.allclose(target_classes_o,target_classes_v2))
+        for loss in self.losses:
+            losses.update(self.loss_map[loss](encodings[class_lookup[idx]],outputs, targets, indices, num_boxes))
         
         src_idx= (indices[0], indices[1]) #0,1 was the original version, 
         
