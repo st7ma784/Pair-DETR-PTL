@@ -278,16 +278,15 @@ class PairDETR(pl.LightningModule):
 
         if self.panoptic_evaluator is not None:
             panoptic_res = self.panoptic_evaluator.summarize()
-        
+            self.log("PQ_all", panoptic_res["All"])
+            self.log("PQ_th", panoptic_res["Things"])
+            self.log("PQ_st", panoptic_res["Stuff"])
 #        if self.coco_evaluator is not None:
         #if 'bbox' in self.postprocessors.keys():
         #    self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
         if 'segm' in self.postprocessors.keys():
             self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
-        if panoptic_res is not None:
-            self.log("PQ_all", panoptic_res["All"])
-            self.log("PQ_th", panoptic_res["Things"])
-            self.log("PQ_st", panoptic_res["Stuff"])
+s
 
 
 if __name__ == '__main__':
