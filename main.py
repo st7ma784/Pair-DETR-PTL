@@ -218,22 +218,14 @@ class PairDETR(pl.LightningModule):
 
 
     def test_step(self,batch,batch_idx):
-        
-        # outputs = self.model(batch["pixel_values"])
-        # targets=batch["labels"]#,input_ids=imids)
-        # #print("targets", targets)
-        # #need resizing from relative xywh to absolute xyxy
-        # targ=[]
-        # for t in targets:
-        #     t["boxes"]=torchvision.ops.box_convert(t["boxes"], in_fmt="xywh", out_fmt="xyxy").to(self.device)
-        #     targ.append({"boxes":t["boxes"],"labels":t["class_labels"].to(self.device)})
-        # outputs = [{k: v.to("cpu") for k, v in t.items()} for t in outputs]
 
-        # res = {target["image_id"].item(): output for target, output in zip(targ, outputs)}
-        
-        # self.coco_evaluator.update(res)    
         samples, targets ,classencodings,masks = batch
-
+        class_to_tensor=torch.zeros(max(list(classencodings.keys()))+1,device=self.device,dtype=torch.long) # find what the biggest index of classes is then make that many zeros. 
+        for i,c in enumerate(classencodings.keys()):
+            class_to_tensor[c]=i
+            #we have to make this because it's not a given that the dictionary of classes has every key, nor that they're the same size
+        tensor_index_to_class=torch.as_tensor(list(classencodings.keys()),device=self.device)
+    
         samples = samples.to(self.device)
         targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
         classencodings = {k: v.to(self.device,non_blocking=True) for k, v in  classencodings.items()}
@@ -242,6 +234,7 @@ class PairDETR(pl.LightningModule):
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         scores,labels,boxes = self.postprocessors['bbox'](outputs, orig_target_sizes,classencodings)    
         # lookup labels against the main class inx labels=
+        labels=tensor_index_to_class[labels]
         results = [{'scores': s, 'labels': l, 'boxes': b} for s, l, b in zip(scores, labels, boxes)]
 
         if 'segm' in self.postprocessors.keys():
@@ -307,10 +300,10 @@ if __name__ == '__main__':
     model=PairDETR(**args)
     trainer = pl.Trainer(
                          precision=16,
-                         max_epochs=1,#args['epochs'], 
+                         max_epochs=4,#args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
-                         #accumulate_grad_batches=4,
+                         accumulate_grad_batches=4,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
                          fast_dev_run=False,  
