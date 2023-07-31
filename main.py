@@ -240,7 +240,10 @@ class PairDETR(pl.LightningModule):
         classencodings=torch.stack(list(classencodings.values()))
         outputs, _ = self(samples, classencodings,masks)# we need to find coco classes for this!?
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
-        results = self.postprocessors['bbox'](outputs, orig_target_sizes,classencodings)
+        scores,labels,boxes = self.postprocessors['bbox'](outputs, orig_target_sizes,classencodings)    
+        # lookup labels against the main class inx labels=
+        results = [{'scores': s, 'labels': l, 'boxes': b} for s, l, b in zip(scores, labels, boxes)]
+
         if 'segm' in self.postprocessors.keys():
             target_sizes = torch.stack([t["size"] for t in targets], dim=0)
             results = self.postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
@@ -286,7 +289,7 @@ class PairDETR(pl.LightningModule):
         #    self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
         if 'segm' in self.postprocessors.keys():
             self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
-s
+
 
 
 if __name__ == '__main__':
