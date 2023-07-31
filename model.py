@@ -625,7 +625,7 @@ class PostProcess(nn.Module):
         #compare to class embeddings, not index. For COCO, this should be the same...
         scores, topk_indexes = torch.topk(similarities.reshape(out_logits.shape[0], -1), 100, dim=1)
         topk_boxes = topk_indexes // out_logits.shape[2]
-        labels = topk_indexes % out_logits.shape[2]
+        labels = topk_indexes % out_logits.shape[2] # I feel like this has to go back through the class lookup? 
         boxes = box_ops.box_cxcywh_to_xyxy(out_bbox)
         boxes = torch.gather(boxes, 1, topk_boxes.unsqueeze(-1).repeat(1,1,4))
         
@@ -633,7 +633,7 @@ class PostProcess(nn.Module):
         img_h, img_w = target_sizes.unbind(1)
         scale_fct = torch.stack([img_w, img_h, img_w, img_h], dim=1)
         boxes = boxes * scale_fct[:, None, :]
-
+        print("sample boxes",boxes[0])
         return [{'scores': s, 'labels': l, 'boxes': b} for s, l, b in zip(scores, labels, boxes)]
 
 
