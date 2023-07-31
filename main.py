@@ -237,7 +237,8 @@ class PairDETR(pl.LightningModule):
         samples = samples.to(self.device)
         targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
         classencodings = {k: v.to(self.device,non_blocking=True) for k, v in  classencodings.items()}
-        outputs, _ = self(samples, torch.stack(list(classencodings.values())),masks)# we need to find coco classes for this!?
+        classencodings=torch.stack(list(classencodings.values()))
+        outputs, _ = self(samples, classencodings,masks)# we need to find coco classes for this!?
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         results = self.postprocessors['bbox'](outputs, orig_target_sizes,classencodings)
         if 'segm' in self.postprocessors.keys():
