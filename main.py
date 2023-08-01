@@ -250,7 +250,7 @@ class PairDETR(pl.LightningModule):
         #         res_pano[i]["image_id"] = image_id
         #         res_pano[i]["file_name"] = file_name
         #     self.panoptic_evaluator.update(res_pano)
-        outputs={target['image_id'].item(): output for target, output in zip(targets, results)}
+        outputs={target['image_id']: output for target, output in zip(targets, results)}
         #self.coco_evaluator.update(outputs)
         return outputs
     def test_epoch_end(self,outputs):
