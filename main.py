@@ -9,7 +9,7 @@
 
 
 from pathlib import Path
-from datasets.coco_eval import CocoEvaluator
+from data.coco_eval import CocoEvaluator
 # from datasets.panoptic_eval import PanopticEvaluator
 from functools import reduce
 # from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
@@ -300,7 +300,7 @@ if __name__ == '__main__':
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     
-    from datasets.coco import COCODataModule
+    from data.coco import COCODataModule
     data=COCODataModule(Cache_dir=args.coco_path,batch_size=4)
     #convert to dict
     args = vars(args)
