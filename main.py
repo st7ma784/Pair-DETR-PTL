@@ -254,41 +254,41 @@ class PairDETR(pl.LightningModule):
         #         res_pano[i]["image_id"] = image_id
         #         res_pano[i]["file_name"] = file_name
         #     self.panoptic_evaluator.update(res_pano)
-        outputs={target['image_id']: output for target, output in zip(targets, results)}
+        # outputs={target['image_id']: output for target, output in zip(targets, results)}
         #self.coco_evaluator.update(outputs)
         self.module.add(prediction=results, reference=targets)
-        return outputs
+        # return outputs
     def test_epoch_end(self,outputs):
         #self.coco_evaluator.synchronize_between_processes()
         results = self.module.compute()
         self.log("mAP",results["mAP"], on_epoch=True, prog_bar=True, logger=True)
         self.print(results)
-        iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
-        #print(self.trainer.datamodule.__dir__())
-        #point the coco eval at the underlying dataset
-        self.coco_evaluator = CocoEvaluator(self.trainer.datamodule.val.coco, iou_types)
-                                            
-        self.panoptic_evaluator = None
-        self.coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
+        #         iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
+        #         #print(self.trainer.datamodule.__dir__())
+        #         #point the coco eval at the underlying dataset
+        #         self.coco_evaluator = CocoEvaluator(self.trainer.datamodule.val.coco, iou_types)
+                                                    
+        #         self.panoptic_evaluator = None
+        #         self.coco_evaluator.coco_eval[iou_types[0]].params.iouThrs = [0, 0.1, 0.5, 0.75]
 
-        for output in outputs:
-            self.coco_evaluator.update(output)
-        self.coco_evaluator.synchronize_between_processes()
-        self.coco_evaluator.accumulate()
-        self.coco_evaluator.summarize()
-        #self.log("mAP",self.coco_evaluator.coco_eval["bbox"].stats[0], prog_bar=True, logger=True)
-        all_ids={}
+        #         for output in outputs:
+        #             self.coco_evaluator.update(output)
+        #         self.coco_evaluator.synchronize_between_processes()
+        #         self.coco_evaluator.accumulate()
+        #         self.coco_evaluator.summarize()
+        #         #self.log("mAP",self.coco_evaluator.coco_eval["bbox"].stats[0], prog_bar=True, logger=True)
+        #         all_ids={}
 
-        if self.panoptic_evaluator is not None:
-            panoptic_res = self.panoptic_evaluator.summarize()
-            self.log("PQ_all", panoptic_res["All"])
-            self.log("PQ_th", panoptic_res["Things"])
-            self.log("PQ_st", panoptic_res["Stuff"])
-#        if self.coco_evaluator is not None:
-        #if 'bbox' in self.postprocessors.keys():
-        #    self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
-        if 'segm' in self.postprocessors.keys():
-            self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
+        #         if self.panoptic_evaluator is not None:
+        #             panoptic_res = self.panoptic_evaluator.summarize()
+        #             self.log("PQ_all", panoptic_res["All"])
+        #             self.log("PQ_th", panoptic_res["Things"])
+        #             self.log("PQ_st", panoptic_res["Stuff"])
+        # #        if self.coco_evaluator is not None:
+        #         #if 'bbox' in self.postprocessors.keys():
+        #         #    self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
+        #         if 'segm' in self.postprocessors.keys():
+        #             self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
 
 
 

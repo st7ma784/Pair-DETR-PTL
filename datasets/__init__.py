@@ -9,7 +9,7 @@
 
 import torch.utils.data
 import torchvision
-
+from datasets import *
 from .coco import COCODataModule
 
 def get_coco_api_from_dataset(dataset):
