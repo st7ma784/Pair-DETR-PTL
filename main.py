@@ -16,7 +16,7 @@ from functools import reduce
 import torch
 # from torch.utils.data import DataLoader
 from util.misc import inverse_sigmoid
-
+import evaluate
 from model import *
 import pytorch_lightning as pl
 from transformers import CLIPTokenizer
@@ -215,7 +215,11 @@ class PairDETR(pl.LightningModule):
                 self.log(k,v * self.weight_dict[k],prog_bar=True,enable_graph=False)
         return losses+losses2
    
-
+    def test_epoch_start(self,*args):
+        
+        #model = AutoModelForObjectDetection.from_pretrained("MariaK/detr-resnet-50_finetuned_cppe5")
+        self.module = evaluate.load("ybelkada/cocoevaluate", coco=self.coco_ann)
+    
 
     def test_step(self,batch,batch_idx):
 
@@ -252,10 +256,13 @@ class PairDETR(pl.LightningModule):
         #     self.panoptic_evaluator.update(res_pano)
         outputs={target['image_id']: output for target, output in zip(targets, results)}
         #self.coco_evaluator.update(outputs)
+        self.module.add(prediction=results, reference=targets)
         return outputs
     def test_epoch_end(self,outputs):
         #self.coco_evaluator.synchronize_between_processes()
-            
+        results = self.module.compute()
+        self.log("mAP",results["mAP"], on_epoch=True, prog_bar=True, logger=True)
+        self.print(results)
         iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
         #print(self.trainer.datamodule.__dir__())
         #point the coco eval at the underlying dataset
