@@ -195,10 +195,10 @@ class PairDETR(pl.LightningModule):
         tgt_embs= classencodings[embedding_indices] 
         tgt_embs=tgt_embs/torch.norm(tgt_embs,dim=-1,keepdim=True)
 
-        loss_dict, predictions= self.criterion(classencodings,outputs, targets,num_boxes=num_boxes,tgt_sizes=tgt_sizes,tgt_embs=tgt_embs,tgt_bbox=tgt_bbox,class_lookup=class_to_tensor)
+        loss_dict, predictions= self.criterion(classencodings,outputs, targets,num_boxes=num_boxes,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,class_lookup=class_to_tensor)
         losses = reduce(torch.add, [loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict])
         losses=sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
-        loss_dict2,predictions2 = self.criterion(classencodings,out2, targets,num_boxes=num_boxes,tgt_sizes=tgt_sizes,tgt_embs=tgt_embs,tgt_bbox=tgt_bbox,class_lookup=class_to_tensor)
+        loss_dict2,predictions2 = self.criterion(classencodings,out2, targets,num_boxes=num_boxes,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,class_lookup=class_to_tensor)
 
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
         logits2=predictions2/torch.norm(predictions2,dim=-1,keepdim=True)

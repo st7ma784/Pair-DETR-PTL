@@ -601,6 +601,110 @@ class SetCriterion(nn.Module):
         return losses, outputs['pred_logits'][src_idx]
 
 
+
+class FastCriterion(nn.Module):
+    """ This class computes the loss for Conditional DETR. 
+    This used to take 2 steps, but now it is combined into one.
+        1) we compute hungarian assignment between ground truth boxes and the outputs of the model
+        2) we supervise each pair of matched ground-truth / prediction (supervise class and box)
+    
+        However we're going to differ. We're going to do the following:
+        1) calculate the similarity between predicted classes and the classes we're querying for.
+        2) use this similarity to add to the xand y coordinates of the predicted boxes and the x and y of the ground truth boxes
+        3) add the same offsets for the masks
+        3) calculate the loss for the masks and the boxes as giou in one. 
+    """
+    def __init__(self, weight_dict, focal_alpha, losses):
+        """ Create the criterion.
+        Parameters:
+            num_classes: number of object categories, omitting the special no-object category
+            weight_dict: dict containing as key the names of the losses and as values their relative weight.
+            losses: list of all the losses to be applied. See get_loss for list of available losses.
+            focal_alpha: alpha in Focal Loss
+        """
+
+        super().__init__()
+        #self.device=device
+        self.weight_dict = weight_dict
+        self.loss=nn.CrossEntropyLoss(reduction="mean")
+        self.losses = {'boxes': self.loss_boxes, 'masks': self.loss_masks}
+  
+    def loss_boxes(self, _,_, src_boxes, target_boxes,*args):
+        """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
+           targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
+           The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
+        """
+
+
+
+
+        loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
+
+
+        loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(
+            box_ops.box_cxcywh_to_xyxy(src_boxes),
+            box_ops.box_cxcywh_to_xyxy(target_boxes)))
+        return {'loss_bbox':loss_bbox.sum() / target_boxes.shape[0],
+                'loss_giou': loss_giou.sum() / target_boxes.shape[0]}
+
+    def loss_masks(self,src_masks, masks,*args):
+        """Compute the losses related to the masks: the focal loss and the dice loss.
+           targets dicts must contain the key "masks" containing a tensor of dim [nb_target_boxes, h, w]
+        """
+        
+        src_masks = interpolate(src_masks[:, None], size=masks.shape[-2:],
+                                mode="bilinear", align_corners=False)[:, 0].flatten(1)
+        masks = masks.flatten(1).to(src_masks)
+        masks = masks.view(src_masks.shape)
+        return {
+            "loss_mask": sigmoid_focal_loss(src_masks, masks),
+            "loss_dice": dice_loss(src_masks, masks),
+        }
+
+    def forward(self, encodings,outputs, targets, tgt_sizes,tgt_ids,tgt_bbox,class_lookup,num_boxes=1):
+        image_width=224# hard coded for now
+        class_encodings=encodings # c, 512
+        class_count=class_encodings.shape[0]
+        offsets=torch.arange(class_count)*image_width
+        predicted_classes=outputs['pred_logits'] # Q, 512
+        similarity=class_encodings@predicted_classes.T # c, Q
+        out_bbox_scores=torch.max(similarity,dim=0) # Q
+        lookuptable=torch.gumbel_softmax(similarity,tau=1,hard=True,dim=1) # c, Q
+        #for each Q, we have the index of the best class. 
+        output_x_coordinate_offsets= torch.sum(offsets*lookuptable,dim=0) # Q
+        #now we have to apply the offsets to the bounding boxes.
+        #we will do the same for the batch of gt boxes.
+        gt_x_coordinate_offets=image_width*tgt_ids
+
+        '''
+        There ought to be a way to do the same for y with that idx from the batch as the guide to help disambiguate boxes?!
+        '''
+
+        #now we'll do some NMS to get the best boxes.
+        output_bbox=outputs['pred_boxes']# Q, 4 in the format x1,y1,x2,y2
+        output_bboxes=output_bbox+output_x_coordinate_offsets
+        gt_bboxes=tgt_bbox+gt_x_coordinate_offets
+
+        NMS_supressed_boxes=torchvision.ops.boxes.batched_nms(output_bboxes,scores=out_bbox_scores,iou_threshold=0.5)
+        #now we have the best boxes, we can calculate the loss.
+
+        #we need to apply the same offset trick to the masks.
+        #this is slightly more problematic because each mask is q,w,h
+        
+        #we're going to achieve this with the same one_hot encoding of the classes. We'll take that mask and apply it to the C dim of a Q,C,W,H tensor of ones
+
+        #we'll then multiply this by the masks to get the masks we want.
+        
+
+        #for the outputs we'll do the same with the predicted classes and the predicted masks. predicted masks are Q,W,H
+        
+
+
+        losses = {}
+        for loss in self.losses:
+            losses.update(self.loss_map[loss](gt_bboxes,NMS_supressed_boxes, gt_masks, out_masks, num_boxes))
+        
+        return losses,NMS_supressed_boxes
 class PostProcess(nn.Module):
     """ This module converts the model's output into the format expected by the coco api"""
     @torch.no_grad()
