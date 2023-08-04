@@ -217,51 +217,53 @@ class MHAttentionMapRef(nn.Module):
         #     weights.repeat(1,1,1,mask.shape[-2],mask.shape[-1]).masked_fill_(mask.unsqueeze(1).unsqueeze(1).repeat(1,qh.shape[1],self.num_heads,1,1), float("-inf"))
         weights = F.softmax(weights.flatten(2), dim=-1).view(weights.size())
         return self.dropout(weights)
-def dice_loss(inputs, targets, num_boxes):
-    """
-    Compute the DICE loss, similar to generalized IOU for masks
-    Args:
-        inputs: A float tensor of arbitrary shape.
-                The predictions for each example.
-        targets: A float tensor with the same shape as inputs. Stores the binary
-                 classification label for each element in inputs
-                (0 for the negative class and 1 for the positive class).
-    """
-    inputs = inputs.sigmoid().flatten(1)
-    numerator = 2 * (inputs * targets).sum(1)
-    denominator = inputs.sum(-1) + targets.sum(-1)
-    loss = 1 - (numerator + 1) / (denominator + 1)
-    return loss.sum() / num_boxes
+# def dice_loss(inputs, targets, num_boxes):
+#     """
+#     Compute the DICE loss, similar to generalized IOU for masks
+#     Args:
+#         inputs: A float tensor of arbitrary shape.
+#                 The predictions for each example.
+#         targets: A float tensor with the same shape as inputs. Stores the binary
+#                  classification label for each element in inputs
+#                 (0 for the negative class and 1 for the positive class).
+#     """
+#     print("dice loss")
+#     print("inputs",inputs.shape)
+#     print("targets",targets.shape)
+#     print("num_boxes",num_boxes)
+#     inputs = inputs.sigmoid().flatten(1)
+#     numerator = 2 * (inputs * targets).sum(1)
+#     print("numerator",numerator.shape)
+#     denominator = inputs.sum(-1) + targets.sum(-1)
+#     loss = 1 - (numerator + 1) / (denominator + 1)
+#     print("loss",loss.shape)
+#     return loss.sum() / num_boxes
 
 
-def sigmoid_focal_loss(inputs, targets, num_boxes, alpha: float = 0.25, gamma: float = 2):
-    """
-    Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
-    Args:
-        inputs: A float tensor of arbitrary shape.
-                The predictions for each example.
-        targets: A float tensor with the same shape as inputs. Stores the binary
-                 classification label for each element in inputs
-                (0 for the negative class and 1 for the positive class).
-        alpha: (optional) Weighting factor in range (0,1) to balance
-                positive vs negative examples. Default = -1 (no weighting).
-        gamma: Exponent of the modulating factor (1 - p_t) to
-               balance easy vs hard examples.
-    Returns:
-        Loss tensor
-    """
-    prob = inputs.sigmoid()
-    # print("inputs",inputs.dtype)
-    # print("targets",targets.dtype)
-    ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
-    p_t = prob * targets + (1 - prob) * (1 - targets)
-    loss = ce_loss * ((1 - p_t) ** gamma)
+# def sigmoid_focal_loss(inputs, targets, num_boxes, gamma: float = 2):
+#     """
+#     Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
+#     Args:
+#         inputs: A float tensor of arbitrary shape.
+#                 The predictions for each example.
+#         targets: A float tensor with the same shape as inputs. Stores the binary
+#                  classification label for each element in inputs
+#                 (0 for the negative class and 1 for the positive class).
+#         alpha: (optional) Weighting factor in range (0,1) to balance
+#                 positive vs negative examples. Default = -1 (no weighting).
+#         gamma: Exponent of the modulating factor (1 - p_t) to
+#                balance easy vs hard examples.
+#     Returns:
+#         Loss tensor
+#     """
+#     print("sigmoid focal loss")
 
-    if alpha >= 0:
-        alpha_t = alpha * targets + (1 - alpha) * (1 - targets)
-        loss = alpha_t * loss
-
-    return loss.mean(1).sum() / num_boxes
+#     prob = inputs.sigmoid()
+#     ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+#     p_t = prob * targets + (1 - prob) * (1 - targets)
+#     loss = ce_loss * ((1 - p_t) ** gamma)
+#     print("sigloss",loss.shape)
+#     return loss.mean().sum() / num_boxes
 
 
 class PostProcessSegm(nn.Module):
@@ -614,7 +616,7 @@ class FastCriterion(nn.Module):
         3) add the same offsets for the masks
         3) calculate the loss for the masks and the boxes as giou in one. 
     """
-    def __init__(self, weight_dict, focal_alpha, losses):
+    def __init__(self, weight_dict):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -626,85 +628,128 @@ class FastCriterion(nn.Module):
         super().__init__()
         #self.device=device
         self.weight_dict = weight_dict
-        self.loss=nn.CrossEntropyLoss(reduction="mean")
-        self.losses = {'boxes': self.loss_boxes, 'masks': self.loss_masks}
-  
-    def loss_boxes(self, _,_, src_boxes, target_boxes,*args):
-        """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
-           targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
-           The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
-        """
 
+    def forward(self, encodings,outputs,tgt_masks, tgt_sizes,tgt_ids,tgt_bbox):
 
-
-
-        loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
-
-
-        loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(
-            box_ops.box_cxcywh_to_xyxy(src_boxes),
-            box_ops.box_cxcywh_to_xyxy(target_boxes)))
-        return {'loss_bbox':loss_bbox.sum() / target_boxes.shape[0],
-                'loss_giou': loss_giou.sum() / target_boxes.shape[0]}
-
-    def loss_masks(self,src_masks, masks,*args):
-        """Compute the losses related to the masks: the focal loss and the dice loss.
-           targets dicts must contain the key "masks" containing a tensor of dim [nb_target_boxes, h, w]
-        """
-        
-        src_masks = interpolate(src_masks[:, None], size=masks.shape[-2:],
-                                mode="bilinear", align_corners=False)[:, 0].flatten(1)
-        masks = masks.flatten(1).to(src_masks)
-        masks = masks.view(src_masks.shape)
-        return {
-            "loss_mask": sigmoid_focal_loss(src_masks, masks),
-            "loss_dice": dice_loss(src_masks, masks),
-        }
-
-    def forward(self, encodings,outputs, targets, tgt_sizes,tgt_ids,tgt_bbox,class_lookup,num_boxes=1):
         image_width=224# hard coded for now
         class_encodings=encodings # c, 512
         class_count=class_encodings.shape[0]
-        offsets=torch.arange(class_count)*image_width
-        predicted_classes=outputs['pred_logits'] # Q, 512
-        similarity=class_encodings@predicted_classes.T # c, Q
-        out_bbox_scores=torch.max(similarity,dim=0) # Q
-        lookuptable=torch.gumbel_softmax(similarity,tau=1,hard=True,dim=1) # c, Q
-        #for each Q, we have the index of the best class. 
-        output_x_coordinate_offsets= torch.sum(offsets*lookuptable,dim=0) # Q
-        #now we have to apply the offsets to the bounding boxes.
-        #we will do the same for the batch of gt boxes.
-        gt_x_coordinate_offets=image_width*tgt_ids
 
-        '''
-        There ought to be a way to do the same for y with that idx from the batch as the guide to help disambiguate boxes?!
-        '''
+        offsetsx=torch.arange(class_count,device=encodings.device)*image_width # c
+        offsetsy=torch.arange(outputs['pred_logits'].shape[0],device=encodings.device)*image_width # B
 
-        #now we'll do some NMS to get the best boxes.
-        output_bbox=outputs['pred_boxes']# Q, 4 in the format x1,y1,x2,y2
-        output_bboxes=output_bbox+output_x_coordinate_offsets
-        gt_bboxes=tgt_bbox+gt_x_coordinate_offets
+        #We're going to offset out predictions in by multiples of the image width
+        #in the x direction, this will represent the class we're predicting
+        #in the y direction, this will represent the idx in output
 
-        NMS_supressed_boxes=torchvision.ops.boxes.batched_nms(output_bboxes,scores=out_bbox_scores,iou_threshold=0.5)
-        #now we have the best boxes, we can calculate the loss.
 
-        #we need to apply the same offset trick to the masks.
-        #this is slightly more problematic because each mask is q,w,h
+        predicted_classes=outputs['pred_logits'] #B, Q, 512
+
+        similarity=predicted_classes@class_encodings.T  #  [B,Q,F]@[F,C] -> [B,Q,C]
+
+        out_bbox_scores=torch.max(similarity,dim=-1).values # B,Q 
+        #create table of one_hot for each class and each query
+        class_lookup_table=torch.nn.functional.gumbel_softmax(similarity,tau=1,hard=True,dim=-1) #  B,Q,C 
+
+        output_x_coordinate_offsets= torch.sum(torch.mul(offsetsx,class_lookup_table),dim=-1) # B,Q 
+        output_y_coordinate_offsets= torch.sum(torch.mul(offsetsy.unsqueeze(-1).unsqueeze(-1),class_lookup_table),dim=-1)
+        output_x_y_offsets=torch.stack([output_x_coordinate_offsets,output_y_coordinate_offsets],dim=-1).repeat(1,1,2) # B,Q,4
+
+        gt_x_coordinate_offsets=image_width*tgt_ids # Boxes
+        gt_y_coordinate_offsets=torch.cat([torch.ones(t,device=gt_x_coordinate_offsets.device)*i for i,t in enumerate(tgt_sizes)],dim=0)
+        gt_x_y_offsets=torch.stack([gt_x_coordinate_offsets,gt_y_coordinate_offsets],dim=-1).repeat(1,1,2) # Boxes, 4
+
+        output_bbox=outputs['pred_boxes']
+        output_bbox=box_ops.box_cxcywh_to_xyxy(output_bbox) + output_x_y_offsets
+        tgt_bbox=box_ops.box_cxcywh_to_xyxy(tgt_bbox) + gt_x_y_offsets
+        #flatten across batch and query
+        output_bbox=output_bbox.flatten(0,1)
+        tgt_bbox=tgt_bbox.flatten(0,1)
+        #output_bbox=output_bbox[torchvision.ops.boxes.nms(output_bboxes ,scores=out_bbox_scores.flatten(),iou_threshold=0.5)]
         
-        #we're going to achieve this with the same one_hot encoding of the classes. We'll take that mask and apply it to the C dim of a Q,C,W,H tensor of ones
+        ###########DO BOX Loss################
+      
+        #find best ious,
+        iou_scores=torchvision.ops.box_iou(output_bbox,tgt_bbox) #46,211
+        #fix any nans
+        iou_scores=torch.nan_to_num(iou_scores,nan=-1)
 
-        #we'll then multiply this by the masks to get the masks we want.
+        #raw sum - low is good
+        iou_total=torch.sum(1-iou_scores) #[]
+
+        ''' Its super important do do bboxes of output onto truth and vice versa - otherwise we might just learn a single class'''
+
+        #softmax takes log probs, so we need to convert to log probs
+        out_log_iou_scores=torch.nn.functional.log_softmax(iou_scores,dim=1) #46,211
+        out_one_hot=torch.nn.functional.gumbel_softmax(out_log_iou_scores,dim=1,hard=True).to(tgt_bbox) #46,211
+        selected_boxes=torch.einsum("AB,NA->NB",tgt_bbox,out_one_hot).to(tgt_bbox) #211,4
+        out_iou_total=torchvision.ops.generalized_box_iou_loss(
+           selected_boxes,output_bbox)
         
 
-        #for the outputs we'll do the same with the predicted classes and the predicted masks. predicted masks are Q,W,H
-        
+        gt_log_iou_scores=torch.nn.functional.log_softmax(iou_scores,dim=0) #46,211
+        gt_one_hot=torch.nn.functional.gumbel_softmax(gt_log_iou_scores,dim=0,hard=True) #46,211
+        #print(output_bbox.shape,gt_one_hot.shape)
+        gt_selected_boxes=torch.einsum("AB,AN->NB",output_bbox,gt_one_hot)
+        gt_iou_total=torchvision.ops.generalized_box_iou_loss(
+           gt_selected_boxes,tgt_bbox)
+
+        #check for nans
+        if torch.isnan(out_iou_total).any() or torch.isnan(gt_iou_total).any():
+            print("NAN LOSS",torch.isnan(out_iou_total).any(),torch.isnan(gt_iou_total).any())
+            print("iou_scores",iou_scores)
+
+        # output_masks=outputs['pred_masks']#B,Q,W,H
+
+        # ##########################################################################
+        # #To Test: Use the similarity matric rather than the lookuptable??? 
+        # #To Test: Does surpressing the mask before the offset help?
+        # ##########################################################################
+        # output_masks=output_masks[NMS_supressed_boxes] # Q,W,H
+
+        # nms_predicted_classes=outputs['pred_logits'].flatten(0,1)[NMS_supressed_boxes] # Q, 512
+     
+        # nms_similarity=class_encodings@nms_predicted_classes.T # c, Q
+        # lookuptable=torch.nn.functional.gumbel_softmax(nms_similarity,tau=1,hard=True,dim=1) # c, Q
+        # output_masks=torch.einsum('cq,qwh->cwh',lookuptable,output_masks) # c,w,h
+
+        # GT_masks=tgt_masks.to(torch.float) # BB,W,H
+        # #we should interpolate the masks to the same size as the output masks.
+        # # GT_masks=interpolate(GT_masks,size=output_masks.shape[-2:],mode="bilinear",align_corners=False)
+
+        # #we have tgt_ids which is the index of the class in the class lookup table.
+        # #we're going to achieve this with the same one_hot encoding of the classes. We'll take that mask and apply it to the C dim of a Q,C,W,H tensor of ones
+        # one_hot_classes=torch.nn.functional.one_hot(tgt_ids,num_classes=class_count).to(GT_masks) # BB,C
+        # GT_masks=torch.einsum('bc,bwh->cwh',one_hot_classes,GT_masks) # C,W,H
+      
+
+        # ##############DO MASK LOSS################
+        # src_masks = interpolate(output_masks[:, None], size=GT_masks.shape[-2:],
+        #                         mode="bilinear", align_corners=False)[:, 0].flatten(1)
+        # print("src_masks interped",output_masks.shape)
+        # masks = GT_masks.flatten(1).to(src_masks)
+
+        # ##############do dice loss################
 
 
-        losses = {}
-        for loss in self.losses:
-            losses.update(self.loss_map[loss](gt_bboxes,NMS_supressed_boxes, gt_masks, out_masks, num_boxes))
-        
-        return losses,NMS_supressed_boxes
+
+        # inputs = src_masks.relu().flatten(1)
+        # dice_loss = 1 - (2 * (inputs * masks).sum(1) + 1) / (inputs.sum(-1) + masks.sum(-1) + 1)
+        # ##############do sigmoid focal loss################
+
+        # ce_loss = F.binary_cross_entropy_with_logits(src_masks, masks, reduction="none")
+        # p_t = src_masks.relu() * masks + (1 - src_masks.relu()) * (1 - masks)
+        # sig_loss = ce_loss * ((1 - p_t) ** 2)
+    
+        return {
+            # "loss_mask": sig_loss.mean().sum()/ out_bboxes.shape[0], #(src_masks, masks),
+            # "loss_dice": dice_loss.sum()/ out_bboxes.shape[0], #(src_masks, masks, ),
+            'loss_gt_iou': gt_iou_total.sum()/output_bbox.shape[0], # rename these later
+            'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later
+            'loss_bbox_acc': F.l1_loss(gt_selected_boxes, tgt_bbox, reduction='none').sum() / output_bbox.shape[0],
+            'loss_giou': iou_total / output_bbox.shape[0]},predicted_classes.flatten(0,1)
+    
+
 class PostProcess(nn.Module):
     """ This module converts the model's output into the format expected by the coco api"""
     @torch.no_grad()
@@ -893,11 +938,11 @@ class PositionalTransformer(nn.Module):
 
         tmp=self.bbox_embed(hs)
         tmp[..., :2] +=  inverse_sigmoid(references) 
-        outputs_coord = tmp.sigmoid()
+        outputs_coord = tmp.relu()
         outputs_class = hs
         tmp=self.bbox_embed(hs2)
         tmp[..., :2] +=  inverse_sigmoid(references2) 
-        outputs_coord2 = tmp.sigmoid()
+        outputs_coord2 = tmp.relu()
         outputs_class2 = hs2
         #bbox_mask = self.bbox_attention(hs[-1], references, mask=mask)
 

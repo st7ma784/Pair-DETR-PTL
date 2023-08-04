@@ -83,24 +83,26 @@ class PairDETR(pl.LightningModule):
         nn.init.constant_(self.input_proj.weight.data, 0)
         # if args.masks:
         #     model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
-        self.matcher = HungarianMatcher(cost_class=args['set_cost_class'], 
-                                        cost_bbox=args['set_cost_bbox'],
-                                        cost_giou=args['set_cost_giou'],
+        # self.matcher = HungarianMatcher(cost_class=args['set_cost_class'], 
+        #                                 cost_bbox=args['set_cost_bbox'],
+        #                                 cost_giou=args['set_cost_giou'],
 
-                                        )
+        #                                 )
 
-        self.weight_dict = {'loss_ce': args['cls_loss_coef'],
-                       'loss_bbox': args['bbox_loss_coef'],
-                       'loss_giou': args['giou_loss_coef'],
+        self.weight_dict = {'loss_out_iou':1,
+                            'loss_gt_iou':1,
+                       'loss_bbox_acc': 0.001*args['bbox_loss_coef'],
+                       'loss_giou': 0.01 * args['giou_loss_coef'],
                        'loss_dice': args['dice_loss_coef'], #  last unc
                        'loss_mask': args['mask_loss_coef'], # 
                        'CELoss':0.25}
 
-        self.criterion = SetCriterion(matcher=self.matcher, 
-                                      weight_dict=self.weight_dict,
-                                    focal_alpha=args['focal_alpha'],
-                                     losses=['labels', 'boxes','masks'], # final cardinality
-                                    )
+        # self.criterion = SetCriterion(matcher=self.matcher, 
+        #                               weight_dict=self.weight_dict,
+        #                             focal_alpha=args['focal_alpha'],
+        #                              losses=['labels', 'boxes','masks'], # final cardinality
+        #                             )
+        self.criterion= FastCriterion(weight_dict=self.weight_dict)
         # TO DO : CREATE SECOND CRTIERION FOR THE SECOND HEAD
         
         
@@ -173,7 +175,10 @@ class PairDETR(pl.LightningModule):
         
         return out,out2
 
-
+    def training_epoch_start(self, *args, **kwargs):
+        for k,v in self.weight_dict.items():
+            #convert v to tensor and put it on the device
+            self.weight_dict[k]=torch.as_tensor(v,device=self.device)
 
     def training_step(self, batch, batch_idx):
         samples, targets ,classencodings,masks= batch
@@ -186,23 +191,25 @@ class PairDETR(pl.LightningModule):
         # tensor_index_to_class=torch.as_tensor(list(classencodings.keys()),device=self.device)
         classencodings = torch.stack([v.squeeze() for v in classencodings.values()]).to(self.device,non_blocking=True)
         outputs,out2 = self(samples,classencodings,masks)
-        ids,boxes,tgt_sizes=zip(*[(v["labels"],v["boxes"],v["boxes"].shape[0]) for v in targets])
+        ids,boxes,masks,tgt_sizes=zip(*[(v["labels"],v["boxes"],v["masks"],v["boxes"].shape[0]) for v in targets])
         tgt_ids = torch.cat(ids).to(dtype=torch.long,device=class_to_tensor.device,non_blocking=True) # [n ]
         tgt_bbox = torch.cat(boxes)
+        tgt_masks = torch.cat(masks)
         num_boxes = max(tgt_ids.shape[0], 1)
         embedding_indices=class_to_tensor[tgt_ids]
 
         tgt_embs= classencodings[embedding_indices] 
         tgt_embs=tgt_embs/torch.norm(tgt_embs,dim=-1,keepdim=True)
 
-        loss_dict, predictions= self.criterion(classencodings,outputs, targets,num_boxes=num_boxes,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,class_lookup=class_to_tensor)
+        loss_dict, predictions= self.criterion(classencodings,outputs, tgt_masks=tgt_masks,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox)
         losses = reduce(torch.add, [loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict])
         losses=sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
-        loss_dict2,predictions2 = self.criterion(classencodings,out2, targets,num_boxes=num_boxes,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,class_lookup=class_to_tensor)
+        loss_dict2,predictions2 = self.criterion(classencodings,out2, tgt_masks=tgt_masks,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox)
 
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
         logits2=predictions2/torch.norm(predictions2,dim=-1,keepdim=True)
-       
+        # print("logits",logits.shape)
+        # print("logits2",logits2.shape)
         CELoss=self.loss(logits@logits2.T,torch.arange(logits.shape[0],device=self.device))
         
         
@@ -213,7 +220,7 @@ class PairDETR(pl.LightningModule):
         for k, v in loss_dict.items():
             if k in self.weight_dict:
                 self.log(k,v * self.weight_dict[k],prog_bar=True,enable_graph=False)
-        return losses+losses2
+        return losses +losses2
    
     def test_epoch_start(self,*args):
         
