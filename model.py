@@ -701,52 +701,39 @@ class FastCriterion(nn.Module):
         # ##########################################################################
         #I don't think I want to use NMS here, nor a lookuptable, because near-miss BBboxes will be very useful
 
-        #The Goal is a B,C,W,H mask.
+        # The Goal is a B,C,W,H mask.
         # for Each box (B,Q) we want to find the best class (C) and the best output (W,H)
-        #we then want to use that boxes' logits to the class encoding to amount of mask to use
+        # we then want to use that boxes' logits to the class encoding to amount of mask to use
         # class similarity is therefore shape B,Q,C  (B,Q,512)@(512,C) -> B,Q,C
         # and we have BQWH masks, so we can use Q to get a resultant sum of B,C,W,H masks I.E a mask for each class in the batch
         
-        # output_masks=outputs['pred_masks']#B,Q,W,H
-        # output_class_masks=torch.einsum('bqwh,bqc->bcwh',output_masks,similarity) #B,Q,W,H
-        
-        
-        # #gt_masks=tgt_masks.to(torch.float) # BB,W,H
-        # gt_masks=interpolate(gt_masks,output_masks.shape[-2:]) # BB,W,H
-        # gt_embs=encodings[tgt_ids] # BB,F
-        # gt_similarities=gt_embs@encodings.T # BB,C #shows the similarity to other classes
+        output_masks=outputs['pred_masks']#B,Q,W,H
+        output_class_masks=torch.einsum('bqwh,bqc->bcwh',output_masks,similarity) #B,Q,W,H
+        #now we need to get the ground truth masks
+        gt_masks=interpolate(tgt_masks.unsqueeze(1),output_masks.shape[-2:]).squeeze(1).to(encodings) # BB,W,H
+        gt_embs=encodings[tgt_ids] # BB,F
+        gt_similarities=gt_embs@encodings.T # BB,C #shows the similarity to other classes
+        masks_splits=gt_masks.split(tgt_sizes,dim=0) # n, W,H 
+        similarities_splits=gt_similarities.split(tgt_sizes,dim=0) # n, C
+        #compute the similarity of each mask to each class to get shape B,C,W,H
+        gt_class_masks=[m.permute(1,2,0)@s for m,s in zip(masks_splits,similarities_splits)]
+        gt_class_masks=torch.stack(gt_class_masks,dim=0).permute(0,3,1,2) # B,C,W,H
+        #print("gt_class_masks",gt_class_masks.shape)
 
 
-        #we're going to use the similarity matrix to find the best class for each box
+        ##############do dice loss################
 
+        inputs = output_class_masks.relu().flatten(1)
+        dice_loss = 1 - (2 * (inputs * gt_class_masks).sum(1) + 1) / (inputs.sum(-1) + gt_class_masks.sum(-1) + 1)
+        ##############do sigmoid focal loss################
 
-        # #we have tgt_ids which is the index of the class in the class lookup table.
-        # #we're going to achieve this with the same one_hot encoding of the classes. We'll take that mask and apply it to the C dim of a Q,C,W,H tensor of ones
-        # one_hot_classes=torch.nn.functional.one_hot(tgt_ids,num_classes=class_count).to(GT_masks) # BB,C
-        # GT_masks=torch.einsum('bc,bwh->cwh',one_hot_classes,GT_masks) # C,W,H
-      
-
-        # ##############DO MASK LOSS################
-        # src_masks = interpolate(output_masks[:, None], size=GT_masks.shape[-2:],
-        #                         mode="bilinear", align_corners=False)[:, 0].flatten(1)
-        # print("src_masks interped",output_masks.shape)
-        # masks = GT_masks.flatten(1).to(src_masks)
-
-        # ##############do dice loss################
-
-
-
-        # inputs = src_masks.relu().flatten(1)
-        # dice_loss = 1 - (2 * (inputs * masks).sum(1) + 1) / (inputs.sum(-1) + masks.sum(-1) + 1)
-        # ##############do sigmoid focal loss################
-
-        # ce_loss = F.binary_cross_entropy_with_logits(src_masks, masks, reduction="none")
-        # p_t = src_masks.relu() * masks + (1 - src_masks.relu()) * (1 - masks)
-        # sig_loss = ce_loss * ((1 - p_t) ** 2)
+        ce_loss = F.binary_cross_entropy_with_logits(output_class_masks, gt_class_masks, reduction="none")
+        p_t = output_class_masks.relu() * gt_class_masks + (1 - output_class_masks.relu()) * (1 - gt_class_masks)
+        sig_loss = ce_loss * ((1 - p_t) ** 2)
     
         return {
-            # "loss_mask": sig_loss.mean().sum()/ out_bboxes.shape[0], #(src_masks, masks),
-            # "loss_dice": dice_loss.sum()/ out_bboxes.shape[0], #(src_masks, masks, ),
+            "loss_mask": sig_loss.mean().sum()/ output_bbox.shape[0], #(src_masks, masks),
+            "loss_dice": dice_loss.sum()/ output_bbox.shape[0], #(src_masks, masks, ),
             'loss_gt_iou': gt_iou_total.sum()/output_bbox.shape[0], # rename these later
             'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later
             'loss_bbox_acc': F.l1_loss(gt_selected_boxes, tgt_bbox, reduction='none').sum() / output_bbox.shape[0],
