@@ -656,8 +656,8 @@ class FastCriterion(nn.Module):
         output_x_y_offsets=torch.stack([output_x_coordinate_offsets,output_y_coordinate_offsets],dim=-1).repeat(1,1,2) # B,Q,4
 
         gt_x_coordinate_offsets=image_width*tgt_ids # Boxes
-        gt_y_coordinate_offsets=torch.cat([torch.ones(t,device=gt_x_coordinate_offsets.device)*i for i,t in enumerate(tgt_sizes)],dim=0)
-        gt_x_y_offsets=torch.stack([gt_x_coordinate_offsets,gt_y_coordinate_offsets],dim=-1).repeat(1,1,2) # Boxes, 4
+        batch_idx=torch.cat([torch.ones(t,device=gt_x_coordinate_offsets.device)*i for i,t in enumerate(tgt_sizes)],dim=0)
+        gt_x_y_offsets=torch.stack([gt_x_coordinate_offsets,batch_idx*image_width],dim=-1).repeat(1,1,2) # Boxes, 4
 
         output_bbox=outputs['pred_boxes']
         output_bbox=box_ops.box_cxcywh_to_xyxy(output_bbox) + output_x_y_offsets
@@ -677,8 +677,10 @@ class FastCriterion(nn.Module):
         #raw sum - low is good
         iou_total=torch.sum(1-iou_scores) #[]
 
-        ''' Its super important do do bboxes of output onto truth and vice versa - otherwise we might just learn a single class'''
-
+        ''' Its super important do do bboxes of output onto truth and vice versa - otherwise we might just learn a single class
+        Also worth highlighting that gumbel_softmax is a differentiable approximation of argmax,
+          so we can backprop through it,but it's also therefore very noisy, so we need to be careful
+        '''
         #softmax takes log probs, so we need to convert to log probs
         out_log_iou_scores=torch.nn.functional.log_softmax(iou_scores,dim=1) #46,211
         out_one_hot=torch.nn.functional.gumbel_softmax(out_log_iou_scores,dim=1,hard=True).to(tgt_bbox) #46,211
@@ -694,28 +696,29 @@ class FastCriterion(nn.Module):
         gt_iou_total=torchvision.ops.generalized_box_iou_loss(
            gt_selected_boxes,tgt_bbox)
 
-        #check for nans
-        if torch.isnan(out_iou_total).any() or torch.isnan(gt_iou_total).any():
-            print("NAN LOSS",torch.isnan(out_iou_total).any(),torch.isnan(gt_iou_total).any())
-            print("iou_scores",iou_scores)
-
-        # output_masks=outputs['pred_masks']#B,Q,W,H
-
         # ##########################################################################
         # #To Test: Use the similarity matric rather than the lookuptable??? 
-        # #To Test: Does surpressing the mask before the offset help?
         # ##########################################################################
-        # output_masks=output_masks[NMS_supressed_boxes] # Q,W,H
+        #I don't think I want to use NMS here, nor a lookuptable, because near-miss BBboxes will be very useful
 
-        # nms_predicted_classes=outputs['pred_logits'].flatten(0,1)[NMS_supressed_boxes] # Q, 512
-     
-        # nms_similarity=class_encodings@nms_predicted_classes.T # c, Q
-        # lookuptable=torch.nn.functional.gumbel_softmax(nms_similarity,tau=1,hard=True,dim=1) # c, Q
-        # output_masks=torch.einsum('cq,qwh->cwh',lookuptable,output_masks) # c,w,h
+        #The Goal is a B,C,W,H mask.
+        # for Each box (B,Q) we want to find the best class (C) and the best output (W,H)
+        #we then want to use that boxes' logits to the class encoding to amount of mask to use
+        # class similarity is therefore shape B,Q,C  (B,Q,512)@(512,C) -> B,Q,C
+        # and we have BQWH masks, so we can use Q to get a resultant sum of B,C,W,H masks I.E a mask for each class in the batch
+        
+        # output_masks=outputs['pred_masks']#B,Q,W,H
+        # output_class_masks=torch.einsum('bqwh,bqc->bcwh',output_masks,similarity) #B,Q,W,H
+        
+        
+        # #gt_masks=tgt_masks.to(torch.float) # BB,W,H
+        # gt_masks=interpolate(gt_masks,output_masks.shape[-2:]) # BB,W,H
+        # gt_embs=encodings[tgt_ids] # BB,F
+        # gt_similarities=gt_embs@encodings.T # BB,C #shows the similarity to other classes
 
-        # GT_masks=tgt_masks.to(torch.float) # BB,W,H
-        # #we should interpolate the masks to the same size as the output masks.
-        # # GT_masks=interpolate(GT_masks,size=output_masks.shape[-2:],mode="bilinear",align_corners=False)
+
+        #we're going to use the similarity matrix to find the best class for each box
+
 
         # #we have tgt_ids which is the index of the class in the class lookup table.
         # #we're going to achieve this with the same one_hot encoding of the classes. We'll take that mask and apply it to the C dim of a Q,C,W,H tensor of ones
