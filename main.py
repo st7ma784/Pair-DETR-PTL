@@ -92,9 +92,9 @@ class PairDETR(pl.LightningModule):
         self.weight_dict = {'loss_out_iou':1,
                             'loss_gt_iou':1,
                        'loss_bbox_acc': 0.001*args['bbox_loss_coef'],
-                       'loss_giou': 0.01 * args['giou_loss_coef'],
-                       'loss_dice': args['dice_loss_coef'], #  last unc
-                       'loss_mask': args['mask_loss_coef'], # 
+                       'loss_giou': 0.01*args['giou_loss_coef'],
+                       'loss_dice': 100*args['dice_loss_coef'], #  last unc
+                       'loss_mask': 0.1*args['mask_loss_coef'], # 
                        'CELoss':0.25}
 
         # self.criterion = SetCriterion(matcher=self.matcher, 
@@ -201,10 +201,10 @@ class PairDETR(pl.LightningModule):
         tgt_embs= classencodings[embedding_indices] 
         tgt_embs=tgt_embs/torch.norm(tgt_embs,dim=-1,keepdim=True)
 
-        loss_dict, predictions= self.criterion(classencodings,outputs, tgt_masks=tgt_masks,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox)
+        loss_dict, predictions= self.criterion(classencodings,outputs, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox)
         losses = reduce(torch.add, [loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict])
         losses=sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
-        loss_dict2,predictions2 = self.criterion(classencodings,out2, tgt_masks=tgt_masks,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox)
+        loss_dict2,predictions2 = self.criterion(classencodings,out2, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox)
 
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
         logits2=predictions2/torch.norm(predictions2,dim=-1,keepdim=True)
@@ -225,7 +225,7 @@ class PairDETR(pl.LightningModule):
     def test_epoch_start(self,*args):
         
         #model = AutoModelForObjectDetection.from_pretrained("MariaK/detr-resnet-50_finetuned_cppe5")
-        self.module = evaluate.load("ybelkada/cocoevaluate", coco=self.coco_ann)
+        self.evalmodule = evaluate.load("ybelkada/cocoevaluate", coco=self.coco_ann)
     
 
     def test_step(self,batch,batch_idx):
@@ -263,11 +263,11 @@ class PairDETR(pl.LightningModule):
         #     self.panoptic_evaluator.update(res_pano)
         # outputs={target['image_id']: output for target, output in zip(targets, results)}
         #self.coco_evaluator.update(outputs)
-        self.module.add(prediction=results, reference=targets)
+        self.evalmodule.add(prediction=results, reference=targets)
         # return outputs
     def test_epoch_end(self,outputs):
         #self.coco_evaluator.synchronize_between_processes()
-        results = self.module.compute()
+        results = self.evalmodule.compute()
         self.log("mAP",results["mAP"], on_epoch=True, prog_bar=True, logger=True)
         self.print(results)
         #         iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
@@ -313,11 +313,11 @@ if __name__ == '__main__':
     args = vars(args)
     model=PairDETR(**args)
     trainer = pl.Trainer(
-                         precision=16,
+                         #precision=16,
                          max_epochs=4,#args['epochs'], 
                          num_sanity_val_steps=0,
-                         gradient_clip_val=0.25,
-                         accumulate_grad_batches=4,
+                         #gradient_clip_val=0.25,
+                         #accumulate_grad_batches=1,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
                          fast_dev_run=False,  
