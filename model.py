@@ -666,7 +666,7 @@ class FastCriterion(nn.Module):
         #flatten across batch and query
         output_bbox=output_bbox.flatten(0,1)
         tgt_bbox=tgt_bbox.flatten(0,1)
-        #output_bbox=output_bbox[torchvision.ops.boxes.nms(output_bboxes ,scores=out_bbox_scores.flatten(),iou_threshold=0.5)]
+        output_bbox=output_bbox[torchvision.ops.boxes.nms(output_bbox ,scores=out_bbox_scores.flatten(),iou_threshold=0.5)]
         
         ###########DO BOX Loss################
       
@@ -686,17 +686,13 @@ class FastCriterion(nn.Module):
         # #softmax takes log probs, so we need to convert to log probs
         out_log_iou_scores=torch.nn.functional.log_softmax(iou_scores,dim=1) #46,211
         out_one_hot=torch.nn.functional.gumbel_softmax(out_log_iou_scores,dim=1,hard=True).to(tgt_bbox) #46,211
-        out_selected_boxes=torch.einsum("AB,NA->NB",tgt_bbox,out_one_hot).to(tgt_bbox) #211,4
+        #out_selected_boxes=torch.einsum("AB,NA->NB",tgt_bbox,out_one_hot).to(tgt_bbox) #211,4
+        out_selected_boxes=out_one_hot@tgt_bbox #46,4
         # #shapes are [46,4] and [211,4]
         # print(selected_boxes.shape,output_bbox.shape)
         out_ious=torch.diag(torchvision.ops.box_iou(out_selected_boxes,output_bbox))
         out_iou_total=torch.sub(torch.ones_like(out_ious),out_ious)
-        # print(out_iou_total.shape)
-        # if torch.isnan(out_iou_total).any():
-        #     print("nan in out_iou_total")
-        #     print(torchvision.ops.box_iou(selected_boxes,output_bbox))
-        # #torchvision.ops.generalized_box_iou_loss(selected_boxes,output_bbox)
-        
+           
 
         gt_log_iou_scores=torch.nn.functional.log_softmax(iou_scores,dim=0) #46,211
         gt_one_hot=torch.nn.functional.gumbel_softmax(gt_log_iou_scores,dim=0,hard=True) #46,211
@@ -725,6 +721,7 @@ class FastCriterion(nn.Module):
         gt_embs=tgt_embs # BB,F
         gt_similarities=gt_embs@encodings.T # BB,C #shows the similarity to other classes
         masks_splits=gt_masks.split(tgt_sizes,dim=0) # n, W,H 
+        ### Can this be improved? 
         similarities_splits=gt_similarities.split(tgt_sizes,dim=0) # n, C
         #compute the similarity of each mask to each class to get shape B,C,W,H
         gt_class_masks=[m.permute(1,2,0)@s for m,s in zip(masks_splits,similarities_splits)]
