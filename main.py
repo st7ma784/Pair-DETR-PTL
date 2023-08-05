@@ -316,7 +316,7 @@ if __name__ == '__main__':
                          #precision=16,
                          max_epochs=20,#args['epochs'], 
                          num_sanity_val_steps=0,
-                         #gradient_clip_val=0.25,
+                         gradient_clip_val=0.25,
                          #accumulate_grad_batches=1,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
