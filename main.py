@@ -223,7 +223,7 @@ class PairDETR(pl.LightningModule):
         return losses +losses2
    
     def test_epoch_start(self,*args):
-        
+        self.cocoann=self.trainer.datamodule.test.coco
         #model = AutoModelForObjectDetection.from_pretrained("MariaK/detr-resnet-50_finetuned_cppe5")
         self.evalmodule = evaluate.load("ybelkada/cocoevaluate", coco=self.coco_ann)
     
