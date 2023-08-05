@@ -314,7 +314,7 @@ if __name__ == '__main__':
     model=PairDETR(**args)
     trainer = pl.Trainer(
                          #precision=16,
-                         max_epochs=4,#args['epochs'], 
+                         max_epochs=20,#args['epochs'], 
                          num_sanity_val_steps=0,
                          #gradient_clip_val=0.25,
                          #accumulate_grad_batches=1,
