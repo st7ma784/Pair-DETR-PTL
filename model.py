@@ -717,6 +717,8 @@ class FastCriterion(nn.Module):
         output_class_masks=torch.einsum('bqwh,bcq->bcwh',output_masks,similarity)/output_masks.shape[1] #B,Q,W,H
         #output_class_masks=torch.nn.functional.softmax(output_class_masks,dim=1)
         #now we need to get the ground truth masks
+
+        ##############TO DO : This all needs improving, it's very slow and not very accurate
         gt_masks=interpolate(tgt_masks.unsqueeze(1),output_masks.shape[-2:]).squeeze(1).to(encodings) # BB,W,H
         gt_embs=tgt_embs # BB,F
         gt_similarities=gt_embs@encodings.T # BB,C #shows the similarity to other classes
