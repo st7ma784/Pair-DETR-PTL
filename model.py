@@ -683,11 +683,11 @@ class FastCriterion(nn.Module):
         #print(output_bbox.shape,tgt_bbox.shape)
         iou_scores=torchvision.ops.box_iou(output_bbox,tgt_bbox) #46,211
         #fix any nans
-        #iou_scores=torch.nan_to_num(iou_scores,nan=0)
+        iou_scores=torch.nan_to_num(iou_scores,nan=0)
 
         #raw sum - low is good
 
-        #iou_total=torch.sum(-torch.sub(iou_scores,1)) #[]
+        iou_total=torch.sum(-torch.sub(iou_scores,1)) #[]
 
         ''' Its super important do do bboxes of output onto truth and vice versa - otherwise we might just learn a single class
         Also worth highlighting that gumbel_softmax is a differentiable approximation of argmax,
@@ -775,9 +775,9 @@ class FastCriterion(nn.Module):
             "loss_mask": immask_loss/ output_bbox.shape[0], #(src_masks, masks),
              "loss_dice": overall_mask_loss/ output_bbox.shape[0], #(src_masks, masks, ),
             'loss_gt_iou': gt_ious_total.sum()/output_bbox.shape[0], # rename these later
-            'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later
+            #'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later
             'loss_bbox_acc': F.l1_loss(gt_selected_boxes, tgt_bbox, reduction='none').sum() / output_bbox.shape[0],
-            #'loss_giou': iou_total / output_bbox.shape[0],
+            'loss_giou': iou_total / output_bbox.shape[0],
         },torch.flatten(predicted_classes,0,1)
     
 
