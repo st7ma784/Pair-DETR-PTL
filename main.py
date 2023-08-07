@@ -91,10 +91,11 @@ class PairDETR(pl.LightningModule):
 
         self.weight_dict = {'loss_out_iou':1,
                             'loss_gt_iou':1,
+                            "class_mask_loss":2,
                        'loss_bbox_acc': 0.001*args['bbox_loss_coef'],
                        'loss_giou': 0.01*args['giou_loss_coef'],
-                       'loss_dice': 100*args['dice_loss_coef'], #  last unc
-                       'loss_mask': 0.1*args['mask_loss_coef'], # 
+                       'loss_dice': 1000*args['dice_loss_coef'], #  last unc
+                       'loss_mask': 1000*args['mask_loss_coef'], # 
                        'CELoss':0.25}
 
         # self.criterion = SetCriterion(matcher=self.matcher, 
@@ -181,8 +182,8 @@ class PairDETR(pl.LightningModule):
             self.weight_dict[k]=torch.as_tensor(v,device=self.device)
 
     def training_step(self, batch, batch_idx):
-        samples, targets ,classencodings,masks= batch
-        targets = [{k: v.to(self.device,non_blocking=True) for k, v in t.items()} for t in targets]
+        samples, (tgt_ids,tgt_bbox,tgt_masks,tgt_sizes) ,classencodings,masks,batch_idx= batch
+        #targets = [{k: v.to(self.device,non_blocking=True) for k, v in t.items()} for t in targets]
         #print("classencodings",classencodings.keys())
         class_to_tensor=torch.zeros(max(list(classencodings.keys()))+1,device=self.device,dtype=torch.long) # find what the biggest index of classes is then make that many zeros. 
         for i,c in enumerate(classencodings.keys()):
@@ -191,20 +192,18 @@ class PairDETR(pl.LightningModule):
         # tensor_index_to_class=torch.as_tensor(list(classencodings.keys()),device=self.device)
         classencodings = torch.stack([v.squeeze() for v in classencodings.values()]).to(self.device,non_blocking=True)
         outputs,out2 = self(samples,classencodings,masks)
-        ids,boxes,masks,tgt_sizes=zip(*[(v["labels"],v["boxes"],v["masks"],v["boxes"].shape[0]) for v in targets])
-        tgt_ids = torch.cat(ids).to(dtype=torch.long,device=class_to_tensor.device,non_blocking=True) # [n ]
-        tgt_bbox = torch.cat(boxes)
-        tgt_masks = torch.cat(masks)
-        num_boxes = max(tgt_ids.shape[0], 1)
+
+        # num_boxes = max(tgt_ids.shape[0], 1)
         embedding_indices=class_to_tensor[tgt_ids]
 
         tgt_embs= classencodings[embedding_indices] 
         tgt_embs=tgt_embs/torch.norm(tgt_embs,dim=-1,keepdim=True)
-
-        loss_dict, predictions= self.criterion(classencodings,outputs, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox)
+        tgt_masks=interpolate(tgt_masks.unsqueeze(1),outputs['pred_masks'].shape[-2:]).squeeze(1).to(outputs['pred_masks']) # BB,W,H
+        masks=interpolate(masks.to(outputs['pred_masks']).unsqueeze(1),outputs['pred_masks'].shape[-2:]).squeeze(1) # B,W,H
+        loss_dict, predictions= self.criterion(classencodings,outputs, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
         losses = reduce(torch.add, [loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict])
         losses=sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
-        loss_dict2,predictions2 = self.criterion(classencodings,out2, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox)
+        loss_dict2,predictions2 = self.criterion(classencodings,out2, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
 
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
         logits2=predictions2/torch.norm(predictions2,dim=-1,keepdim=True)

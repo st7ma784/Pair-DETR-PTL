@@ -52,7 +52,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
         summed_mask=torch.sum(target["masks"],dim=0).bool().int()
         
         
-        return img, target, self.tokenized_classnames,1-summed_mask
+        return img, target, self.tokenized_classnames,summed_mask
 
 
 def convert_coco_poly_to_mask(segmentations, height, width):
@@ -75,9 +75,15 @@ def convert_coco_poly_to_mask(segmentations, height, width):
 def collate_fn(batch):
     batch = list(zip(*batch))
 
-    batch[0] = torch.stack(batch[0], dim=0)
-    batch[2] = batch[2][0]
-    batch[3]= torch.stack(batch[3], dim=0)
+    batch[0] = torch.stack(batch[0], dim=0) # stack images together
+    #batch[1] is all the targets
+    ids,boxes,masks,sizes=zip(*[(v["labels"],v["boxes"],v["masks"],v["boxes"].shape[0]) for v in batch[1]])
+    batch[1]=(torch.cat(ids),torch.cat(boxes),torch.cat(masks),torch.as_tensor(sizes))
+    batch[2] = batch[2][0] # this is all the classnames, we'll just take the first set
+    batch[3]= torch.stack(batch[3], dim=0) # the mask.
+    #create a batch indices tensor
+    batch.append(torch.cat([torch.full((t,),i) for i,t in enumerate(sizes)],dim=0))
+    #print("idxs",batch[-1])
     return tuple(batch)
 
 class NestedTensor(object):

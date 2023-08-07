@@ -630,14 +630,15 @@ class FastCriterion(nn.Module):
         self.weight_dict = weight_dict
         self.ce_loss = nn.CrossEntropyLoss(reduction="mean")
         self.relu = nn.ReLU()
-    def forward(self, encodings,outputs,tgt_masks,tgt_embs, tgt_sizes,tgt_ids,tgt_bbox):
+    def forward(self, encodings,outputs,tgt_masks,tgt_embs, tgt_sizes,tgt_ids,tgt_bbox,im_masks,batch_idx):
 
         image_width=224# hard coded for now
         class_encodings=encodings # c, 512
         class_count=class_encodings.shape[0]
+        predicted_classes=outputs['pred_logits'] #B, Q, 512
 
         offsetsx=torch.mul(torch.arange(class_count,device=encodings.device),image_width) # c
-        offsetsy=torch.mul(torch.arange(len(tgt_sizes),device=encodings.device),image_width) # B
+        offsetsy=torch.mul(torch.arange(predicted_classes.shape[0],device=encodings.device),image_width) # B
         #print(offsetsx,offsetsy)
         #We're going to offset out predictions in by multiples of the image width
         #in the x direction, this will represent the class we're predicting
@@ -648,60 +649,69 @@ class FastCriterion(nn.Module):
 
         similarity=predicted_classes@class_encodings.T  #  [B,Q,F]@[F,C] -> [B,Q,C]
 
-        out_bbox_scores=torch.max(similarity,dim=-1).values # B,Q 
+        out_bbox_scores,out_bbox_indices=torch.max(similarity,dim=-1) # B,Q
         #create table of one_hot for each class and each query
-        class_lookup_table=torch.nn.functional.gumbel_softmax(similarity,tau=1,hard=True,dim=-1) #  B,Q,C 
-
+        class_lookup_table=torch.nn.functional.gumbel_softmax(similarity,tau=1,hard=True,dim=-1) #  B,Q,C # this only saves 0.01it/s
         output_x_coordinate_offsets= torch.sum(torch.mul(offsetsx,class_lookup_table),dim=-1) # B,Q 
-        output_y_coordinate_offsets= torch.sum(torch.mul(offsetsy.unsqueeze(-1).unsqueeze(-1),class_lookup_table),dim=-1)
-        output_x_y_offsets=torch.stack([output_x_coordinate_offsets,output_y_coordinate_offsets],dim=-1).repeat(1,1,2) # B,Q,4
+
+
+        #output_x_coordinate_offsets= torch.mul(out_bbox_indices,image_width) # B,Q
+        output_y_coordinate_offsets= offsetsy.repeat(out_bbox_indices.shape[1],1).T # B,Q
+        output_x_y_offsets=torch.stack([output_x_coordinate_offsets,output_y_coordinate_offsets],dim=-1).repeat(1,1,2) # B,Q,2
+
 
         gt_x_coordinate_offsets=image_width*tgt_ids # Boxes
-        batch_idx=torch.cat([torch.ones(t,device=gt_x_coordinate_offsets.device)*i for i,t in enumerate(tgt_sizes)],dim=0)
+        # print(gt_x_coordinate_offsets.shape)
+        # print(batch_idx)
         gt_x_y_offsets=torch.stack([gt_x_coordinate_offsets,batch_idx*image_width],dim=-1).repeat(1,1,2) # Boxes, 4
 
         output_bbox=outputs['pred_boxes']
+        
         output_bbox=box_ops.box_cxcywh_to_xyxy(output_bbox) + output_x_y_offsets
         tgt_bbox=box_ops.box_cxcywh_to_xyxy(tgt_bbox) + gt_x_y_offsets
         #flatten across batch and query
-        output_bbox=output_bbox.flatten(0,1)
-        tgt_bbox=tgt_bbox.flatten(0,1)
-        output_bbox=output_bbox[torchvision.ops.boxes.nms(output_bbox ,scores=out_bbox_scores.flatten(),iou_threshold=0.5)]
+        output_bbox=torch.flatten(output_bbox,0,1)
+        # print(output_bbox.shape) #4 320???
+        # print(out_bbox_scores.shape) 
+        # print(tgt_bbox.shape) # 211,4
+        tgt_bbox=torch.flatten(tgt_bbox,0,1)
+        output_bbox=output_bbox[torchvision.ops.boxes.nms(output_bbox ,scores=torch.flatten(out_bbox_scores,0),iou_threshold=0.5)]
         
         ###########DO BOX Loss################
       
         #find best ious,
+        #print(output_bbox.shape,tgt_bbox.shape)
         iou_scores=torchvision.ops.box_iou(output_bbox,tgt_bbox) #46,211
         #fix any nans
-        iou_scores=torch.nan_to_num(iou_scores,nan=0)
+        #iou_scores=torch.nan_to_num(iou_scores,nan=0)
 
         #raw sum - low is good
 
-        iou_total=torch.sum(torch.sub(torch.ones_like(iou_scores),iou_scores)) #[]
+        #iou_total=torch.sum(-torch.sub(iou_scores,1)) #[]
 
         ''' Its super important do do bboxes of output onto truth and vice versa - otherwise we might just learn a single class
         Also worth highlighting that gumbel_softmax is a differentiable approximation of argmax,
           so we can backprop through it,but it's also therefore very noisy, so we need to be careful
         '''
         # #softmax takes log probs, so we need to convert to log probs
-        out_log_iou_scores=torch.nn.functional.log_softmax(iou_scores,dim=1) #46,211
+        out_log_iou_scores=torch.nn.functional.softmax(iou_scores,dim=1) #46,211
         out_one_hot=torch.nn.functional.gumbel_softmax(out_log_iou_scores,dim=1,hard=True).to(tgt_bbox) #46,211
         #out_selected_boxes=torch.einsum("AB,NA->NB",tgt_bbox,out_one_hot).to(tgt_bbox) #211,4
         out_selected_boxes=out_one_hot@tgt_bbox #46,4
         # #shapes are [46,4] and [211,4]
         # print(selected_boxes.shape,output_bbox.shape)
         out_ious=torch.diag(torchvision.ops.box_iou(out_selected_boxes,output_bbox))
-        out_iou_total=torch.sub(torch.ones_like(out_ious),out_ious)
+        out_iou_total=-torch.sub(out_ious,1)
            
 
-        gt_log_iou_scores=torch.nn.functional.log_softmax(iou_scores,dim=0) #46,211
+        gt_log_iou_scores=torch.nn.functional.softmax(iou_scores,dim=0) #46,211
         gt_one_hot=torch.nn.functional.gumbel_softmax(gt_log_iou_scores,dim=0,hard=True) #46,211
         #print(output_bbox.shape,gt_one_hot.shape)
         gt_selected_boxes=output_bbox.T@gt_one_hot
         gt_selected_boxes=gt_selected_boxes.T
         gt_ious=torch.diag(torchvision.ops.box_iou(
            gt_selected_boxes,tgt_bbox))
-        gt_ious_total=torch.sub(torch.ones_like(gt_ious),gt_ious)
+        gt_ious_total=-torch.sub(gt_ious,1)
         # ##########################################################################
         # #To Test: Use the similarity matric rather than the lookuptable??? 
         # ##########################################################################
@@ -714,44 +724,60 @@ class FastCriterion(nn.Module):
         # and we have BQWH masks, so we can use Q to get a resultant sum of B,C,W,H masks I.E a mask for each class in the batch
         
         output_masks=outputs['pred_masks']#B,Q,W,H
-        output_class_masks=torch.einsum('bqwh,bcq->bcwh',output_masks,similarity)/output_masks.shape[1] #B,Q,W,H
-        #output_class_masks=torch.nn.functional.softmax(output_class_masks,dim=1)
-        #now we need to get the ground truth masks
+        
+        ###########DO MASK LOSS################
+        #We're going to calculate the shole loss for tgt mask of shape B,W,H against output masks of shape B,QWH
+        ###
+        #print(output_masks.shape,tgt_masks.shape)
+        #for each gt class we want to find the best fit in the output logits, and then use that to find the best fit mask
+        scores=predicted_classes@tgt_embs.T # B,Q,f @  F,GTB = B,Q,GTB 
+        scores=torch.flatten(scores,0,1) # BQ,GTB
+        indices=torch.argmax(scores,dim=0) # BQ
+        overall_mask_loss=torch.nn.functional.mse_loss(output_masks.flatten(0,1)[indices],tgt_masks,reduction='mean')
+        #overall_mask_loss=torchvision.ops.sigmoid_focal_loss(output_masks.flatten(0,1)[indices],tgt_masks,reduction='mean')
+        #we could then do the same kind of best fit, taking each individual object mask against the gt, finding the loss of the best fit. 
 
-        ##############TO DO : This all needs improving, it's very slow and not very accurate
-        gt_masks=interpolate(tgt_masks.unsqueeze(1),output_masks.shape[-2:]).squeeze(1).to(encodings) # BB,W,H
-        gt_embs=tgt_embs # BB,F
-        gt_similarities=gt_embs@encodings.T # BB,C #shows the similarity to other classes
-        masks_splits=gt_masks.split(tgt_sizes,dim=0) # n, W,H 
-        ### Can this be improved? 
-        similarities_splits=gt_similarities.split(tgt_sizes,dim=0) # n, C
-        #compute the similarity of each mask to each class to get shape B,C,W,H
-        gt_class_masks=[m.permute(1,2,0)@s for m,s in zip(masks_splits,similarities_splits)]
-        gt_class_masks=torch.stack(gt_class_masks,dim=0).permute(0,3,1,2) # B,C,W,H
-        #print("gt_class_masks",gt_class_masks.shape)
+        ########## DO MASK LOSS 2 ################
+        immask=torch.mean(output_masks,dim=1) #B,W,H
+        immask_loss=torch.nn.functional.mse_loss(immask,im_masks,reduction='mean')
+
+        output_class_masks=torch.einsum('bqwh,bcq->bcwh',output_masks,similarity)/output_masks.shape[1] #B,Q,W,H
+        output_class_masks=torch.nn.functional.softmax(output_class_masks,dim=1)
+        # #now we need to get the ground truth masks
+
+        # ##############TO DO : This all needs improving, it's very slow and not very accurate
+        # gt_embs=tgt_embs # BB,F
+        batch_lookup=torch.nn.functional.one_hot(batch_idx,num_classes=output_class_masks.shape[0]).T
+        gt_similarities=tgt_embs@encodings.T # BB,C #shows the similarity to other classes
+        #print(batch_lookup.shape,gt_similarities.shape) # n,B, n,C
+        target_similarities=torch.mul(batch_lookup.unsqueeze(-1),gt_similarities.unsqueeze(0))#B,n,C
+        gt_class_masks=torch.einsum('Bnc,nwh->Bcwh',target_similarities,tgt_masks) # BB,C @ B,C = B
+        # gt_class_masks=torch.stack(gt_class_masks,dim=0) # B,C,W,H
+        # #print("gt_class_masks",gt_class_masks.shape)
         
 
-        ##############do dice loss################
+        # ##############do dice loss################
 
         inputs = torch.flatten(output_class_masks,1)
         inputs=self.relu(inputs)
         targets = self.relu(torch.flatten(gt_class_masks,1))
 
         dice_loss = torch.mean(torch.div(torch.sum(torch.mul(inputs,targets)), torch.add(torch.sum(inputs,-1),torch.sum(targets,-1)).add(1e-6)))
-        # # ##############do sigmoid focal loss################
-        # print("dice_loss",dice_loss)
-        sig_loss = torch.div(self.ce_loss(torch.flatten(output_class_masks,1), torch.flatten(gt_class_masks,1)),torch.flatten(output_class_masks,1).shape[1])
-        # p_t = torch.mul(output_class_masks.relu(),gt_class_masks).add(torch.mul(1 - output_class_masks.relu(),1 - gt_class_masks))
-        # print("p_t",p_t.shape)
-        # sig_loss = torch.mul(ce_loss,torch.pow(1 - p_t,2))
-        #print("sig_loss",sig_loss)
+        # # # ##############do sigmoid focal loss################
+        # # print("dice_loss",dice_loss)
+        # #sig_loss = torch.div(self.ce_loss(torch.flatten(output_class_masks,1), torch.flatten(gt_class_masks,1)),torch.flatten(output_class_masks,1).shape[1])
+        # # p_t = torch.mul(output_class_masks.relu(),gt_class_masks).add(torch.mul(1 - output_class_masks.relu(),1 - gt_class_masks))
+        # # print("p_t",p_t.shape)
+        # # sig_loss = torch.mul(ce_loss,torch.pow(1 - p_t,2))
+        # #print("sig_loss",sig_loss)
         return {
-            "loss_mask": sig_loss/ output_bbox.shape[0], #(src_masks, masks),
-             "loss_dice": dice_loss/ output_bbox.shape[0], #(src_masks, masks, ),
+            "class_mask_loss": dice_loss,
+            "loss_mask": immask_loss/ output_bbox.shape[0], #(src_masks, masks),
+             "loss_dice": overall_mask_loss/ output_bbox.shape[0], #(src_masks, masks, ),
             'loss_gt_iou': gt_ious_total.sum()/output_bbox.shape[0], # rename these later
             'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later
             'loss_bbox_acc': F.l1_loss(gt_selected_boxes, tgt_bbox, reduction='none').sum() / output_bbox.shape[0],
-            'loss_giou': iou_total / output_bbox.shape[0],
+            #'loss_giou': iou_total / output_bbox.shape[0],
         },torch.flatten(predicted_classes,0,1)
     
 
