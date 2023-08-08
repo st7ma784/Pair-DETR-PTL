@@ -697,14 +697,14 @@ class FastCriterion(nn.Module):
           so we can backprop through it,but it's also therefore very noisy, so we need to be careful
         '''
         #softmax takes log probs, so we need to convert to log probs
-        out_log_iou_scores=torch.nn.functional.softmax(iou_scores,dim=1) #46,211
-        out_one_hot=torch.nn.functional.gumbel_softmax(out_log_iou_scores,dim=1,hard=True).to(tgt_bbox) #46,211
-        out_selected_boxes=torch.einsum("AB,NA->NB",tgt_bbox,out_one_hot).to(tgt_bbox) #211,4
-        out_selected_boxes=out_one_hot@tgt_bbox #46,4
-        # #shapes are [46,4] and [211,4]
-        # print(selected_boxes.shape,output_bbox.shape)
-        out_ious=torch.diag(torchvision.ops.box_iou(out_selected_boxes,output_bbox))
-        out_iou_total=-torch.sub(out_ious,1)
+        # out_log_iou_scores=torch.nn.functional.softmax(iou_scores,dim=1) #46,211
+        # out_one_hot=torch.nn.functional.gumbel_softmax(out_log_iou_scores,dim=1,hard=True).to(tgt_bbox) #46,211
+        # out_selected_boxes=torch.einsum("AB,NA->NB",tgt_bbox,out_one_hot).to(tgt_bbox) #211,4
+        # out_selected_boxes=out_one_hot@tgt_bbox #46,4
+        # # #shapes are [46,4] and [211,4]
+        # # print(selected_boxes.shape,output_bbox.shape)
+        # out_ious=torch.diag(torchvision.ops.box_iou(out_selected_boxes,output_bbox))
+        # out_iou_total=-torch.sub(out_ious,1)
            
 
         gt_log_iou_scores=torch.nn.functional.softmax(iou_scores,dim=0) #46,211
@@ -771,7 +771,7 @@ class FastCriterion(nn.Module):
             "loss_mask": immask_loss/ output_bbox.shape[0], #(src_masks, masks),
              "loss_dice": overall_mask_loss/ output_bbox.shape[0], #(src_masks, masks, ),
             'loss_gt_iou': gt_ious_total.sum()/output_bbox.shape[0], # rename these later
-            'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later
+            # 'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later
             'loss_bbox_acc': F.l1_loss(gt_selected_boxes, tgt_bbox, reduction='none').sum() / output_bbox.shape[0],
             # 'loss_giou': iou_total / output_bbox.shape[0],
         },torch.flatten(predicted_classes,0,1)
