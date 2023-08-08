@@ -219,7 +219,7 @@ class PairDETR(pl.LightningModule):
 
         for k, v in loss_dict.items():
             if k in self.weight_dict:
-                self.log(k,v * self.weight_dict[k],prog_bar=True,enable_graph=False)
+                self.log(k,v * self.weight_dict[k],prog_bar=True,enable_graph=False,rank_zero_only=True)
         return losses +losses2
    
     def test_epoch_start(self,*args):

@@ -170,70 +170,70 @@ class VisGenomeDatasetIterBigBoxes(VisGenomeIterDataset):
             i,t=prep(img,{"boxes":[s,o,l]})
             return {"img":i,"targets":t,"relation":r}
 # Dataset
+def DETICprocess(self,item):
+    if len(item["relationships"])==0:
+        return None
+    #this process function takes an item and returns a COCO style dict with boxes and labels.
+
+
+    #our bboxes come straight from the BigBoxes and masks in the VisGenome Dataset. To grab labels, we need to get the object and subject names and pass them through self.predictor to get the masks.
+    # 
+    out=[]
+    for r in item["relationships"]:
+
+        r=self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]))
+        #s is the r["subject"] box
+        outputs=self.predictor(item["image"],[r["subject"]["names"][0],r["object"]["names"][0]])
+        found_masks=outputs["masks"]
+        found_boxes=outputs["boxes"]
+        #check outputs for bounding boxes that are close to the subject and object boxes.
+        obj_bboxes=[datapoints.BoundingBox([r["subject"]["x"],r["subject"]["y"],r["subject"]["w"],r["subject"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]]),            
+                    datapoints.BoundingBox([r["object"]["x"],r["object"]["y"],r["object"]["w"],r["object"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
+        ]
+        annotation_to_output_ious=torchvision.ops.box_iou(torch.tensor([b.as_xywh() for b in obj_bboxes]),torch.tensor([b.as_xywh() for b in found_boxes]))
+        #find max iou +_idx for each annotation 
+        max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
+        bboxes_to_keep=found_boxes[max_idx]
+        masks_to_keep=found_masks[max_idx]
+        object_mask=torch.logical_and(masks_to_keep[0],masks_to_keep[1])
+        object_actual_bbox_from_mask=datapoints.BoundingBox.from_mask(object_mask)
+        #if so, do a logical_and on the masks of subj and obj and get the bounding box of the result.
+
+        original_bbox=datapoints.BoundingBox([min(r["object"]["x"],r["subject"]["x"]),
+                                min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
+                                max(r["object"]["x"],r["subject"]["x"])-min(r["object"]["x"],r["subject"]["x"]) +max(r["object"]["w"],r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
+                            max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
+        print("Comparison of boxes: ", torchvision.ops.box_iou([original_bbox.as_xywh()],[object_actual_bbox_from_mask.as_xywh()]))
+
+
+        out.append({"boxes":object_actual_bbox_from_mask.as_xyxy(),
+                    "labels":r,
+                    "masks":object_mask})
+    img=item["image"]
+    target={'image_id':item.get("image_id",0),
+            "iscrowd":torch.zeros(len(out)),
+            'boxes':torch.tensor([o["boxes"].as_xyxy() for o in out]),
+            'area':torch.tensor([o["boxes"].area() for o in out]),
+            'masks':torch.stack([o["masks"] for o in out]),
+            'labels':self.clip.encode_text(torch.stack([o["labels"] for o in out])),
+    }
+    try:
+        i,t=prep(img,target)
+    except FileNotFoundError as e:
+        response = requests.get(item["url"])
+        img = Image.open(BytesIO(response.content))
+        #print("failed : {}".format(item["image"]))
+        i,t=prep(img,target)
+    summed_mask=torch.sum(target["masks"],dim=0).bool().int()
+    classes=target["labels"]
+    return i, t, classes ,summed_mask
 
 class VisGenomeDatasetCOCOBoxes(VisGenomeDataset):
     def process(self,item):
-        if len(item["relationships"])==0:
-            return None
-        #this process function takes an item and returns a COCO style dict with boxes and labels.
-
-
-        #our bboxes come straight from the BigBoxes and masks in the VisGenome Dataset. To grab labels, we need to get the object and subject names and pass them through self.predictor to get the masks.
-        # 
-        out=[]
-        for r in item["relationships"]:
-
-            r=self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]))
-            #s is the r["subject"] box
-            outputs=self.predictor(item["image"],[r["subject"]["names"][0],r["object"]["names"][0]])
-            found_masks=outputs["masks"]
-            found_boxes=outputs["boxes"]
-            #check outputs for bounding boxes that are close to the subject and object boxes.
-            obj_bboxes=[datapoints.BoundingBox([r["subject"]["x"],r["subject"]["y"],r["subject"]["w"],r["subject"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]]),            
-                        datapoints.BoundingBox([r["object"]["x"],r["object"]["y"],r["object"]["w"],r["object"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
-            ]
-            iou_threshold=0.7
-            annotation_to_output_ious=torchvision.ops.box_iou(torch.tensor([b.as_xywh() for b in obj_bboxes]),torch.tensor([b.as_xywh() for b in found_boxes]))
-            #find max iou +_idx for each annotation 
-            max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
-            bboxes_to_keep=found_boxes[max_idx]
-            masks_to_keep=found_masks[max_idx]
-            object_mask=torch.logical_and(masks_to_keep[0],masks_to_keep[1])
-            object_actual_bbox_from_mask=datapoints.BoundingBox.from_mask(object_mask)
-            #if so, do a logical_and on the masks of subj and obj and get the bounding box of the result.
-
-            original_bbox=datapoints.BoundingBox([min(r["object"]["x"],r["subject"]["x"]),
-                                 min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
-                                 max(r["object"]["x"],r["subject"]["x"])-min(r["object"]["x"],r["subject"]["x"]) +max(r["object"]["w"],r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
-                                max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
-            print("Comparison of boxes: ", torchvision.ops.box_iou([original_bbox.as_xywh()],[object_actual_bbox_from_mask.as_xywh()]))
-
-
-            out.append({"boxes":object_actual_bbox_from_mask.as_xyxy(),
-                        "labels":r,
-                        "masks":object_mask})
-        img=item["image"]
-        target={'image_id':item.get("image_id",0),
-                "iscrowd":torch.zeros(len(out)),
-                'boxes':torch.tensor([o["boxes"].as_xyxy() for o in out]),
-                'area':torch.tensor([o["boxes"].area() for o in out]),
-                'masks':torch.stack([o["masks"] for o in out]),
-                'labels':self.clip.encode_text(torch.stack([o["labels"] for o in out])),
-        }
-        try:
-            i,t=prep(img,target)
-        except FileNotFoundError as e:
-            response = requests.get(item["url"])
-            img = Image.open(BytesIO(response.content))
-            #print("failed : {}".format(item["image"]))
-            i,t=prep(img,target)
-        summed_mask=torch.sum(target["masks"],dim=0).bool().int()
-        classes=target["labels"]
-        return i, t, classes ,summed_mask
-
-
-
-
+        return DETICprocess(self,item)
+class VisGenomeDatasetIterCOCOBoxes(VisGenomeDataset):
+    def process(self, item):
+        return DETICprocess(self,item)
 def DETIC_collate_fn(batch):
     batch = list(zip(*batch))
     #this is the test function for collating these,
@@ -284,9 +284,9 @@ class VisGenomeDataModule(pl.LightningDataModule):
         self.tokenizer=CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32") 
 
         if fullBoxes:
-            self.dataConstructor=VisGenomeDatasetBigBoxes
+            self.dataConstructor=VisGenomeDatasetCOCOBoxes
             if self.stream:
-                self.dataConstructor=VisGenomeDatasetIterBigBoxes
+                self.dataConstructor=VisGenomeDatasetIterCOCOBoxes
         else:
             self.dataConstructor=VisGenomeDataset
             if self.stream:
@@ -310,52 +310,32 @@ class VisGenomeDataModule(pl.LightningDataModule):
         self.text_encoder = build_text_encoder(pretrain=True)
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
-        self.model=self.predictor.model
-        BUILDIN_CLASSIFIER = {
-            'lvis': 'datasets/metadata/lvis_v1_clip_a+cname.npy',
-            'objects365': 'datasets/metadata/o365_clip_a+cnamefix.npy',
-            'openimages': 'datasets/metadata/oid_clip_a+cname.npy',
-            'coco': 'datasets/metadata/coco_clip_a+cname.npy',
-        }
-        BUILDIN_METADATA_PATH = {
-            'lvis': 'lvis_v1_val',
-            'objects365': 'objects365_v2_val',
-            'openimages': 'oid_val_expanded',
-            'coco': 'coco_2017_val',
-        }
-    
+        
 
     def predict(self,image,classes): 
             
-            #assert custom_vocabulary is not None and len(custom_vocabulary.split(',')) > 0
-            metadata = MetadataCatalog.get(str(time.time()))
-            metadata.thing_classes = classes
-            classifier = self.get_clip_embeddings(metadata.thing_classes)
-            num_classes = len(classes)
-            self.model.roi_heads.num_classes = num_classes
-    
-            zs_weight = classifier
-            zs_weight = torch.cat(
-                [zs_weight, zs_weight.new_zeros((zs_weight.shape[0], 1))], 
-                dim=1) # D x (C + 1)
-            if self.model.roi_heads.box_predictor[0].cls_score.norm_weight:
-                zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
-            zs_weight = zs_weight.to(self.model.device)
-            for k in range(len(self.model.roi_heads.box_predictor)):
-                del self.model.roi_heads.box_predictor[k].cls_score.zs_weight
-                self.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
-            # Reset visualization threshold
-            output_score_threshold = 0.3
-            for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
-                self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
+        classifier = self.get_clip_embeddings(classes)
+        self.predictor.model.roi_heads.num_classes =  len(classes)
 
-            outputs = self.predictor(image)
- 
-            #So - Idea - What if I could use the score to add noise to the output class. 
-            return dict(boxes=outputs['instances'].get_fields()["pred_boxes"].tensor,
-                        masks=outputs['instances'].get_fields()["pred_masks"],
-                        scores=outputs['instances'].get_fields()["scores"],
-                        pred_classes=outputs['instances'].get_fields()["pred_classes"])
+        zs_weight = torch.cat([classifier, classifier.new_zeros((zs_weight.shape[0], 1))], dim=1) # D x (C + 1)
+        if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
+            zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
+        zs_weight = zs_weight.to(self.model.device)
+        for k in range(len(self.predictor.model.roi_heads.box_predictor)):
+            del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
+            self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
+        # Reset visualization threshold
+        output_score_threshold = 0.3
+        for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
+            self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
+
+        outputs = self.predictor(image)
+
+        #So - Idea - What if I could use the score to add noise to the output class. 
+        return dict(boxes=outputs['instances'].get_fields()["pred_boxes"].tensor,
+                    masks=outputs['instances'].get_fields()["pred_masks"],
+                    scores=outputs['instances'].get_fields()["scores"],
+                    pred_classes=outputs['instances'].get_fields()["pred_classes"])
 
 
     def get_clip_embeddings(self,vocabulary, prompt='a '):
@@ -396,8 +376,12 @@ if __name__ == "__main__":
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument('--Cache_dir', type=str, default='.', help='path to download and cache data')
-    dir=os.path.join(parser.parse_args().Cache_dir,"data")
-    dm =VisGenomeDataModule(Cache_dir="HF",batch_size=3)
+    parser.add_argument('--batch_size', type=int, default=3, help='batch size')
+    parser.add_argument('--stream', action='store_true', default=False,help='stream data',)
+    parser.add_argument("--COCO", action='store_true', default=False,help="Use COCO style data")
+    args=parser.parse_args()
+    dir=os.path.join(args.Cache_dir,"data")
+    dm =VisGenomeDataModule(Cache_dir=dir,batch_size=args.batch_size,stream=args.stream,fullBoxes=args.COCO)
     dm.prepare_data()
     dm.setup()
     train_loader = dm.train_dataloader()
