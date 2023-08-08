@@ -202,8 +202,7 @@ class PairDETR(pl.LightningModule):
         tgt_masks=interpolate(tgt_masks.unsqueeze(1),outputs['pred_masks'].shape[-2:]).squeeze(1).to(outputs['pred_masks']) # BB,W,H
         masks=interpolate(masks.to(outputs['pred_masks']).unsqueeze(1),outputs['pred_masks'].shape[-2:]).squeeze(1) # B,W,H
         loss_dict, predictions= self.criterion(classencodings,outputs, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
-        losses = reduce(torch.add, [loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict])
-        losses=sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
+#        losses=sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
         loss_dict2,predictions2 = self.criterion(classencodings,out2, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
 
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
@@ -215,11 +214,15 @@ class PairDETR(pl.LightningModule):
         
         loss_dict['CELoss']=CELoss
         loss_dict2['CELoss']=CELoss
-        losses2 = sum(loss_dict2[k] * self.weight_dict[k] for k in loss_dict2.keys() if k in self.weight_dict)
-
+        #losses2 = sum(loss_dict2[k] * self.weight_dict[k] for k in loss_dict2.keys() if k in self.weight_dict)
+        
+        losses = reduce(torch.add, [loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict])
+        losses2= reduce(torch.add, [loss_dict2[k] * self.weight_dict[k] for k in loss_dict2.keys() if k in self.weight_dict])
         for k, v in loss_dict.items():
             if k in self.weight_dict:
                 self.log(k,v * self.weight_dict[k],prog_bar=True,enable_graph=False,rank_zero_only=True)
+        
+        self.log("loss",losses,enable_graph=False,rank_zero_only=True)
         return losses +losses2
    
     def test_epoch_start(self,*args):
