@@ -745,17 +745,11 @@ class FastCriterion(nn.Module):
         output_class_masks=torch.einsum('bqwh,bcq->bcwh',output_masks,similarity)/output_masks.shape[1] #B,Q,W,H
         output_class_masks=torch.nn.functional.softmax(output_class_masks,dim=1)
         # #now we need to get the ground truth masks
-
-        # ##############TO DO : This all needs improving, it's very slow and not very accurate
-        # gt_embs=tgt_embs # BB,F
         batch_lookup=torch.nn.functional.one_hot(batch_idx,num_classes=output_class_masks.shape[0]).T
         gt_similarities=tgt_embs@encodings.T # BB,C #shows the similarity to other classes
         #print(batch_lookup.shape,gt_similarities.shape) # n,B, n,C
         target_similarities=torch.mul(batch_lookup.unsqueeze(-1),gt_similarities.unsqueeze(0))#B,n,C
         gt_class_masks=torch.einsum('Bnc,nwh->Bcwh',target_similarities,tgt_masks) # BB,C @ B,C = B
-        # gt_class_masks=torch.stack(gt_class_masks,dim=0) # B,C,W,H
-        # #print("gt_class_masks",gt_class_masks.shape)
-        
 
         # ##############do dice loss################
 
