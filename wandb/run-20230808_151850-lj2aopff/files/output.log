@@ -1,0 +1,6 @@
+Traceback (most recent call last):
+  File "/home/user/Documents/Pair-DETR-PTL/main.py", line 313, in <module>
+    logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=dir)
+  File "/home/user/miniconda3/envs/open-ce/lib/python3.9/site-packages/pytorch_lightning/loggers/wandb.py", line 335, in __init__
+    save_dir = os.fspath(save_dir)
+TypeError: expected str, bytes or os.PathLike object, not builtin_function_or_method

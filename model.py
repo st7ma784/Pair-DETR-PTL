@@ -675,8 +675,11 @@ class FastCriterion(nn.Module):
         # print(out_bbox_scores.shape) 
         # print(tgt_bbox.shape) # 211,4
         tgt_bbox=torch.flatten(tgt_bbox,0,1)
-        output_bbox=output_bbox[torchvision.ops.boxes.nms(output_bbox ,scores=torch.flatten(out_bbox_scores,0),iou_threshold=0.5)]
+        nms_indexes=torchvision.ops.boxes.nms(output_bbox ,scores=torch.flatten(out_bbox_scores,0),iou_threshold=0.5)
         
+
+        output_bbox=output_bbox[nms_indexes]
+
         ###########DO BOX Loss################
       
         #find best ious,
@@ -687,16 +690,16 @@ class FastCriterion(nn.Module):
 
         #raw sum - low is good
 
-        iou_total=torch.sum(-torch.sub(iou_scores,1)) #[]
+        # iou_total=torch.sum(-torch.sub(iou_scores,1)) #[]
 
         ''' Its super important do do bboxes of output onto truth and vice versa - otherwise we might just learn a single class
         Also worth highlighting that gumbel_softmax is a differentiable approximation of argmax,
           so we can backprop through it,but it's also therefore very noisy, so we need to be careful
         '''
-        # #softmax takes log probs, so we need to convert to log probs
+        #softmax takes log probs, so we need to convert to log probs
         out_log_iou_scores=torch.nn.functional.softmax(iou_scores,dim=1) #46,211
         out_one_hot=torch.nn.functional.gumbel_softmax(out_log_iou_scores,dim=1,hard=True).to(tgt_bbox) #46,211
-        #out_selected_boxes=torch.einsum("AB,NA->NB",tgt_bbox,out_one_hot).to(tgt_bbox) #211,4
+        out_selected_boxes=torch.einsum("AB,NA->NB",tgt_bbox,out_one_hot).to(tgt_bbox) #211,4
         out_selected_boxes=out_one_hot@tgt_bbox #46,4
         # #shapes are [46,4] and [211,4]
         # print(selected_boxes.shape,output_bbox.shape)
@@ -712,17 +715,15 @@ class FastCriterion(nn.Module):
         gt_ious=torch.diag(torchvision.ops.box_iou(
            gt_selected_boxes,tgt_bbox))
         gt_ious_total=-torch.sub(gt_ious,1)
-        # ##########################################################################
-        # #To Test: Use the similarity matric rather than the lookuptable??? 
-        # ##########################################################################
-        #I don't think I want to use NMS here, nor a lookuptable, because near-miss BBboxes will be very useful
 
-        # The Goal is a B,C,W,H mask.
-        # for Each box (B,Q) we want to find the best class (C) and the best output (W,H)
-        # we then want to use that boxes' logits to the class encoding to amount of mask to use
-        # class similarity is therefore shape B,Q,C  (B,Q,512)@(512,C) -> B,Q,C
-        # and we have BQWH masks, so we can use Q to get a resultant sum of B,C,W,H masks I.E a mask for each class in the batch
-        
+        ##### class loss
+        out_embs=gt_one_hot.T@torch.flatten(outputs["pred_logits"],0,1)[nms_indexes]
+        class_loss=tgt_embs@out_embs.T 
+        classlossT=out_embs@tgt_embs.T
+        class_loss=self.ce_loss(class_loss,torch.arange(tgt_embs.shape[0],device=out_embs.device))
+        classlossT=self.ce_loss(classlossT,torch.arange(tgt_embs.shape[0],device=out_embs.device))
+        class_loss=torch.mean(class_loss+classlossT)
+
         output_masks=outputs['pred_masks']#B,Q,W,H
         
         ###########DO MASK LOSS################
@@ -759,8 +760,7 @@ class FastCriterion(nn.Module):
         # ##############do dice loss################
 
         inputs = torch.flatten(output_class_masks,1)
-        inputs=self.relu(inputs)
-        targets = self.relu(torch.flatten(gt_class_masks,1))
+        targets = torch.flatten(gt_class_masks,1)
 
         dice_loss = torch.mean(torch.div(torch.sum(torch.mul(inputs,targets)), torch.add(torch.sum(inputs,-1),torch.sum(targets,-1)).add(1e-6)))
         # # # ##############do sigmoid focal loss################
@@ -771,13 +771,15 @@ class FastCriterion(nn.Module):
         # # sig_loss = torch.mul(ce_loss,torch.pow(1 - p_t,2))
         # #print("sig_loss",sig_loss)
         return {
+            #
+            "class_loss": class_loss,
             "class_mask_loss": dice_loss,
             "loss_mask": immask_loss/ output_bbox.shape[0], #(src_masks, masks),
              "loss_dice": overall_mask_loss/ output_bbox.shape[0], #(src_masks, masks, ),
             'loss_gt_iou': gt_ious_total.sum()/output_bbox.shape[0], # rename these later
-            #'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later
+            'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later
             'loss_bbox_acc': F.l1_loss(gt_selected_boxes, tgt_bbox, reduction='none').sum() / output_bbox.shape[0],
-            'loss_giou': iou_total / output_bbox.shape[0],
+            # 'loss_giou': iou_total / output_bbox.shape[0],
         },torch.flatten(predicted_classes,0,1)
     
 

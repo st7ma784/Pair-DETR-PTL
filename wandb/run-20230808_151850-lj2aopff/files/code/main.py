@@ -310,7 +310,7 @@ if __name__ == '__main__':
     #make wandb logger
     run=wandb.init(project="SPARC",entity="st7ma784",name="VRE",config=args)
 
-    logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=args.coco_path,log_model=True)
+    logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=dir)
 
     #wandb_logger = WandbLogger(project='pairdetr',entity="st7ma784",log_model=True)
     from data.coco import COCODataModule
@@ -319,12 +319,11 @@ if __name__ == '__main__':
     args = vars(args)
     model=PairDETR(**args)
     trainer = pl.Trainer(
-                         precision=16,
+                         #precision=16,
                          max_epochs=20,#args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
                          accumulate_grad_batches=1,
-                         logger=logtool,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
                          fast_dev_run=False,  

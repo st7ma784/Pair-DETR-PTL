@@ -7,6 +7,35 @@ import os
 import pytorch_lightning as pl
 from transformers import CLIPTokenizer
 import time
+import os
+import logging
+import json
+import numpy
+import joblib
+import sys
+import cv2
+import tempfile
+import cog
+import time
+from cog import Input,File,Path 
+from PIL import Image
+# import some common detectron2 utilities
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2.utils.visualizer import Visualizer
+from detectron2.data import MetadataCatalog
+import torch
+import os 
+# Detic libraries
+sys.path.insert(0, 'third_party/CenterNet2/')
+from centernet.config import add_centernet_config
+from detic.config import add_detic_config
+from detic.modeling.utils import reset_cls_test
+from detic.modeling.text.text_encoder import build_text_encoder
+import wget
+from typing import Optional,List
+# This file defines how the DETIC model is exposed as an AZUREML model endpoint. 
+# We have a couple of options here for this. 
 
 import base64,json,io
 from base64 import b64decode
@@ -79,19 +108,25 @@ class VisGenomeIterDataset(torch.utils.data.Dataset):
         return self.data.__iter__()
 
 class VisGenomeDataset(torch.utils.data.Dataset):
-    def __init__(self, tokenizer,split="train",dir="HF",T=prep):
+    def __init__(self, tokenizer,mask_predictor,split="train",dir="HF",T=prep):
         #print('Loading COCO dataset')
         self.data=load_dataset("visual_genome", "relationships_v1.2.0",streaming=False,cache_dir=dir)[split] #,download_mode="force_redownload"
         print("got datast")
+        self.mask_predictor=mask_predictor
         self.data = self.data.map(self.process)
         self.__getitem__ = self.data.__getitem__
         self.T=T
         self.tokenizer = tokenizer
         self.tokenize=lambda x:self.tokenizer(x,return_tensors="pt",padding="max_length", truncation=True,max_length=77)['input_ids']
     def process(self,item):
-        r=random.choice(item["relationships"])
+        #for all the relationships in the image
+        #  extract the classes of the subject, object 
+        #  predictions=self.predict(image,[subject,object])
+        #  check predictions for the masks within bboxes. 
+        #  if there is a mask, then add the relationship to the list of relationships
+        #  return the list of relationships tokenized and clip embedded. 
 
-        url     = 'http://localhost:5001/predictions'  #Point at the docker running on the same VM
+        #  return coco style annotations per ovject.
         Classes= " ,".join(list(set([*[r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]])))
         payload = json.dumps({ "input":{
             "image": item["url"],    #URL to image to search
@@ -126,6 +161,81 @@ class VisGenomeDataModule(pl.LightningDataModule):
         self.T=T
         self.tokenizer=CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32",cache_dir=Cache_dir)
 
+        self.cfg = get_cfg()
+        add_centernet_config(self.cfg)
+        add_detic_config(self.cfg)
+        self.cfg.merge_from_file("configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml")
+        if not os.path.exists("./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"):
+            url = 'https://dl.fbaipublicfiles.com/detic/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth'
+            filename = wget.download(url)
+            print("fetched to {}".format(filename))
+            self.cfg.MODEL.WEIGHTS = filename
+        else:
+            self.cfg.MODEL.WEIGHTS = './models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth'
+        self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # set threshold for this model
+        self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
+        self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
+        self.cfg.MODEL.DEVICE='cpu' 
+        self.text_encoder = build_text_encoder(pretrain=True)
+        self.text_encoder.eval()
+        self.predictor = DefaultPredictor(self.cfg)
+        self.model=self.predictor.model
+        BUILDIN_CLASSIFIER = {
+            'lvis': 'datasets/metadata/lvis_v1_clip_a+cname.npy',
+            'objects365': 'datasets/metadata/o365_clip_a+cnamefix.npy',
+            'openimages': 'datasets/metadata/oid_clip_a+cname.npy',
+            'coco': 'datasets/metadata/coco_clip_a+cname.npy',
+        }
+        BUILDIN_METADATA_PATH = {
+            'lvis': 'lvis_v1_val',
+            'objects365': 'objects365_v2_val',
+            'openimages': 'oid_val_expanded',
+            'coco': 'coco_2017_val',
+        }
+        
+        logging.info("Init complete")
+    
+
+    def predict(self,image,classes): 
+            
+            #assert custom_vocabulary is not None and len(custom_vocabulary.split(',')) > 0
+            metadata = MetadataCatalog.get(str(time.time()))
+            metadata.thing_classes = classes
+            classifier = self.get_clip_embeddings(metadata.thing_classes)
+            num_classes = len(classes)
+            self.model.roi_heads.num_classes = num_classes
+    
+            zs_weight = classifier
+            zs_weight = torch.cat(
+                [zs_weight, zs_weight.new_zeros((zs_weight.shape[0], 1))], 
+                dim=1) # D x (C + 1)
+            if self.model.roi_heads.box_predictor[0].cls_score.norm_weight:
+                zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
+            zs_weight = zs_weight.to(self.model.device)
+            for k in range(len(self.model.roi_heads.box_predictor)):
+                del self.model.roi_heads.box_predictor[k].cls_score.zs_weight
+                self.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
+            # Reset visualization threshold
+            output_score_threshold = 0.3
+            for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
+                self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
+
+            outputs = self.predictor(image)
+ 
+            #So - Idea - What if I could use the score to add noise to the output class. 
+            return dict(boxes=outputs['instances'].get_fields()["pred_boxes"].tensor,
+                        masks=outputs['instances'].get_fields()["pred_masks"],
+                        scores=outputs['instances'].get_fields()["scores"],
+                        pred_classes=outputs['instances'].get_fields()["pred_classes"])
+
+
+    def get_clip_embeddings(self,vocabulary, prompt='a '):
+        
+        texts = [prompt + x for x in vocabulary]
+        if "{}" in prompt:
+            texts=[prompt.format(x) for x in vocabulary]
+        return self.text_encoder(texts).detach().permute(1, 0).contiguous()
+    
     def train_dataloader(self, B=None):
         if B is None:
             B=self.batch_size 
@@ -147,9 +257,9 @@ class VisGenomeDataModule(pl.LightningDataModule):
         #print("Entered COCO datasetup")
         
         if stage == 'fit' or stage is None:
-            self.train=VisGenomeDataset(tokenizer=self.tokenizer,T=self.T,split="train")
-            self.val=VisGenomeDataset(tokenizer=self.tokenizer,T=self.T,split="dev")
-        self.test=VisGenomeDataset(tokenizer=self.tokenizer,T=self.T,split="test")
+            self.train=VisGenomeDataset(tokenizer=self.tokenizer,mask_predictor=self.predict, T=self.T,split="train")
+            self.val=VisGenomeDataset(tokenizer=self.tokenizer,mask_predictor=self.predict,T=self.T,split="dev")
+        self.test=VisGenomeDataset(tokenizer=self.tokenizer,mask_predictor=self.predict,T=self.T,split="test")
 
 
 
@@ -170,6 +280,10 @@ if __name__ == "__main__":
 
 
 
+
+
+
+'''
 
 
 

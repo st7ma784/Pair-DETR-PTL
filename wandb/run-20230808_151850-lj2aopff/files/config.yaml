@@ -1,0 +1,169 @@
+wandb_version: 1
+
+_wandb:
+  desc: null
+  value:
+    cli_version: 0.13.9
+    code_path: code/main.py
+    framework: huggingface
+    huggingface_version: 4.26.0
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    python_version: 3.9.16
+    start_time: 1691504330.972242
+    t:
+      1:
+      - 1
+      - 5
+      - 9
+      - 11
+      - 41
+      - 49
+      - 51
+      - 53
+      - 55
+      2:
+      - 1
+      - 5
+      - 9
+      - 11
+      - 41
+      - 49
+      - 51
+      - 53
+      - 55
+      3:
+      - 13
+      - 16
+      - 23
+      4: 3.9.16
+      5: 0.13.9
+      6: 4.26.0
+      8:
+      - 5
+aux_loss:
+  desc: null
+  value: true
+backbone:
+  desc: null
+  value: resnet50
+bbox_loss_coef:
+  desc: null
+  value: 5
+clip_max_norm:
+  desc: null
+  value: 0.1
+cls_loss_coef:
+  desc: null
+  value: 1
+coco_panoptic_path:
+  desc: null
+  value: null
+coco_path:
+  desc: null
+  value: /data
+dataset_file:
+  desc: null
+  value: coco
+dec_layers:
+  desc: null
+  value: 4
+device:
+  desc: null
+  value: cuda
+dice_loss_coef:
+  desc: null
+  value: 1
+dilation:
+  desc: null
+  value: false
+dim_feedforward:
+  desc: null
+  value: 512
+dist_url:
+  desc: null
+  value: env://
+dropout:
+  desc: null
+  value: 0.1
+enc_layers:
+  desc: null
+  value: 4
+epochs:
+  desc: null
+  value: 10
+eval:
+  desc: null
+  value: false
+focal_alpha:
+  desc: null
+  value: 0.25
+frozen_weights:
+  desc: null
+  value: null
+giou_loss_coef:
+  desc: null
+  value: 2
+hidden_dim:
+  desc: null
+  value: 512
+intermediate_layer:
+  desc: null
+  value: false
+lr:
+  desc: null
+  value: 1.0e-06
+lr_backbone:
+  desc: null
+  value: 1.0e-06
+mask_loss_coef:
+  desc: null
+  value: 10
+masks:
+  desc: null
+  value: false
+nheads:
+  desc: null
+  value: 16
+num_queries:
+  desc: null
+  value: 1
+num_workers:
+  desc: null
+  value: 2
+output_dir:
+  desc: null
+  value: ''
+position_embedding:
+  desc: null
+  value: v3
+pre_norm:
+  desc: null
+  value: false
+remove_difficult:
+  desc: null
+  value: false
+resume:
+  desc: null
+  value: ''
+seed:
+  desc: null
+  value: 42
+set_cost_bbox:
+  desc: null
+  value: 5
+set_cost_class:
+  desc: null
+  value: 0.002
+set_cost_giou:
+  desc: null
+  value: 2
+start_epoch:
+  desc: null
+  value: 0
+weight_decay:
+  desc: null
+  value: 0.0001
+world_size:
+  desc: null
+  value: 1

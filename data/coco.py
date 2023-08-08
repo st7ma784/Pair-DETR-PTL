@@ -50,7 +50,7 @@ class CocoDetection(torchvision.datasets.CocoDetection):
             target["masks"]=self.mask_transform(mask)
 
         summed_mask=torch.sum(target["masks"],dim=0).bool().int()
-        
+        #print("target",target)
         
         return img, target, self.tokenized_classnames,summed_mask
 

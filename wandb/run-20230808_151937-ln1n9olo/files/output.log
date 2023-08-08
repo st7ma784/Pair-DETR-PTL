@@ -1,0 +1,105 @@
+/home/user/miniconda3/envs/open-ce/lib/python3.9/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/user/miniconda3/envs/open-ce/lib/python3.9/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=ResNet50_Weights.IMAGENET1K_V1`. You can also use `weights=ResNet50_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+/home/user/miniconda3/envs/open-ce/lib/python3.9/site-packages/lightning_fabric/plugins/environments/slurm.py:166: PossibleUserWarning: The `srun` command is available on your system but is not used. HINT: If your intention is to run Lightning on SLURM, prepend your python command with `srun` like so: srun python main.py --coco_path /data ...
+  rank_zero_warn(
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+IPU available: False, using: 0 IPUs
+HPU available: False, using: 0 HPUs
+/home/user/miniconda3/envs/open-ce/lib/python3.9/site-packages/lightning_fabric/plugins/environments/slurm.py:166: PossibleUserWarning: The `srun` command is available on your system but is not used. HINT: If your intention is to run Lightning on SLURM, prepend your python command with `srun` like so: srun python main.py --coco_path /data ...
+  rank_zero_warn(
+/home/user/miniconda3/envs/open-ce/lib/python3.9/site-packages/pytorch_lightning/trainer/configuration_validator.py:106: UserWarning: You passed in a `val_dataloader` but have no `validation_step`. Skipping val loop.
+  rank_zero_warn("You passed in a `val_dataloader` but have no `validation_step`. Skipping val loop.")
+You are using a CUDA device ('NVIDIA GeForce RTX 3090') that has Tensor Cores. To properly utilize them, you should set `torch.set_float32_matmul_precision('medium' | 'high')` which will trade-off precision for performance. For more details, read https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
+loading annotations into memory...
+Done (t=11.16s)
+creating index...
+index created!
+loading annotations into memory...
+Done (t=0.30s)
+creating index...
+index created!
+LOCAL_RANK: 0 - CUDA_VISIBLE_DEVICES: [0]
+  | Name                 | Type                  | Params
+---------------------------------------------------------------
+0 | backbone             | Backbone              | 23.5 M
+1 | transformer          | PositionalTransformer | 46.5 M
+2 | positional_embedding | PositionEmbeddingSine | 0
+3 | bbox_embed           | MLP                   | 1.3 M
+4 | input_proj           | Conv2d                | 1.0 M
+5 | loss                 | CrossEntropyLoss      | 0
+6 | clip_projection      | Linear                | 262 K
+7 | criterion            | FastCriterion         | 0
+8 | bbox_attention       | MHAttentionMap        | 525 K
+9 | mask_head            | MaskHeadSmallConv     | 4.5 M
+---------------------------------------------------------------
+54.1 M    Trainable params
+23.5 M    Non-trainable params
+77.6 M    Total params
+310.412   Total estimated model params size (MB)
+/home/user/miniconda3/envs/open-ce/lib/python3.9/site-packages/torchvision/transforms/functional.py:1603: UserWarning: The default value of the antialias parameter of all the resizing transforms (Resize(), RandomResizedCrop(), etc.) will change from None to True in v0.17, in order to be consistent across the PIL and Tensor backends. To suppress this warning, directly pass antialias=True (recommended, future default), antialias=None (current default, which means False for Tensors and True for PIL), or antialias=False (only works on Tensors - PIL will still use antialiasing). This also applies if you are using the inference transforms from the models weights: update the call to weights.transforms(antialias=True).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
