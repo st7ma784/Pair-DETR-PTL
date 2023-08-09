@@ -331,7 +331,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         print("predicting...") 
         classifier = self.get_clip_embeddings(classes)
         self.predictor.model.roi_heads.num_classes =  len(classes)
-
+        print("cshape",classifier.shape)
         zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
         if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
             zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
