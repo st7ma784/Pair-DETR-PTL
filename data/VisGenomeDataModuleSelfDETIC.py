@@ -199,7 +199,7 @@ def DETICprocess(self,item):
                     [r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]],]
         
         #convert to tensors
-        obj_bboxes=torch.tensor(obj_bboxes)
+        obj_bboxes=torch.as_tensor(obj_bboxes)
         annotation_to_output_ious=torchvision.ops.box_iou(obj_bboxes,found_boxes)
         #find max iou +_idx for each annotation 
         max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
