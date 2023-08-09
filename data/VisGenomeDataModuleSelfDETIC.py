@@ -195,8 +195,10 @@ def DETICprocess(self,item):
         found_masks=outputs["masks"]
         found_boxes=outputs["boxes"] #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
-        obj_bboxes=[[r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]],            
-                    [r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]],]
+        obj_bboxes=torch.stack(
+                    [torch.tensor([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]]),            
+                    torch.tensor([r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]])
+                    ],dim=0)
         
         #convert to tensors
         obj_bboxes=torch.as_tensor(obj_bboxes)
