@@ -198,7 +198,7 @@ def DETICprocess(self,item):
         obj_bboxes=[datapoints.BoundingBox([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]], format=datapoints.BoundingBoxFormat.XYXY, spatial_size=[item["width"],r["subject"]["h"]]),            
                     datapoints.BoundingBox([r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]], format=datapoints.BoundingBoxFormat.XYXY, spatial_size=[r["object"]["w"],r["object"]["h"]])
         ]
-        annotation_to_output_ious=torchvision.ops.box_iou(torch.tensor([b for b in obj_bboxes]),torch.tensor([b for b in found_boxes]))
+        annotation_to_output_ious=torchvision.ops.box_iou(torch.tensor(obj_bboxes),found_boxes)
         #find max iou +_idx for each annotation 
         max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
         bboxes_to_keep=found_boxes[max_idx]
@@ -347,7 +347,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         #convert to np array
         image=image.permute(1,2,0).numpy()
         outputs = self.predictor(image)
-        
+
         #So - Idea - What if I could use the score to add noise to the output class. 
         return dict(boxes=outputs['instances'].get_fields()["pred_boxes"].tensor,
                     masks=outputs['instances'].get_fields()["pred_masks"],
