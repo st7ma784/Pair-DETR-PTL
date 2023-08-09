@@ -193,10 +193,10 @@ def DETICprocess(self,item):
         outputs=self.predictor(i,[r["subject"]["names"][0],r["object"]["names"][0]])
         
         # print(outputs['instances'].keys())
-        print(outputs['instances'].get_fields().__dir__())
-        print(outputs['instances'].get("masks",None))
-        found_masks=outputs['instances'].get_fields()["masks"]
-        found_boxes=outputs['instances'].get_fields()["boxes"] #these are in xyxy format
+        print(outputs['instances'].get_fields().keys())
+        print(outputs['instances'].get("pred_boxes"))
+        found_masks=outputs['instances'].get_fields()["pred_masks"]
+        found_boxes=outputs['instances'].get_fields()["pred_boxes"] #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
         obj_bboxes=torch.stack(
                     [torch.tensor([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]]),            
@@ -351,7 +351,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         output_score_threshold = 0.3
         for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
             self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
-        print("image shape",image.shape)
+        #print("image shape",image.shape)
         #convert to np array
         image=image.permute(1,2,0).numpy()
         outputs = self.predictor(image)
