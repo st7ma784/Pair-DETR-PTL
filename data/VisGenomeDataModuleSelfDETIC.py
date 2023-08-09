@@ -352,7 +352,11 @@ class VisGenomeDataModule(pl.LightningDataModule):
         #convert to np array
         image=image.permute(1,2,0).numpy()
         outputs = self.predictor(image)
-
+        if outputs['instances'].get_fields()["pred_boxes"].tensor.shape[0]==0:
+            #calculate boxes from masks
+            print("No boxes found")
+            if outputs['instances'].get_fields()["pred_masks"].shape[0]>0:
+                outputs['instances'].get_fields()["pred_boxes"].tensor=torch.stack([datapoints.BoundingBox.from_mask(m).as_xyxy() for m in outputs['instances'].get_fields()["pred_masks"]])
         #So - Idea - What if I could use the score to add noise to the output class. 
         return dict(boxes=outputs['instances'].get_fields()["pred_boxes"].tensor,
                     masks=outputs['instances'].get_fields()["pred_masks"],
