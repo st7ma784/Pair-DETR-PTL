@@ -335,7 +335,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
         if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
             zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
-        zs_weight = zs_weight.to(self.model.device)
+        zs_weight = zs_weight.to(self.predictor.model.device)
         for k in range(len(self.predictor.model.roi_heads.box_predictor)):
             del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
             self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
