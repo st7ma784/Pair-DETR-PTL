@@ -179,8 +179,9 @@ def DETICprocess(self,item):
     #our bboxes come straight from the BigBoxes and masks in the VisGenome Dataset. To grab labels, we need to get the object and subject names and pass them through self.predictor to get the masks.
     # 
     out=[]
+    print("item:", item.keys())
     for r in item["relationships"]:
-
+        print(r)
         r=self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]))
         #s is the r["subject"] box
         outputs=self.predictor(item["image"],[r["subject"]["names"][0],r["object"]["names"][0]])
