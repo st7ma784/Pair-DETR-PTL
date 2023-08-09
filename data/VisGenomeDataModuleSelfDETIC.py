@@ -193,10 +193,10 @@ def DETICprocess(self,item):
         outputs=self.predictor(i,[r["subject"]["names"][0],r["object"]["names"][0]])
         
         # print(outputs['instances'].keys())
-        print(outputs['instances'].get_fields().keys())
-        print(outputs['instances'].get("pred_boxes"))
-        found_masks=outputs['instances'].get_fields()["pred_masks"]
-        found_boxes=outputs['instances'].get_fields()["pred_boxes"] #these are in xyxy format
+        #print(outputs['instances'].get_fields().keys())#VVdict_keys(['pred_boxes', 'scores', 'pred_classes', 'pred_masks'])
+        #print(outputs['instances'].get("pred_boxes"))
+        found_masks=outputs['instances'].get("pred_masks")
+        found_boxes=outputs['instances'].get("pred_boxes") #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
         obj_bboxes=torch.stack(
                     [torch.tensor([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]]),            
