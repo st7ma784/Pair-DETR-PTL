@@ -181,7 +181,7 @@ def DETICprocess(self,item):
     out=[]
     img=item["image"]
     try:
-        i,t=prep(img)
+        i=prep(img)
     except FileNotFoundError as e:
         response = requests.get(item["url"])
         img = Image.open(BytesIO(response.content))
