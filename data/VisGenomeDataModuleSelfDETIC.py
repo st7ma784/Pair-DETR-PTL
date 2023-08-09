@@ -344,7 +344,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
             self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
 
-        outputs = self.predictor(image)
+        outputs = self.predictor(image.permute(2,0,1))
 
         #So - Idea - What if I could use the score to add noise to the output class. 
         return dict(boxes=outputs['instances'].get_fields()["pred_boxes"].tensor,
