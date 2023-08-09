@@ -194,6 +194,7 @@ def DETICprocess(self,item):
             outputs=self.predictor(img,[r["subject"]["names"][0],r["object"]["names"][0]])
         except Exception as e:
             print("failed to predict")
+            print(img)
             print(e)
             break
         found_masks=outputs["masks"]
@@ -331,7 +332,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         print("predicting...") 
         classifier = self.get_clip_embeddings(classes)
         self.predictor.model.roi_heads.num_classes =  len(classes)
-        print("cshape",classifier.shape)
+        #print("cshape",classifier.shape) #F,2
         zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
         if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
             zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
@@ -344,7 +345,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
             self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
 
-        outputs = self.predictor(image)
+        outputs = self.predictor([image])
 
         #So - Idea - What if I could use the score to add noise to the output class. 
         return dict(boxes=outputs['instances'].get_fields()["pred_boxes"].tensor,
