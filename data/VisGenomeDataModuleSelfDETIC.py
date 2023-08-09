@@ -190,7 +190,7 @@ def DETICprocess(self,item):
     for r in item["relationships"]:
         #print(r)
         #s is the r["subject"] box
-        outputs=self.predictor(i,["itapo " +r["subject"]["names"][0],"itapo " + r["object"]["names"][0]])
+        outputs=self.predictor(i,[r["subject"]["names"][0], r["object"]["names"][0]])
         
         # print(outputs['instances'].keys())
         #print(outputs['instances'].get_fields().keys())#VVdict_keys(['pred_boxes', 'scores', 'pred_classes', 'pred_masks'])
@@ -371,7 +371,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         return outputs
 
 
-    def get_clip_embeddings(self,vocabulary, prompt='a '):
+    def get_clip_embeddings(self,vocabulary, prompt='a origami  '):
         
         texts = [prompt + x for x in vocabulary]
         if "{}" in prompt:
