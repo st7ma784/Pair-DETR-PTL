@@ -314,7 +314,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         
 
     def predict(self,image,classes): 
-            
+        print("predicting...") 
         classifier = self.get_clip_embeddings(classes)
         self.predictor.model.roi_heads.num_classes =  len(classes)
 
