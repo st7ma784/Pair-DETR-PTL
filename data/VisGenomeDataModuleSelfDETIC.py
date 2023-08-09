@@ -190,13 +190,8 @@ def DETICprocess(self,item):
     for r in item["relationships"]:
         #print(r)
         #s is the r["subject"] box
-        try:
-            outputs=self.predictor(i,[r["subject"]["names"][0],r["object"]["names"][0]])
-        except Exception as e:
-            print("failed to predict")
-            print(i)
-            print(e)
-            break
+        outputs=self.predictor(i,[r["subject"]["names"][0],r["object"]["names"][0]])
+        
         found_masks=outputs["masks"]
         found_boxes=outputs["boxes"]
         #check outputs for bounding boxes that are close to the subject and object boxes.
