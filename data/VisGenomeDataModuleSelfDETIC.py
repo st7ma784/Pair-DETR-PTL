@@ -185,13 +185,13 @@ def DETICprocess(self,item):
     except FileNotFoundError as e:
         response = requests.get(item["url"])
         img = Image.open(BytesIO(response.content))
-    
+        i=prep(img)
     #print("item:", item.keys())
     for r in item["relationships"]:
         #print(r)
         #s is the r["subject"] box
         try:
-            outputs=self.predictor(img,[r["subject"]["names"][0],r["object"]["names"][0]])
+            outputs=self.predictor(i,[r["subject"]["names"][0],r["object"]["names"][0]])
         except Exception as e:
             print("failed to predict")
             print(img)
