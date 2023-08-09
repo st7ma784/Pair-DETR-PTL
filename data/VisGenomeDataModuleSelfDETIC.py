@@ -192,7 +192,7 @@ def DETICprocess(self,item):
         #s is the r["subject"] box
         outputs=self.predictor(i,[r["subject"]["names"][0],r["object"]["names"][0]])
         
-        print(outputs['instances'].keys())
+        # print(outputs['instances'].keys())
         print(outputs['instances'].__dir__())
         found_masks=outputs['instances']["masks"]
         found_boxes=outputs['instances']["boxes"] #these are in xyxy format
