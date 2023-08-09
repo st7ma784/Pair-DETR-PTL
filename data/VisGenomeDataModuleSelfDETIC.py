@@ -195,11 +195,11 @@ def DETICprocess(self,item):
         found_masks=outputs["masks"]
         found_boxes=outputs["boxes"] #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
-        obj_bboxes=[datapoints.BoundingBox([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]], format=datapoints.BoundingBoxFormat.XYXY, spatial_size=[item["width"],r["subject"]["h"]]),            
-                    datapoints.BoundingBox([r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]], format=datapoints.BoundingBoxFormat.XYXY, spatial_size=[r["object"]["w"],r["object"]["h"]])
-        ]
+        obj_bboxes=[[r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]],            
+                    [r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]],]
+        
         #convert to tensors
-        obj_bboxes=torch.stack([o.as_xyxy() for o in obj_bboxes])
+        obj_bboxes=torch.tensor(obj_bboxes)
         annotation_to_output_ious=torchvision.ops.box_iou(obj_bboxes,found_boxes)
         #find max iou +_idx for each annotation 
         max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
