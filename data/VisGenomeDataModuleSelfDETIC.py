@@ -184,7 +184,13 @@ def DETICprocess(self,item):
         print(r)
         r=self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]))
         #s is the r["subject"] box
-        outputs=self.predictor(item["image"],[r["subject"]["names"][0],r["object"]["names"][0]])
+        try:
+            outputs=self.predictor(item["image"],[r["subject"]["names"][0],r["object"]["names"][0]])
+        except:
+            print("failed to predict")
+            print("image",item["image"])
+            print("r",r)
+            break
         found_masks=outputs["masks"]
         found_boxes=outputs["boxes"]
         #check outputs for bounding boxes that are close to the subject and object boxes.
@@ -218,6 +224,8 @@ def DETICprocess(self,item):
             'masks':torch.stack([o["masks"] for o in out]),
             'labels':self.clip.encode_text(torch.stack([o["labels"] for o in out])),
     }
+
+    print("target:", target.keys())
     try:
         i,t=prep(img,target)
     except FileNotFoundError as e:
@@ -330,7 +338,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
             self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
 
-        outputs = self.predictor(image)
+        outputs = self.predictor(image.unsqueeze(0))
 
         #So - Idea - What if I could use the score to add noise to the output class. 
         return dict(boxes=outputs['instances'].get_fields()["pred_boxes"].tensor,
