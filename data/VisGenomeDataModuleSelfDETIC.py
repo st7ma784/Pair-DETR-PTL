@@ -189,7 +189,6 @@ def DETICprocess(self,item):
     print("item:", item.keys())
     for r in item["relationships"]:
         print(r)
-        r=self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]))
         #s is the r["subject"] box
         try:
             outputs=self.predictor(img,[r["subject"]["names"][0],r["object"]["names"][0]])
@@ -220,7 +219,8 @@ def DETICprocess(self,item):
 
 
         out.append({"boxes":object_actual_bbox_from_mask.as_xyxy(),
-                    "labels":r,
+                    "labels":self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]))
+,
                     "masks":object_mask})
     img=item["image"]
     target={'image_id':item.get("image_id",0),
