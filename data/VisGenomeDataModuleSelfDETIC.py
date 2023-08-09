@@ -186,9 +186,9 @@ def DETICprocess(self,item):
         response = requests.get(item["url"])
         img = Image.open(BytesIO(response.content))
     
-    print("item:", item.keys())
+    #print("item:", item.keys())
     for r in item["relationships"]:
-        print(r)
+        #print(r)
         #s is the r["subject"] box
         try:
             outputs=self.predictor(img,[r["subject"]["names"][0],r["object"]["names"][0]])
@@ -344,7 +344,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
             self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
 
-        outputs = self.predictor(image.unsqueeze(0))
+        outputs = self.predictor(image)
 
         #So - Idea - What if I could use the score to add noise to the output class. 
         return dict(boxes=outputs['instances'].get_fields()["pred_boxes"].tensor,
