@@ -193,12 +193,12 @@ def DETICprocess(self,item):
         outputs=self.predictor(i,[r["subject"]["names"][0],r["object"]["names"][0]])
         
         found_masks=outputs["masks"]
-        found_boxes=outputs["boxes"]
+        found_boxes=outputs["boxes"] #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
-        obj_bboxes=[datapoints.BoundingBox([r["subject"]["x"],r["subject"]["y"],r["subject"]["w"],r["subject"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]]),            
-                    datapoints.BoundingBox([r["object"]["x"],r["object"]["y"],r["object"]["w"],r["object"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
+        obj_bboxes=[datapoints.BoundingBox([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]], format=datapoints.BoundingBoxFormat.XYXY, spatial_size=[item["width"],r["subject"]["h"]]),            
+                    datapoints.BoundingBox([r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]], format=datapoints.BoundingBoxFormat.XYXY, spatial_size=[r["object"]["w"],r["object"]["h"]])
         ]
-        annotation_to_output_ious=torchvision.ops.box_iou(torch.tensor([b.as_xywh() for b in obj_bboxes]),torch.tensor([b.as_xywh() for b in found_boxes]))
+        annotation_to_output_ious=torchvision.ops.box_iou(torch.tensor([b for b in obj_bboxes]),torch.tensor([b for b in found_boxes]))
         #find max iou +_idx for each annotation 
         max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
         bboxes_to_keep=found_boxes[max_idx]
@@ -210,7 +210,7 @@ def DETICprocess(self,item):
         original_bbox=datapoints.BoundingBox([min(r["object"]["x"],r["subject"]["x"]),
                                 min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
                                 max(r["object"]["x"],r["subject"]["x"])-min(r["object"]["x"],r["subject"]["x"]) +max(r["object"]["w"],r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
-                            max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
+                            max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],r["subject"]["h"]])
         print("Comparison of boxes: ", torchvision.ops.box_iou([original_bbox.as_xywh()],[object_actual_bbox_from_mask.as_xywh()]))
 
 
@@ -347,7 +347,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         #convert to np array
         image=image.permute(1,2,0).numpy()
         outputs = self.predictor(image)
-
+        
         #So - Idea - What if I could use the score to add noise to the output class. 
         return dict(boxes=outputs['instances'].get_fields()["pred_boxes"].tensor,
                     masks=outputs['instances'].get_fields()["pred_masks"],
