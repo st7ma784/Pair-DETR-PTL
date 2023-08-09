@@ -196,7 +196,7 @@ def DETICprocess(self,item):
         #print(outputs['instances'].get_fields().keys())#VVdict_keys(['pred_boxes', 'scores', 'pred_classes', 'pred_masks'])
         #print(outputs['instances'].get("pred_boxes"))
         found_masks=outputs['instances'].get("pred_masks")
-        found_boxes=outputs['instances'].get("pred_boxes") #these are in xyxy format
+        found_boxes=outputs['instances'].get("pred_boxes").tensor #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
         obj_bboxes=torch.stack(
                     [torch.tensor([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]]),            
@@ -205,7 +205,7 @@ def DETICprocess(self,item):
         
         #convert to tensors
         print("obj_bboxes",obj_bboxes.shape)
-        print("found_boxes",found_boxes.shape)
+        print("found_boxes",found_boxes.tensor.shape)
         annotation_to_output_ious=torchvision.ops.box_iou(obj_bboxes,found_boxes)
         #find max iou +_idx for each annotation 
         max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
