@@ -194,7 +194,7 @@ def DETICprocess(self,item):
             outputs=self.predictor(i,[r["subject"]["names"][0],r["object"]["names"][0]])
         except Exception as e:
             print("failed to predict")
-            print(img)
+            print(i)
             print(e)
             break
         found_masks=outputs["masks"]
