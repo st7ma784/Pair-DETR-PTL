@@ -365,7 +365,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
             self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
         #print("image shape",image.shape)
         #convert to np array
-        image=image.permute(1,2,0).numpy()
+        image=image.numpy()#.permute(1,2,0).numpy()
         outputs = self.predictor(image)
         #So - Idea - What if I could use the score to add noise to the output class. 
         return outputs
