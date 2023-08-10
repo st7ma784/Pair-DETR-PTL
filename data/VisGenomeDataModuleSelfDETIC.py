@@ -438,7 +438,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
     def train_dataloader(self, B=None):
         if B is None:
             B=self.batch_size 
-        return torch.utils.data.DataLoader(self.train, batch_size=B, shuffle=not self.stream, num_workers=32, prefetch_factor=3, pin_memory=True,drop_last=True, collate_fn=collate_fn if self.fullBoxes else None)
+        return torch.utils.data.DataLoader(self.train, batch_size=B, shuffle=not self.stream, num_workers=16, prefetch_factor=3, pin_memory=True,drop_last=True, collate_fn=collate_fn if self.fullBoxes else None)
     def val_dataloader(self, B=None):
         if B is None:
             B=self.batch_size
