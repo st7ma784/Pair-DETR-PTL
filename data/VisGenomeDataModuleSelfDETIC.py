@@ -233,6 +233,8 @@ def DETICprocess(self,item):
         max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
         bboxes_to_keep=found_boxes[max_idx]
         masks_to_keep=found_masks[max_idx]
+        print("bboxes_to_keep",bboxes_to_keep.shape)#torch.Size([2, 4])
+        print("masks_to_keep",masks_to_keep.shape)#torch.Size([2, 800, 800])
         object_mask=torch.logical_and(masks_to_keep[0],masks_to_keep[1])
         object_actual_bbox_from_mask=torchvision.ops.masks_to_boxes(object_mask)
         #if so, do a logical_and on the masks of subj and obj and get the bounding box of the result.
