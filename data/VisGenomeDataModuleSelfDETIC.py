@@ -231,7 +231,8 @@ def DETICprocess(self,item):
         print("found_boxes",found_boxes)
         #found_boxes=torch.tensor(found_boxes) #######################################
         annotation_to_output_ious=torchvision.ops.box_iou(obj_bboxes/divisor,found_boxes/divisor)
-        #find max iou +_idx for each annotation 
+        #find max iou +_idx for each annotation
+        print("annotation_to_output_ious",annotation_to_output_ious) 
         max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
         bboxes_to_keep=found_boxes[max_idx]
         masks_to_keep=found_masks[max_idx]
