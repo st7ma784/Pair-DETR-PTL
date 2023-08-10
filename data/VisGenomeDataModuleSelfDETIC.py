@@ -278,7 +278,7 @@ def DETICprocess(self,item):
             'boxes':torch.cat([o["boxes"] for o in out]),
             #'area':torch.tensor([o["boxes"].area() for o in out]),
             'masks':torch.cat([o["masks"] for o in out]),
-            'labels':self.clip.encode_text(torch.stack([o["labels"] for o in out])),
+            'labels':self.clip.encode_text(torch.cat([o["labels"] for o in out])),
     }
 
     print("target:", target.keys())

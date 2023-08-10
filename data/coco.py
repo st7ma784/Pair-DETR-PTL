@@ -92,11 +92,12 @@ def collate_fn(batch):
     batch[0] = torch.stack(batch[0], dim=0) # stack images together
     #batch[1] is all the targets
     ids,boxes,masks,sizes=zip(*[(v["labels"],v["boxes"],v["masks"],v["boxes"].shape[0]) for v in batch[1]])
-    batch[1]=(torch.cat(ids),torch.cat(boxes),torch.cat(masks),torch.as_tensor(sizes))
+    
     batch[2] = batch[2][0] # this is all the classnames, we'll just take the first set
     batch[3]= torch.stack(batch[3], dim=0) # the mask.
     #create a batch indices tensor
     batch.append(torch.cat([torch.full((t,),i) for i,t in enumerate(sizes)],dim=0))
+    batch.append((torch.cat(ids),torch.cat(boxes),torch.cat(masks),torch.as_tensor(sizes)))
     #print("idxs",batch[-1])
     return tuple(batch)
 
