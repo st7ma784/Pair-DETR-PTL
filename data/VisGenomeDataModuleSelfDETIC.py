@@ -348,7 +348,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         self.predictor = DefaultPredictor(self.cfg)
         #build in a wandb for logging images
         self.wandb=wandb
-        self.wandb.init(project="clip-detic", entity="detic",reinit=True)
+        self.wandb.init(project="clip-detic", entity="st7ma784",reinit=True)
         self.wandb.config.update(self.cfg)
         self.wandb.config.update({"batch_size":self.batch_size})
         self.wandb.config.update({"stream":self.stream})
