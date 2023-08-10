@@ -201,7 +201,7 @@ def DETICprocess(self,item):
         
         # print(outputs['instances'].keys())
         #print(outputs['instances'].get_fields().keys())#VVdict_keys(['pred_boxes', 'scores', 'pred_classes', 'pred_masks'])
-        print(outputs['instances'].get('pred_boxes').__dir__())
+        #print(outputs['instances'].get('pred_boxes').__dir__())
         found_masks=outputs['instances'].get('pred_masks')
         found_boxes=outputs['instances'].get('pred_boxes') #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
@@ -244,10 +244,12 @@ def DETICprocess(self,item):
                                 min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
                                 max(r["object"]["x"],r["subject"]["x"])-min(r["object"]["x"],r["subject"]["x"]) +max(r["object"]["w"],r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
                             max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])]).unsqueeze(0)
+        print("original_bbox",original_bbox)
+        print("object_actual_bbox_from_mask",object_actual_bbox_from_mask)
         print("Comparison of boxes: ", torchvision.ops.box_iou(original_bbox,object_actual_bbox_from_mask))
 
 
-        out.append({"boxes":object_actual_bbox_from_mask.as_xyxy(),
+        out.append({"boxes":object_actual_bbox_from_mask,
                     "labels":self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]))
 ,
                     "masks":object_mask})
