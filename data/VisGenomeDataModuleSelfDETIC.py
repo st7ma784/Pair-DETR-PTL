@@ -197,7 +197,7 @@ def DETICprocess(self,item):
     for r in item["relationships"]:
         #print(r)
         #s is the r["subject"] box
-        outputs=self.predict(img,[r["subject"]["names"][0], r["object"]["names"][0]])
+        outputs=self.predict(self,img,[r["subject"]["names"][0], r["object"]["names"][0]])
         found_masks=outputs['instances'].get('pred_masks')
         found_boxes=outputs['instances'].get('pred_boxes') #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
