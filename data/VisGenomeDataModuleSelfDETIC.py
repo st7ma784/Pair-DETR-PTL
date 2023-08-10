@@ -349,9 +349,9 @@ class VisGenomeDataModule(pl.LightningDataModule):
         #build in a wandb for logging images
         if hasattr(self,"trainer"):
 
-            self.wandb=self.trainer.logger.experiment
+            self.wandb=self.trainer.logger
         else:
-            self.wandb=wandb.init(project="clip-detector",entity="st7ma784")
+            self.wandb=wandb.init(project="clip-detector",entity="st7ma784",name=time.time())
 
     def predict(self,image,classes): 
         print("predicting...") 
