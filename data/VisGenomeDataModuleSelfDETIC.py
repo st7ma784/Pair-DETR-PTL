@@ -337,7 +337,7 @@ class VisGenomeDatasetCOCOBoxes(VisGenomeDataset):
         self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.12  # set threshold for this model
         self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
         self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
-        self.cfg.MODEL.DEVICE='cuda:0' 
+        self.cfg.MODEL.DEVICE='cpu' 
         self.text_encoder = build_text_encoder(pretrain=True)
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
@@ -365,7 +365,7 @@ class VisGenomeDatasetIterCOCOBoxes(VisGenomeDataset):
         self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.3  # set threshold for this model
         self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
         self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
-        self.cfg.MODEL.DEVICE='cuda:0' 
+        self.cfg.MODEL.DEVICE='cpu' # so this kinda sucks 
         self.text_encoder = build_text_encoder(pretrain=True)
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
