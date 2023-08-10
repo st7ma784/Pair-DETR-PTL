@@ -224,6 +224,7 @@ def DETICprocess(self,item):
         #convert to tensors
         print("obj_bboxes",obj_bboxes.shape)
         print("found_boxes",found_boxes)
+        found_boxes=found_boxes.tensor
         #found_boxes=torch.tensor(found_boxes) #######################################
         annotation_to_output_ious=torchvision.ops.box_iou(obj_bboxes,found_boxes)
         #find max iou +_idx for each annotation 
