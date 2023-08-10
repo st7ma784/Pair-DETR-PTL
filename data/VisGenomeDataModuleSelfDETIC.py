@@ -189,8 +189,10 @@ def DETICprocess(self,item):
         i=prep(img)
     except FileNotFoundError as e:
         response = requests.get(item["url"])
-        img = Image.open(BytesIO(response.content))
-        i=prep(img)
+        #open response as cv2 image
+        imagebytes=BytesIO(response.content)
+        #convert to cv2 image
+        img = cv2.imdecode(numpy.frombuffer(imagebytes.read(), numpy.uint8), cv2.IMREAD_COLOR)
     #print("item:", item.keys())
     for r in item["relationships"]:
         #print(r)
