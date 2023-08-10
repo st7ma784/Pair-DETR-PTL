@@ -347,7 +347,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
         #build in a wandb for logging images
-        if hasattr(self,"trainer"):
+        if hasattr(self,"trainer") and self.trainer is not None:
 
             self.wandb=self.trainer.logger
         else:
