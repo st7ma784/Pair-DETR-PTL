@@ -632,7 +632,7 @@ class FastCriterion(nn.Module):
         self.weight_dict = weight_dict
         self.ce_loss = nn.CrossEntropyLoss(reduction="mean")
         self.relu = nn.ReLU()
-    def forward(self, encodings,outputs,tgt_masks,tgt_embs, tgt_sizes,tgt_ids,tgt_bbox,im_masks,batch_idx):
+    def forward(self, encodings,outputs,tgt_masks,tgt_embs, tgt_sizes,tgt_ids,tgt_bbox,im_masks,batch_idx,num_boxes=1):
         #need to add  encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=1) to args
         image_width=224# hard coded for now
         class_encodings=encodings # c, 512
