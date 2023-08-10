@@ -216,6 +216,7 @@ def DETICprocess(self,item):
             print("No boxes found")
             if len(found_masks)==0:
                 print("No masks found")
+                print("Couldn't find boxes or masks for {}".format([r["subject"]["names"][0], r["object"]["names"][0]]))
                 continue
             else:
                 #convert masks to bboxes
