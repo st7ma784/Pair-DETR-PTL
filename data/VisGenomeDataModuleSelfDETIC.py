@@ -185,15 +185,6 @@ def DETICprocess(self,item):
     #convert JpegImageFile to cv2 image
     img = cv2.cvtColor(numpy.array(img), cv2.COLOR_RGB2BGR)
 
-    try:
-        i=prep(img)
-    except FileNotFoundError as e:
-        response = requests.get(item["url"])
-        #open response as cv2 image
-        imagebytes=BytesIO(response.content)
-        #convert to cv2 image
-        img = cv2.imdecode(numpy.frombuffer(imagebytes.read(), numpy.uint8), cv2.IMREAD_COLOR)
-    #print("item:", item.keys())
     for r in item["relationships"]:
         #print(r)
         #s is the r["subject"] box
