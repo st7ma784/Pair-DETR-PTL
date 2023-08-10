@@ -275,8 +275,8 @@ def DETICprocess(self,item):
     img=item["image"]
     target={'image_id':item.get("image_id",0),
             "iscrowd":torch.zeros(len(out)),
-            'boxes':torch.tensor([o["boxes"].as_xyxy() for o in out]),
-            'area':torch.tensor([o["boxes"].area() for o in out]),
+            'boxes':torch.tensor([o["boxes"] for o in out]),
+            #'area':torch.tensor([o["boxes"].area() for o in out]),
             'masks':torch.stack([o["masks"] for o in out]),
             'labels':self.clip.encode_text(torch.stack([o["labels"] for o in out])),
     }
