@@ -251,11 +251,10 @@ def DETICprocess(self,item):
         print("object_actual_bbox_from_mask",object_actual_bbox_from_mask/divisor)
         print("Comparison of boxes: ", torchvision.ops.box_iou(original_bbox/divisor,object_actual_bbox_from_mask/divisor).item())
 
-
-        out.append({"boxes":object_actual_bbox_from_mask,
-                    "labels":self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]))
-,
-                    "masks":object_mask})
+        if torchvision.ops.box_iou(original_bbox/divisor,object_actual_bbox_from_mask/divisor).item()>0.2:
+            out.append({"boxes":object_actual_bbox_from_mask,
+                        "labels":self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])),
+                        "masks":object_mask})
     img=item["image"]
     target={'image_id':item.get("image_id",0),
             "iscrowd":torch.zeros(len(out)),
@@ -364,11 +363,11 @@ class VisGenomeDataModule(pl.LightningDataModule):
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
         #build in a wandb for logging images
-        if hasattr(self,"trainer") and self.trainer is not None:
+        # if hasattr(self,"trainer") and self.trainer is not None:
 
-            self.wandb=self.trainer.logger
-        else:
-            self.wandb=wandb.init(project="clip-detector",entity="st7ma784",name=str(time.time()))
+        #     self.wandb=self.trainer.logger
+        # else:
+        #     self.wandb=wandb.init(project="clip-detector",entity="st7ma784",name=str(time.time()))
 
     def predict(self,image,classes): 
         print("predicting...") 
@@ -394,14 +393,14 @@ class VisGenomeDataModule(pl.LightningDataModule):
         # image=image.permute(1,2,0).numpy()
         outputs = self.predictor(image)
 
-        v = Visualizer(image[:, :, ::-1], metadata)
-        #print(outputs.keys())
-        out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
-        #print(outputs['instances'].get_fields()["pred_masks"].shape)
-        out_path = "out{}.png".format(time.time())
-        cv2.imwrite(str(out_path), out.get_image()[:, :, ::-1])
+        # v = Visualizer(image[:, :, ::-1], metadata)
+        # #print(outputs.keys())
+        # out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+        # #print(outputs['instances'].get_fields()["pred_masks"].shape)
+        # out_path = "out{}.png".format(time.time())
+        # cv2.imwrite(str(out_path), out.get_image()[:, :, ::-1])
 
-        self.wandb.log({"image":wandb.Image(out_path)})
+        #self.wandb.log({"image":wandb.Image(out_path)})
 
 
         #So - Idea - What if I could use the score to add noise to the output class. 
