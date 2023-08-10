@@ -304,7 +304,7 @@ def collate_fn(batch):
     #print("idxs",batch[-1])
     return tuple(batch)
 
-
+import wandb
 
 class VisGenomeDataModule(pl.LightningDataModule):
 
@@ -346,7 +346,14 @@ class VisGenomeDataModule(pl.LightningDataModule):
         self.text_encoder = build_text_encoder(pretrain=True)
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
-        
+        #build in a wandb for logging images
+        self.wandb=wandb
+        self.wandb.init(project="clip-detic", entity="detic",reinit=True)
+        self.wandb.config.update(self.cfg)
+        self.wandb.config.update({"batch_size":self.batch_size})
+        self.wandb.config.update({"stream":self.stream})
+        self.wandb.config.update({"fullBoxes":fullBoxes})
+
 
     def predict(self,image,classes): 
         print("predicting...") 
@@ -379,6 +386,8 @@ class VisGenomeDataModule(pl.LightningDataModule):
         print(outputs['instances'].get_fields()["pred_masks"].shape)
         out_path = "out{}.png".format(time.time())
         cv2.imwrite(str(out_path), out.get_image()[:, :, ::-1])
+
+        self.wandb.log({"image":self.wandb.Image(out_path)})
         #So - Idea - What if I could use the score to add noise to the output class. 
         return outputs
 
