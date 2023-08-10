@@ -406,7 +406,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.stream=stream
         self.tokenizer=CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32") 
-
+        self.fullBoxes=fullBoxes
         if fullBoxes:
             self.dataConstructor=VisGenomeDatasetCOCOBoxes
             if self.stream:
@@ -420,18 +420,18 @@ class VisGenomeDataModule(pl.LightningDataModule):
     def train_dataloader(self, B=None):
         if B is None:
             B=self.batch_size 
-        return torch.utils.data.DataLoader(self.train, batch_size=B, shuffle=not self.stream, num_workers=32, prefetch_factor=3, pin_memory=True,drop_last=True)
+        return torch.utils.data.DataLoader(self.train, batch_size=B, shuffle=not self.stream, num_workers=32, prefetch_factor=3, pin_memory=True,drop_last=True, collate_fn=collate_fn if self.fullBoxes else None)
     def val_dataloader(self, B=None):
         if B is None:
             B=self.batch_size
        
-        return torch.utils.data.DataLoader(self.val, batch_size=B, shuffle=not self.stream, num_workers=1, prefetch_factor=1, pin_memory=True,drop_last=True)
+        return torch.utils.data.DataLoader(self.val, batch_size=B, shuffle=not self.stream, num_workers=1, prefetch_factor=1, pin_memory=True,drop_last=True, collate_fn=DETIC_collate_fn if self.fullBoxes else None)
     def test_dataloader(self,B=None):
         if B is None:
             B=self.batch_size
 
 
-        return torch.utils.data.DataLoader(self.test, batch_size=B, shuffle=not self.stream, num_workers=4, prefetch_factor=4, pin_memory=True,drop_last=True)
+        return torch.utils.data.DataLoader(self.test, batch_size=B, shuffle=not self.stream, num_workers=4, prefetch_factor=4, pin_memory=True,drop_last=True, collate_fn=DETIC_collate_fn if self.fullBoxes else None)
 
     def setup(self, stage=None):
         '''called on each GPU separately - stage defines if we are at fit or test step'''
