@@ -218,7 +218,7 @@ def DETICprocess(self,item):
             else:
                 #convert masks to bboxes
                 found_masks=found_masks.to("cpu").numpy()
-                found_boxes=[datapoints.BoundingBox.from_mask(m) for m in found_masks]
+                found_boxes=[torchvision.ops.masks_to_boxes(m) for m in found_masks]
                 found_boxes=torch.stack([b.as_xyxy() for b in found_boxes])
         else:
             #get tensor from Boxes object
@@ -234,14 +234,14 @@ def DETICprocess(self,item):
         bboxes_to_keep=found_boxes[max_idx]
         masks_to_keep=found_masks[max_idx]
         object_mask=torch.logical_and(masks_to_keep[0],masks_to_keep[1])
-        object_actual_bbox_from_mask=datapoints.BoundingBox.from_mask(object_mask)
+        object_actual_bbox_from_mask=torchvision.ops.masks_to_boxes(object_mask)
         #if so, do a logical_and on the masks of subj and obj and get the bounding box of the result.
 
-        original_bbox=datapoints.BoundingBox([min(r["object"]["x"],r["subject"]["x"]),
+        original_bbox=torch.tensor([min(r["object"]["x"],r["subject"]["x"]),
                                 min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
                                 max(r["object"]["x"],r["subject"]["x"])-min(r["object"]["x"],r["subject"]["x"]) +max(r["object"]["w"],r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
-                            max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],r["subject"]["h"]])
-        print("Comparison of boxes: ", torchvision.ops.box_iou([original_bbox.as_xywh()],[object_actual_bbox_from_mask.as_xywh()]))
+                            max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])])
+        print("Comparison of boxes: ", torchvision.ops.box_iou([original_bbox],[object_actual_bbox_from_mask]))
 
 
         out.append({"boxes":object_actual_bbox_from_mask.as_xyxy(),
