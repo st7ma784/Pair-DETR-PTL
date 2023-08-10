@@ -253,7 +253,25 @@ def DETICprocess(self,item):
                         "labels":self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])),
                         "masks":object_mask})
         else:
-            print("couldnt find relationship : {} ".format(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])))
+            #try predict with class as subj,pred,obj
+            outputs=self.predict(self,img,[" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])])
+            found_masks=outputs['instances'].get('pred_masks')
+            found_boxes=outputs['instances'].get('pred_boxes') #these are in xyxy format
+            if len(found_boxes)==0:
+                print("couldnt find relationship : {} ".format(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])))
+            else:
+                found_boxes=found_boxes.tensor
+                annotation_to_output_ious=torchvision.ops.box_iou(original_bbox/divisor,found_boxes/divisor)
+                #find max iou +_idx for each annotation
+                max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
+                bboxes_to_keep=found_boxes[max_idx]
+                masks_to_keep=found_masks[max_idx]
+                object_actual_bbox_from_mask=torchvision.ops.masks_to_boxes(masks_to_keep)
+                out.append({"boxes":object_actual_bbox_from_mask,
+                            "labels":self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])),
+                            "masks":masks_to_keep})
+
+
     img=item["image"]
     target={'image_id':item.get("image_id",0),
             "iscrowd":torch.zeros(len(out)),
