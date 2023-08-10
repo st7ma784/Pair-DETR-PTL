@@ -276,7 +276,7 @@ def DETICprocess(self,item):
     return i, t, classes ,summed_mask
 
 def predict(self,image,classes): 
-    classifier = self.get_clip_embeddings(classes)
+    classifier = self.get_clip_embeddings(self,classes)
     self.predictor.model.roi_heads.num_classes =  len(classes)
     metadata = MetadataCatalog.get(str(time.time()))
     metadata.thing_classes = classes
@@ -294,7 +294,7 @@ def predict(self,image,classes):
     #So - Idea - What if I could use the score to add noise to the output class. 
     return outputs
 
-def get_clip_embeddings(self,vocabulary, prompt='a origami  '):
+def get_clip_embeddings(self,vocabulary, prompt='a '):
     
     texts = [prompt + x for x in vocabulary]
     if "{}" in prompt:
