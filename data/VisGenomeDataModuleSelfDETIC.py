@@ -198,10 +198,6 @@ def DETICprocess(self,item):
         #print(r)
         #s is the r["subject"] box
         outputs=self.predict(img,[r["subject"]["names"][0], r["object"]["names"][0]])
-        
-        # print(outputs['instances'].keys())
-        #print(outputs['instances'].get_fields().keys())#VVdict_keys(['pred_boxes', 'scores', 'pred_classes', 'pred_masks'])
-        #print(outputs['instances'].get('pred_boxes').__dir__())
         found_masks=outputs['instances'].get('pred_masks')
         found_boxes=outputs['instances'].get('pred_boxes') #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
@@ -213,10 +209,10 @@ def DETICprocess(self,item):
 
         divisor=torch.tensor([imx,imy,imx,imy])
         if len(found_boxes)==0:
-            print("No boxes found")
+            #            print("No boxes found")
             if len(found_masks)==0:
-                print("No masks found")
-                print("Couldn't find boxes or masks for {}".format([r["subject"]["names"][0], r["object"]["names"][0]]))
+                #print("No masks found")
+                #print("Couldn't find boxes or masks for {}".format([r["subject"]["names"][0], r["object"]["names"][0]]))
                 continue
             else:
                 #convert masks to bboxes
@@ -250,12 +246,14 @@ def DETICprocess(self,item):
                             max(r["object"]["y"]+r["object"]["h"],r["subject"]["y"]+r["subject"]["h"])]).unsqueeze(0)
         # print("original_bbox",original_bbox/divisor)
         # print("object_actual_bbox_from_mask",object_actual_bbox_from_mask/divisor)
-        print("Comparison of boxes: ", torchvision.ops.box_iou(original_bbox/divisor,object_actual_bbox_from_mask/divisor).item())
+        #print("Comparison of boxes: ", torchvision.ops.box_iou(original_bbox/divisor,object_actual_bbox_from_mask/divisor).item())
 
-        if torchvision.ops.box_iou(original_bbox/divisor,object_actual_bbox_from_mask/divisor).item()>0.2:
+        if torchvision.ops.box_iou(original_bbox/divisor,object_actual_bbox_from_mask/divisor).item()>0.1:
             out.append({"boxes":object_actual_bbox_from_mask,
                         "labels":self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])),
                         "masks":object_mask})
+        else:
+            print("couldnt find relationship : {} ".format(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])))
     img=item["image"]
     target={'image_id':item.get("image_id",0),
             "iscrowd":torch.zeros(len(out)),
