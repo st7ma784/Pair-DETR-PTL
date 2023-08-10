@@ -230,7 +230,7 @@ def DETICprocess(self,item):
         #found_boxes=torch.tensor(found_boxes) #######################################
         annotation_to_output_ious=torchvision.ops.box_iou(obj_bboxes,found_boxes)
         #find max iou +_idx for each annotation 
-        max_ious,max_idx=torch.max(annotation_to_output_ious,dim=0)
+        max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
         bboxes_to_keep=found_boxes[max_idx]
         masks_to_keep=found_masks[max_idx]
         print("bboxes_to_keep",bboxes_to_keep.shape)#torch.Size([2, 4])
@@ -246,7 +246,7 @@ def DETICprocess(self,item):
                             max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])]).unsqueeze(0)
         print("original_bbox",original_bbox)
         print("object_actual_bbox_from_mask",object_actual_bbox_from_mask)
-        print("Comparison of boxes: ", torchvision.ops.box_iou(original_bbox,object_actual_bbox_from_mask))
+        print("Comparison of boxes: ", torchvision.ops.box_iou(original_bbox,object_actual_bbox_from_mask).item())
 
 
         out.append({"boxes":object_actual_bbox_from_mask,
