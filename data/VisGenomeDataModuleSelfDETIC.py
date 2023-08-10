@@ -197,7 +197,7 @@ def DETICprocess(self,item):
     for r in item["relationships"]:
         #print(r)
         #s is the r["subject"] box
-        outputs=self.predictor(img,[r["subject"]["names"][0], r["object"]["names"][0]])
+        outputs=self.predict(img,[r["subject"]["names"][0], r["object"]["names"][0]])
         
         # print(outputs['instances'].keys())
         #print(outputs['instances'].get_fields().keys())#VVdict_keys(['pred_boxes', 'scores', 'pred_classes', 'pred_masks'])
@@ -278,11 +278,113 @@ def DETICprocess(self,item):
     return i, t, classes ,summed_mask
 
 class VisGenomeDatasetCOCOBoxes(VisGenomeDataset):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cfg = get_cfg()
+        add_centernet_config(self.cfg)
+        add_detic_config(self.cfg)
+        self.cfg.merge_from_file("configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml")
+        filename="./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"
+        if not os.path.exists("./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"):
+            if os.path.exists("./Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"):
+                os.system("cp ./Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth ./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth")
+            else:
+                url = 'https://dl.fbaipublicfiles.com/detic/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth'
+                filename = wget.download(url)
+                print("fetched to {}".format(filename))
+        self.cfg.MODEL.WEIGHTS = filename
+        self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.3  # set threshold for this model
+        self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
+        self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
+        self.cfg.MODEL.DEVICE='cpu' 
+        self.text_encoder = build_text_encoder(pretrain=True)
+        self.text_encoder.eval()
+        self.predictor = DefaultPredictor(self.cfg)
+
+    def predict(self,image,classes): 
+        classifier = self.get_clip_embeddings(classes)
+        self.predictor.model.roi_heads.num_classes =  len(classes)
+        metadata = MetadataCatalog.get(str(time.time()))
+        metadata.thing_classes = classes
+        zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
+        if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
+            zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
+        zs_weight = zs_weight.to(self.predictor.model.device)
+        for k in range(len(self.predictor.model.roi_heads.box_predictor)):
+            del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
+            self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
+        output_score_threshold = 0.3
+        for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
+            self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
+        outputs = self.predictor(image)
+        #So - Idea - What if I could use the score to add noise to the output class. 
+        return outputs
+
+
+    def get_clip_embeddings(self,vocabulary, prompt='a origami  '):
+        
+        texts = [prompt + x for x in vocabulary]
+        if "{}" in prompt:
+            texts=[prompt.format(x) for x in vocabulary]
+        return self.text_encoder(texts).detach().permute(1, 0).contiguous()
+    
     def process(self,item):
         return DETICprocess(self,item)
 class VisGenomeDatasetIterCOCOBoxes(VisGenomeDataset):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cfg = get_cfg()
+        add_centernet_config(self.cfg)
+        add_detic_config(self.cfg)
+        self.cfg.merge_from_file("configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml")
+        filename="./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"
+        if not os.path.exists("./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"):
+            if os.path.exists("./Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"):
+                os.system("cp ./Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth ./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth")
+            else:
+                url = 'https://dl.fbaipublicfiles.com/detic/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth'
+                filename = wget.download(url)
+                print("fetched to {}".format(filename))
+        self.cfg.MODEL.WEIGHTS = filename
+        self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.3  # set threshold for this model
+        self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
+        self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
+        self.cfg.MODEL.DEVICE='cpu' 
+        self.text_encoder = build_text_encoder(pretrain=True)
+        self.text_encoder.eval()
+        self.predictor = DefaultPredictor(self.cfg)
+
+    def predict(self,image,classes): 
+        classifier = self.get_clip_embeddings(classes)
+        self.predictor.model.roi_heads.num_classes =  len(classes)
+        metadata = MetadataCatalog.get(str(time.time()))
+        metadata.thing_classes = classes
+        zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
+        if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
+            zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
+        zs_weight = zs_weight.to(self.predictor.model.device)
+        for k in range(len(self.predictor.model.roi_heads.box_predictor)):
+            del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
+            self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
+        output_score_threshold = 0.3
+        for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
+            self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
+        outputs = self.predictor(image)
+        #So - Idea - What if I could use the score to add noise to the output class. 
+        return outputs
+
+
+    def get_clip_embeddings(self,vocabulary, prompt='a origami  '):
+        
+        texts = [prompt + x for x in vocabulary]
+        if "{}" in prompt:
+            texts=[prompt.format(x) for x in vocabulary]
+        return self.text_encoder(texts).detach().permute(1, 0).contiguous()
+    
     def process(self, item):
         return DETICprocess(self,item)
+    
+
 def DETIC_collate_fn(batch):
     batch = list(zip(*batch))
     #this is the test function for collating these,
@@ -341,80 +443,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
             if self.stream:
                 self.dataConstructor=VisGenomeIterDataset
         self.T=T
-        self.cfg = get_cfg()
-        add_centernet_config(self.cfg)
-        add_detic_config(self.cfg)
-        self.cfg.merge_from_file("configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml")
-        filename="./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"
-        if not os.path.exists("./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"):
-            if os.path.exists("./Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"):
-                #copy it over
-                os.system("cp ./Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth ./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth")
-            else:
-                url = 'https://dl.fbaipublicfiles.com/detic/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth'
-                filename = wget.download(url)
-                print("fetched to {}".format(filename))
-        self.cfg.MODEL.WEIGHTS = filename
         
-        self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # set threshold for this model
-        self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
-        self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
-        self.cfg.MODEL.DEVICE='cpu' 
-        self.text_encoder = build_text_encoder(pretrain=True)
-        self.text_encoder.eval()
-        self.predictor = DefaultPredictor(self.cfg)
-        #build in a wandb for logging images
-        # if hasattr(self,"trainer") and self.trainer is not None:
-
-        #     self.wandb=self.trainer.logger
-        # else:
-        #     self.wandb=wandb.init(project="clip-detector",entity="st7ma784",name=str(time.time()))
-
-    def predict(self,image,classes): 
-        print("predicting...") 
-        classifier = self.get_clip_embeddings(classes)
-        self.predictor.model.roi_heads.num_classes =  len(classes)
-        metadata = MetadataCatalog.get(str(time.time()))
-        metadata.thing_classes = classes
-        #print("cshape",classifier.shape) #F,2
-        zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
-        if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
-            zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
-        zs_weight = zs_weight.to(self.predictor.model.device)
-        for k in range(len(self.predictor.model.roi_heads.box_predictor)):
-            del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
-            self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
-        # Reset visualization threshold
-        # reset_cls_test(self.predictor.model, classifier, len(classes))
-        output_score_threshold = 0.3
-        for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
-            self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
-        #print("image shape",image.shape)
-        #convert to np array
-        # image=image.permute(1,2,0).numpy()
-        outputs = self.predictor(image)
-
-        # v = Visualizer(image[:, :, ::-1], metadata)
-        # #print(outputs.keys())
-        # out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
-        # #print(outputs['instances'].get_fields()["pred_masks"].shape)
-        # out_path = "out{}.png".format(time.time())
-        # cv2.imwrite(str(out_path), out.get_image()[:, :, ::-1])
-
-        #self.wandb.log({"image":wandb.Image(out_path)})
-
-
-        #So - Idea - What if I could use the score to add noise to the output class. 
-        return outputs
-
-
-    def get_clip_embeddings(self,vocabulary, prompt='a origami  '):
-        
-        texts = [prompt + x for x in vocabulary]
-        if "{}" in prompt:
-            texts=[prompt.format(x) for x in vocabulary]
-        return self.text_encoder(texts).detach().permute(1, 0).contiguous()
-    
     def train_dataloader(self, B=None):
         if B is None:
             B=self.batch_size 
@@ -436,7 +465,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         #print("Entered COCO datasetup")
         
         #if stage == 'fit' or stage is None:
-        self.train=self.dataConstructor(T=self.T,dir=self.data_dir,split="train",tokenizer=self.tokenizer,predictor=self.predict)
+        self.train=self.dataConstructor(T=self.T,dir=self.data_dir,split="train",tokenizer=self.tokenizer)
     
 
 
