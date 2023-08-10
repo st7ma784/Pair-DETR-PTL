@@ -243,8 +243,8 @@ def DETICprocess(self,item):
         original_bbox=torch.tensor([min(r["object"]["x"],r["subject"]["x"]),
                                 min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
                                 max(r["object"]["x"],r["subject"]["x"])-min(r["object"]["x"],r["subject"]["x"]) +max(r["object"]["w"],r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
-                            max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])])
-        print("Comparison of boxes: ", torchvision.ops.box_iou([original_bbox],[object_actual_bbox_from_mask]))
+                            max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])]).unsqueeze(0)
+        print("Comparison of boxes: ", torchvision.ops.box_iou(original_bbox,object_actual_bbox_from_mask))
 
 
         out.append({"boxes":object_actual_bbox_from_mask.as_xyxy(),
