@@ -209,7 +209,9 @@ def DETICprocess(self,item):
                     [torch.tensor([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]]),            
                     torch.tensor([r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]])
                     ],dim=0)
-        
+        imx,imy=img.shape[0],img.shape[1]
+
+        divisor=torch.tensor([imx,imy,imx,imy])
         if len(found_boxes)==0:
             print("No boxes found")
             if len(found_masks)==0:
@@ -225,10 +227,10 @@ def DETICprocess(self,item):
             found_boxes=found_boxes.tensor
 
         #convert to tensors
-        print("obj_bboxes",obj_bboxes.shape)
+        print("obj_bboxes",obj_bboxes)
         print("found_boxes",found_boxes)
         #found_boxes=torch.tensor(found_boxes) #######################################
-        annotation_to_output_ious=torchvision.ops.box_iou(obj_bboxes,found_boxes)
+        annotation_to_output_ious=torchvision.ops.box_iou(obj_bboxes/divisor,found_boxes/divisor)
         #find max iou +_idx for each annotation 
         max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
         bboxes_to_keep=found_boxes[max_idx]
