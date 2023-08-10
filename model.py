@@ -490,7 +490,7 @@ class SetCriterion(nn.Module):
         1) we compute hungarian assignment between ground truth boxes and the outputs of the model
         2) we supervise each pair of matched ground-truth / prediction (supervise class and box)
     """
-    def __init__(self, weight_dict, focal_alpha, losses,matcher=HungarianMatcher(1.0,1.0,1.0)):
+    def __init__(self, weight_dict, focal_alpha, losses,matcher=HungarianMatcher(1.0,1.0,1.0),logger=None):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -515,6 +515,7 @@ class SetCriterion(nn.Module):
             'masks': self.loss_masks
         }
         self.loss=nn.CrossEntropyLoss(reduction="mean")
+        self.logger=logger
     def sigmoid_focal_loss(self,inputs, targets, num_boxes):
 
         # #do similarity of inputs to targets,
@@ -601,7 +602,7 @@ class SetCriterion(nn.Module):
         
         src_idx= (indices[0], indices[1]) #0,1 was the original version, 
         
-        return losses, outputs['pred_logits'][src_idx]
+        return losses, outputs['pred_logits'][src_idx], outputs['pred_boxes'][(indices[0][0], indices[1][0])]
 
 
 
@@ -631,6 +632,7 @@ class FastCriterion(nn.Module):
         self.weight_dict = kwargs['weight_dict'] if 'weight_dict' in kwargs else None
         self.ce_loss = nn.CrossEntropyLoss(reduction="mean")
         self.relu = nn.ReLU()
+        self.logger = kwargs['logger'] if 'logger' in kwargs else None
     def forward(self, **kwargs): 
         encodings,outputs,tgt_masks,tgt_embs,tgt_ids,tgt_bbox,im_masks,batch_idx = kwargs["encodings"],kwargs["outputs"],kwargs["tgt_masks"],kwargs["tgt_embs"],kwargs["tgt_ids"],kwargs["tgt_bbox"],kwargs["im_masks"],kwargs["batch_idx"]
         #need to add  encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=1) to args
@@ -776,7 +778,7 @@ class FastCriterion(nn.Module):
             # 'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later
             'loss_bbox_acc': F.l1_loss(gt_selected_boxes, tgt_bbox, reduction='none').sum() / output_bbox.shape[0],
             # 'loss_giou': iou_total / output_bbox.shape[0],
-        },torch.flatten(predicted_classes,0,1)
+        },torch.flatten(predicted_classes,0,1),output_bbox
     
 
 class PostProcess(nn.Module):

@@ -301,16 +301,16 @@ def predict(self,image,classes):
     zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
     if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
         zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
-    zs_weight = zs_weight.to(self.predictor.model.device)
+    zs_weight = zs_weight.to(self.cfg.MODEL.DEVICE)
     for k in range(len(self.predictor.model.roi_heads.box_predictor)):
         del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
         self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
-    output_score_threshold = 0.3
+    output_score_threshold = self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST
     for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
-        self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
-    outputs = self.predictor(image)
+        self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold        
     #So - Idea - What if I could use the score to add noise to the output class. 
-    return outputs
+
+    return self.predictor(image)
 
 def get_clip_embeddings(self,vocabulary, prompt='a '):
     
@@ -337,7 +337,7 @@ class VisGenomeDatasetCOCOBoxes(VisGenomeDataset):
         self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.12  # set threshold for this model
         self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
         self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
-        self.cfg.MODEL.DEVICE='cpu' 
+        self.cfg.MODEL.DEVICE='cuda:0' 
         self.text_encoder = build_text_encoder(pretrain=True)
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
@@ -365,7 +365,7 @@ class VisGenomeDatasetIterCOCOBoxes(VisGenomeDataset):
         self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.3  # set threshold for this model
         self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
         self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
-        self.cfg.MODEL.DEVICE='cpu' 
+        self.cfg.MODEL.DEVICE='cuda:0' 
         self.text_encoder = build_text_encoder(pretrain=True)
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
@@ -392,7 +392,7 @@ def DETIC_collate_fn(batch):
     #batch[1]=(torch.cat(ids),torch.cat(boxes),torch.cat(masks),torch.as_tensor(sizes))
     for target in batch[1]:
         target["labels"]=torch.stack([torch.unique(torch.where(batch[2]==i,torch.arange(batch[2].shape[0]),-1)) for i in target["labels"]])
-        target["labels"]=target["labels"][target["labels"]!=-1]
+        target["labels"]=target["labels"][target["labels"]!=-1].detach()
     #stack all the classes and return the replace labels with the indices of the classes
 
     #create a batch indices tensor

@@ -20,6 +20,7 @@ import evaluate
 from model import *
 import pytorch_lightning as pl
 from transformers import CLIPTokenizer
+import numpy as np
 
 # class DETRsegm(nn.Module):
 #     def __init__(self, detr, freeze_detr=False):
@@ -98,8 +99,9 @@ class PairDETR(pl.LightningModule):
         #                               weight_dict=self.weight_dict,
         #                             focal_alpha=args['focal_alpha'],
         #                              losses=['labels', 'boxes','masks'], # final cardinality
+        #                              logger=self.logger
         #                             )
-        self.criterion= FastCriterion(weight_dict=self.weight_dict)
+        self.criterion= FastCriterion(weight_dict=self.weight_dict,logger=self.logger)
         # TO DO : CREATE SECOND CRTIERION FOR THE SECOND HEAD
         
         
@@ -204,9 +206,21 @@ class PairDETR(pl.LightningModule):
 
 
 
-        loss_dict, predictions= self.criterion(classencodings=classencodings,targets=targets,outputs=outputs, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
+        loss_dict, predictions,boxes= self.criterion(classencodings=classencodings,targets=targets,num_boxes=num_boxes,outputs=outputs, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
 #        losses=sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
-        loss_dict2,predictions2 = self.criterion(classencodings=classencodings,targets=targets,outputs=outputs, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
+        loss_dict2,predictions2,boxes2 = self.criterion(classencodings=classencodings,targets=targets,num_boxes=num_boxes, outputs=outputs, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
+        
+
+
+        #log the images with boxes 
+        if batch_idx%100==0:
+            #images need unnormalized, to  be in 0-255, and in CHW
+            images=samples[0].cpu().numpy()*255
+            #then multiple boxes up by HW to get the right size
+            boxes=boxes.cpu().numpy()*200
+            #then draw boxes
+
+            self.log( "train_images", [wandb.Image(Images=images, boxes=boxes[i]) for i in range(images.shape[0])],prog_bar=False,rank_zero_only=True)
 
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
         logits2=predictions2/torch.norm(predictions2,dim=-1,keepdim=True)
