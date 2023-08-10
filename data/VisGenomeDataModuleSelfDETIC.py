@@ -377,15 +377,15 @@ class VisGenomeDataModule(pl.LightningDataModule):
         metadata = MetadataCatalog.get(str(time.time()))
         metadata.thing_classes = classes
         #print("cshape",classifier.shape) #F,2
-        # zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
-        # if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
-        #     zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
-        # zs_weight = zs_weight.to(self.predictor.model.device)
-        # for k in range(len(self.predictor.model.roi_heads.box_predictor)):
-        #     del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
-        #     self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
-        # # Reset visualization threshold
-        reset_cls_test(self.predictor.model, classifier, len(classes))
+        zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
+        if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
+            zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
+        zs_weight = zs_weight.to(self.predictor.model.device)
+        for k in range(len(self.predictor.model.roi_heads.box_predictor)):
+            del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
+            self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
+        # Reset visualization threshold
+        # reset_cls_test(self.predictor.model, classifier, len(classes))
         output_score_threshold = 0.3
         for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
             self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
