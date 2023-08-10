@@ -375,7 +375,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         #     self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
         # # Reset visualization threshold
         reset_cls_test(self.predictor.model, classifier, len(classes))
-        output_score_threshold = 0.1
+        output_score_threshold = 0.5
         for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
             self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
         #print("image shape",image.shape)
