@@ -347,12 +347,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
         #build in a wandb for logging images
-        self.wandb=wandb.init(project="clip-detic", entity="st7ma784")
-        #self.wandb.init(project="clip-detic", entity="st7ma784")
-        self.wandb.config.update(self.cfg)
-        self.wandb.config.update({"batch_size":self.batch_size})
-        self.wandb.config.update({"stream":self.stream})
-        self.wandb.config.update({"fullBoxes":fullBoxes})
+        self.wandb=self.trainer.logger.experiment
 
 
     def predict(self,image,classes): 
