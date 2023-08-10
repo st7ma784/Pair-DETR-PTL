@@ -347,8 +347,11 @@ class VisGenomeDataModule(pl.LightningDataModule):
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
         #build in a wandb for logging images
-        self.wandb=self.trainer.logger.experiment
+        if hasattr(self,"trainer"):
 
+            self.wandb=self.trainer.logger.experiment
+        else:
+            self.wandb=wandb.init(project="clip-detector",entity="st7ma784")
 
     def predict(self,image,classes): 
         print("predicting...") 
