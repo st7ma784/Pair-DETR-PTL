@@ -27,6 +27,7 @@ from PIL import Image
 import clip
 import wget
 import random
+import numpy
 import requests
 import time
 from io import BytesIO
@@ -181,6 +182,9 @@ def DETICprocess(self,item):
     # 
     out=[]
     img=item["image"]
+    #convert JpegImageFile to cv2 image
+    img = cv2.cvtColor(numpy.array(img), cv2.COLOR_RGB2BGR)
+
     try:
         i=prep(img)
     except FileNotFoundError as e:
