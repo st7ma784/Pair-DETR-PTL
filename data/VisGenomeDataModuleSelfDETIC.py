@@ -351,7 +351,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
 
             self.wandb=self.trainer.logger
         else:
-            self.wandb=wandb.init(project="clip-detector",entity="st7ma784",name=time.time())
+            self.wandb=wandb.init(project="clip-detector",entity="st7ma784",name=str(time.time()))
 
     def predict(self,image,classes): 
         print("predicting...") 
