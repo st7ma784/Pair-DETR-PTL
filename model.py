@@ -490,7 +490,7 @@ class SetCriterion(nn.Module):
         1) we compute hungarian assignment between ground truth boxes and the outputs of the model
         2) we supervise each pair of matched ground-truth / prediction (supervise class and box)
     """
-    def __init__(self, matcher, weight_dict, focal_alpha, losses):
+    def __init__(self, weight_dict, focal_alpha, losses,matcher=HungarianMatcher(1.0,1.0,1.0)):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -577,9 +577,8 @@ class SetCriterion(nn.Module):
             "loss_dice": dice_loss(src_masks, masks, num_boxes),
         }
 
-    def forward(self, encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=1):
-        #need to add     def forward(self, encodings,outputs,tgt_masks,tgt_embs, tgt_sizes,tgt_ids,tgt_bbox,im_masks,batch_idx):
-
+    def forward(self, **kwargs):
+        encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=kwargs["encodings"],kwargs["outputs"],kwargs["targets"],kwargs["tgt_sizes"],kwargs["tgt_embs"],kwargs["tgt_bbox"],kwargs["class_lookup"],kwargs["num_boxes"]
         losses = {}
         indices = self.matcher(outputs,tgt_sizes=tgt_sizes,tgt_embs=tgt_embs,tgt_bbox=tgt_bbox)        
         #these refer to batch, then the index within batch and should be able to get the embeddings from this 
@@ -618,7 +617,7 @@ class FastCriterion(nn.Module):
         3) add the same offsets for the masks
         3) calculate the loss for the masks and the boxes as giou in one. 
     """
-    def __init__(self,  weight_dict, matcher=None, focal_alpha=None, losses=None):
+    def __init__(self, *args, **kwargs):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -629,10 +628,11 @@ class FastCriterion(nn.Module):
 
         super().__init__()
         #self.device=device
-        self.weight_dict = weight_dict
+        self.weight_dict = kwargs['weight_dict'] if 'weight_dict' in kwargs else None
         self.ce_loss = nn.CrossEntropyLoss(reduction="mean")
         self.relu = nn.ReLU()
-    def forward(self, encodings,outputs,tgt_masks,tgt_embs, tgt_sizes,tgt_ids,tgt_bbox,im_masks,batch_idx,num_boxes=1):
+    def forward(self, **kwargs): 
+        encodings,outputs,tgt_masks,tgt_embs,tgt_ids,tgt_bbox,im_masks,batch_idx = kwargs["encodings"],kwargs["outputs"],kwargs["tgt_masks"],kwargs["tgt_embs"],kwargs["tgt_ids"],kwargs["tgt_bbox"],kwargs["im_masks"],kwargs["batch_idx"]
         #need to add  encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=1) to args
         image_width=224# hard coded for now
         class_encodings=encodings # c, 512
