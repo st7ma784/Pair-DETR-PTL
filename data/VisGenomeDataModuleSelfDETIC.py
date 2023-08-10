@@ -384,7 +384,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         out_path = "out{}.png".format(time.time())
         cv2.imwrite(str(out_path), out.get_image()[:, :, ::-1])
 
-        self.wandb.log({"image":self.wandb.Image(out_path)})
+        self.wandb.log({"image":wandb.Image(out_path)})
 
 
         #So - Idea - What if I could use the score to add noise to the output class. 
