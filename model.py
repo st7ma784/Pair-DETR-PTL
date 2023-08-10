@@ -578,6 +578,8 @@ class SetCriterion(nn.Module):
         }
 
     def forward(self, encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=1):
+        #need to add     def forward(self, encodings,outputs,tgt_masks,tgt_embs, tgt_sizes,tgt_ids,tgt_bbox,im_masks,batch_idx):
+
         losses = {}
         indices = self.matcher(outputs,tgt_sizes=tgt_sizes,tgt_embs=tgt_embs,tgt_bbox=tgt_bbox)        
         #these refer to batch, then the index within batch and should be able to get the embeddings from this 
@@ -616,7 +618,7 @@ class FastCriterion(nn.Module):
         3) add the same offsets for the masks
         3) calculate the loss for the masks and the boxes as giou in one. 
     """
-    def __init__(self, weight_dict):
+    def __init__(self,  weight_dict, matcher=None, focal_alpha=None, losses=None):
         """ Create the criterion.
         Parameters:
             num_classes: number of object categories, omitting the special no-object category
@@ -631,7 +633,7 @@ class FastCriterion(nn.Module):
         self.ce_loss = nn.CrossEntropyLoss(reduction="mean")
         self.relu = nn.ReLU()
     def forward(self, encodings,outputs,tgt_masks,tgt_embs, tgt_sizes,tgt_ids,tgt_bbox,im_masks,batch_idx):
-
+        #need to add  encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=1) to args
         image_width=224# hard coded for now
         class_encodings=encodings # c, 512
         class_count=class_encodings.shape[0]

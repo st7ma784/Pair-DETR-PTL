@@ -10,6 +10,7 @@ from detectron2.utils.visualizer import Visualizer
 from detectron2.data import MetadataCatalog
 import torch
 import os,sys
+import cv2
 # Detic libraries
 sys.path.insert(0, 'third_party/CenterNet2/')
 from centernet.config import add_centernet_config
@@ -351,15 +352,19 @@ class VisGenomeDataModule(pl.LightningDataModule):
         print("predicting...") 
         classifier = self.get_clip_embeddings(classes)
         self.predictor.model.roi_heads.num_classes =  len(classes)
+        metadata = MetadataCatalog.get(str(time.time()))
+        metadata.thing_classes = classes
         #print("cshape",classifier.shape) #F,2
-        zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
-        if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
-            zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
-        zs_weight = zs_weight.to(self.predictor.model.device)
-        for k in range(len(self.predictor.model.roi_heads.box_predictor)):
-            del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
-            self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
-        # Reset visualization threshold
+        # zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
+        # if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
+        #     zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
+        # zs_weight = zs_weight.to(self.predictor.model.device)
+        # for k in range(len(self.predictor.model.roi_heads.box_predictor)):
+        #     del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
+        #     self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
+        # # Reset visualization threshold
+        reset_cls_test(self.predictor.model, classifier, len(classes))
+
         output_score_threshold = 0.3
         for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
             self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
@@ -367,6 +372,13 @@ class VisGenomeDataModule(pl.LightningDataModule):
         #convert to np array
         image=image.permute(1,2,0).numpy()
         outputs = self.predictor(image)
+
+        v = Visualizer(image[:, :, ::-1], metadata)
+        print(outputs.keys())
+        out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+        print(outputs['instances'].get_fields()["pred_masks"].shape)
+        out_path = "out{}.png".format(time.time())
+        cv2.imwrite(str(out_path), out.get_image()[:, :, ::-1])
         #So - Idea - What if I could use the score to add noise to the output class. 
         return outputs
 

@@ -89,15 +89,15 @@ class PairDETR(pl.LightningModule):
 
         #                                 )
 
-        self.weight_dict = {'loss_out_iou':1,
-                            'loss_gt_iou':1,
-                            'class_loss':0.1,
+        self.weight_dict = {'loss_out_iou':0.5,
+                            'loss_gt_iou':0.5,
+                            'class_loss':1,
                             "class_mask_loss":2,
-                       'loss_bbox_acc': 0.0001*args['bbox_loss_coef'],
-                       'loss_giou': 0.01*args['giou_loss_coef'],
-                       'loss_dice': 1000*args['dice_loss_coef'], #  last unc
-                       'loss_mask': 100*args['mask_loss_coef'], # 
-                       'CELoss':0.25}
+                            'loss_bbox_acc': 0.0001*args['bbox_loss_coef'],
+                            'loss_giou': 0.01*args['giou_loss_coef'],
+                            'loss_dice': 1000*args['dice_loss_coef'], #  last unc
+                            'loss_mask': 100*args['mask_loss_coef'], # 
+                            'CELoss':1}
 
         # self.criterion = SetCriterion(matcher=self.matcher, 
         #                               weight_dict=self.weight_dict,
