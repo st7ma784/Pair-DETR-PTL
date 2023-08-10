@@ -227,19 +227,19 @@ def DETICprocess(self,item):
             found_boxes=found_boxes.tensor
 
         #convert to tensors
-        print("obj_bboxes",obj_bboxes)
-        print("found_boxes",found_boxes)
+        # print("obj_bboxes",obj_bboxes)
+        # print("found_boxes",found_boxes)
         #found_boxes=torch.tensor(found_boxes) #######################################
         annotation_to_output_ious=torchvision.ops.box_iou(obj_bboxes/divisor,found_boxes/divisor)
         #find max iou +_idx for each annotation
-        print("annotation_to_output_ious",annotation_to_output_ious) 
+        # print("annotation_to_output_ious",annotation_to_output_ious) 
         max_ious,max_idx=torch.max(annotation_to_output_ious,dim=1)
         bboxes_to_keep=found_boxes[max_idx]
         masks_to_keep=found_masks[max_idx]
-        print("bboxes_to_keep",bboxes_to_keep.shape)#torch.Size([2, 4])
-        print("masks_to_keep",masks_to_keep.shape)#torch.Size([2, 800, 800])
+        # print("bboxes_to_keep",bboxes_to_keep.shape)#torch.Size([2, 4])
+        # print("masks_to_keep",masks_to_keep.shape)#torch.Size([2, 800, 800])
         object_mask=torch.logical_or(masks_to_keep[0],masks_to_keep[1]).unsqueeze(0)
-        print("object_mask",object_mask.shape)#torch.Size([800, 800]
+        # print("object_mask",object_mask.shape)#torch.Size([800, 800]
         object_actual_bbox_from_mask=torchvision.ops.masks_to_boxes(object_mask)
         #if so, do a logical_and on the masks of subj and obj and get the bounding box of the result.
 
@@ -247,8 +247,8 @@ def DETICprocess(self,item):
                                 min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
                                 max(r["object"]["x"]+r["object"]["w"],r["subject"]["x"]+r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
                             max(r["object"]["y"]+r["object"]["h"],r["subject"]["y"]+r["subject"]["h"])]).unsqueeze(0)
-        print("original_bbox",original_bbox/divisor)
-        print("object_actual_bbox_from_mask",object_actual_bbox_from_mask/divisor)
+        # print("original_bbox",original_bbox/divisor)
+        # print("object_actual_bbox_from_mask",object_actual_bbox_from_mask/divisor)
         print("Comparison of boxes: ", torchvision.ops.box_iou(original_bbox/divisor,object_actual_bbox_from_mask/divisor).item())
 
         if torchvision.ops.box_iou(original_bbox/divisor,object_actual_bbox_from_mask/divisor).item()>0.2:
