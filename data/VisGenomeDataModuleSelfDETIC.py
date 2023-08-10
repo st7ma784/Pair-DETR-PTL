@@ -371,8 +371,7 @@ class VisGenomeDataModule(pl.LightningDataModule):
         #     self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
         # # Reset visualization threshold
         reset_cls_test(self.predictor.model, classifier, len(classes))
-
-        output_score_threshold = 0.3
+        output_score_threshold = 0.1
         for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
             self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
         #print("image shape",image.shape)
@@ -381,13 +380,15 @@ class VisGenomeDataModule(pl.LightningDataModule):
         outputs = self.predictor(image)
 
         v = Visualizer(image[:, :, ::-1], metadata)
-        print(outputs.keys())
+        #print(outputs.keys())
         out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
-        print(outputs['instances'].get_fields()["pred_masks"].shape)
+        #print(outputs['instances'].get_fields()["pred_masks"].shape)
         out_path = "out{}.png".format(time.time())
         cv2.imwrite(str(out_path), out.get_image()[:, :, ::-1])
 
         self.wandb.log({"image":self.wandb.Image(out_path)})
+
+
         #So - Idea - What if I could use the score to add noise to the output class. 
         return outputs
 
