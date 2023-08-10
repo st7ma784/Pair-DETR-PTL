@@ -275,6 +275,31 @@ def DETICprocess(self,item):
     classes=target["labels"]
     return i, t, classes ,summed_mask
 
+def predict(self,image,classes): 
+    classifier = self.get_clip_embeddings(classes)
+    self.predictor.model.roi_heads.num_classes =  len(classes)
+    metadata = MetadataCatalog.get(str(time.time()))
+    metadata.thing_classes = classes
+    zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
+    if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
+        zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
+    zs_weight = zs_weight.to(self.predictor.model.device)
+    for k in range(len(self.predictor.model.roi_heads.box_predictor)):
+        del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
+        self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
+    output_score_threshold = 0.3
+    for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
+        self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
+    outputs = self.predictor(image)
+    #So - Idea - What if I could use the score to add noise to the output class. 
+    return outputs
+
+def get_clip_embeddings(self,vocabulary, prompt='a origami  '):
+    
+    texts = [prompt + x for x in vocabulary]
+    if "{}" in prompt:
+        texts=[prompt.format(x) for x in vocabulary]
+    return self.text_encoder(texts).detach().permute(1, 0).contiguous()
 class VisGenomeDatasetCOCOBoxes(VisGenomeDataset):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -298,33 +323,8 @@ class VisGenomeDatasetCOCOBoxes(VisGenomeDataset):
         self.text_encoder = build_text_encoder(pretrain=True)
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
-
-    def predict(self,image,classes): 
-        classifier = self.get_clip_embeddings(classes)
-        self.predictor.model.roi_heads.num_classes =  len(classes)
-        metadata = MetadataCatalog.get(str(time.time()))
-        metadata.thing_classes = classes
-        zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
-        if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
-            zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
-        zs_weight = zs_weight.to(self.cfg.MODEL.DEVICE)
-        for k in range(len(self.predictor.model.roi_heads.box_predictor)):
-            del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
-            self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
-        output_score_threshold = self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST 
-        for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
-            self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
-        outputs = self.predictor(image)
-        #So - Idea - What if I could use the score to add noise to the output class. 
-        return outputs
-
-
-    def get_clip_embeddings(self,vocabulary, prompt='a origami  '):
-        
-        texts = [prompt + x for x in vocabulary]
-        if "{}" in prompt:
-            texts=[prompt.format(x) for x in vocabulary]
-        return self.text_encoder(texts).detach().permute(1, 0).contiguous()
+        self.predict=predict
+        self.get_clip_embeddings=get_clip_embeddings
     
     def process(self,item):
         return DETICprocess(self,item)
@@ -351,34 +351,9 @@ class VisGenomeDatasetIterCOCOBoxes(VisGenomeDataset):
         self.text_encoder = build_text_encoder(pretrain=True)
         self.text_encoder.eval()
         self.predictor = DefaultPredictor(self.cfg)
+        self.predict=predict
+        self.get_clip_embeddings=get_clip_embeddings
 
-    def predict(self,image,classes): 
-        classifier = self.get_clip_embeddings(classes)
-        self.predictor.model.roi_heads.num_classes =  len(classes)
-        metadata = MetadataCatalog.get(str(time.time()))
-        metadata.thing_classes = classes
-        zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
-        if self.predictor.model.roi_heads.box_predictor[0].cls_score.norm_weight:
-            zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
-        zs_weight = zs_weight.to(self.predictor.model.device)
-        for k in range(len(self.predictor.model.roi_heads.box_predictor)):
-            del self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight
-            self.predictor.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
-        output_score_threshold = 0.3
-        for cascade_stages in range(len(self.predictor.model.roi_heads.box_predictor)):
-            self.predictor.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold
-        outputs = self.predictor(image)
-        #So - Idea - What if I could use the score to add noise to the output class. 
-        return outputs
-
-
-    def get_clip_embeddings(self,vocabulary, prompt='a origami  '):
-        
-        texts = [prompt + x for x in vocabulary]
-        if "{}" in prompt:
-            texts=[prompt.format(x) for x in vocabulary]
-        return self.text_encoder(texts).detach().permute(1, 0).contiguous()
-    
     def process(self, item):
         return DETICprocess(self,item)
     
