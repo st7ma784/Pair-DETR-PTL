@@ -220,11 +220,13 @@ def DETICprocess(self,item):
                 found_masks=found_masks.to("cpu").numpy()
                 found_boxes=[datapoints.BoundingBox.from_mask(m) for m in found_masks]
                 found_boxes=torch.stack([b.as_xyxy() for b in found_boxes])
+        else:
+            #get tensor from Boxes object
+            found_boxes=found_boxes.tensor
 
         #convert to tensors
         print("obj_bboxes",obj_bboxes.shape)
         print("found_boxes",found_boxes)
-        found_boxes=found_boxes.tensor
         #found_boxes=torch.tensor(found_boxes) #######################################
         annotation_to_output_ious=torchvision.ops.box_iou(obj_bboxes,found_boxes)
         #find max iou +_idx for each annotation 
