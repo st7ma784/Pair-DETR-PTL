@@ -155,7 +155,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             self.detic.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold        
         #So - Idea - What if I could use the score to add noise to the output class. 
         print("img",img.shape)
-        outputs=self.detic(img)
+        outputs=self.detic([i for i in img])
         print("outputs",outputs.keys())
 
         
