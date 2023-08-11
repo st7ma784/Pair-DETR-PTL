@@ -99,6 +99,9 @@ class VisGenomeDataset(Dataset):
         except FileNotFoundError as e:
             response = requests.get(item["url"])
             img,boxes = prep(Image.open(BytesIO(response.content)),{"boxes":torch.stack(objects+subjects)})
+        except RuntimeError as e:
+            print(e)
+            return None
         return {"img":img,"relation":torch.stack(captions),"objects":boxes["boxes"][:(len(boxes["boxes"])//2)],"subjects":boxes["boxes"][(len(boxes["boxes"])//2):], "obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
         
     def __len__(self):
