@@ -128,8 +128,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #This is going to assume we're pulling the Relation info from VisGenomeDataModule.py 
         # so we'll receive a list of "img", "relation","objects","subjects","obj_classes","subj_classes",batch_idx
         img=batch["img"]
-        obj_classes=batch["obj_classes"]
-        subj_classes=batch["subj_classes"]
+        obj_classes=batch["obj_classes"].squeeze()
+        subj_classes=batch["subj_classes"].squeeze()
         objects=batch["objects"]
         subjects=batch["subjects"]
         batch_idx=batch["batch_idx"]
@@ -177,7 +177,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
     def training_step(self,batch, batch_idx):
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
         images=batch["img"]
-        captions=batch["relation"]
+        captions=batch["relation"].squeeze()
         tgt_idx=batch["batch_idx"]
         masks_per_caption,masks_per_image=self.detic_forward(**batch)
 
