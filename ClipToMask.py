@@ -178,7 +178,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         return masks_per_caption,masks_per_image
 
 
-    def train_step(self,batch, batch_idx):
+    def training_step(self,batch, batch_idx):
         image, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
 
         image,targets,tgt_idx=batch
@@ -198,6 +198,10 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         
         #B,512
         #we're going to take the classes and search them through detic
+
+    def configure_optimizers(self) -> Any:
+        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
+        return optimizer    
 
 if __name__ == "__main__":
 
