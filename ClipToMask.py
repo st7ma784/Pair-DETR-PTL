@@ -121,6 +121,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.cfg.MODEL.DEVICE='cuda'
         self.detic = build_model(self.cfg)
         self.detic.eval()
+        self.detic.do_training = False
         self.loss=nn.BCEWithLogitsLoss(reduction="mean")
         self.weight=nn.Parameter(torch.tensor(0.5))
 
@@ -159,7 +160,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
 
         features = self.detic.backbone(img)
-        proposals, _ = self.detic.proposal_generator(img, features, None)
+        proposals, _ = self.detic.proposal_generator(img, features, )
         outputs, _ = self.detic.roi_heads(img, features, proposals)
         
         print("outputs",outputs.keys())
