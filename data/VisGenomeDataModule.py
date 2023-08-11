@@ -100,7 +100,7 @@ class VisGenomeDataset(Dataset):
             response = requests.get(item["url"])
             img,boxes = prep(Image.open(BytesIO(response.content)),objects+subjects)
         
-        return {"img":img,"relation":captions,"objects":boxes[:(len(boxes)//2)],"subjects":boxes[(len(boxes)//2):], "obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
+        return {"img":img,"relation":torch.stack(captions),"objects":torch.stack(boxes[:(len(boxes)//2)]),"subjects":torch.stack(boxes[(len(boxes)//2):]), "obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
         
     def __len__(self):
         return len(self.data)
