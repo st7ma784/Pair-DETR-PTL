@@ -59,7 +59,7 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
         return both_masks
     def from_encoding_to_maskv2(self,encoding):
         return self.mlp(encoding).view(encoding.shape[0],self.outputsize,self.outputsize)
-    def train_step(self,batch,batch_idx):
+    def training_step(self,batch,batch_idx):
         #assume coco objects with images, and boxes and masks
         image, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
         encoding=self.clip.encode_image(image) #B,512
@@ -199,10 +199,6 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         
         #B,512
         #we're going to take the classes and search them through detic
-
-    def configure_optimizers(self) -> Any:
-        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
-        return optimizer    
 
 if __name__ == "__main__":
 
