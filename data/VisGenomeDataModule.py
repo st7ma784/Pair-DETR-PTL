@@ -112,7 +112,9 @@ def Collate(batch):
     #we're going to cat the objects and subjects as these boxes are to be handed to DETR
     #we're going to make out batch_idx with torch.cat( torch.fill(idx in batch, len(batch[idx])))
 
-    batch=zip(*batch)
+    
+    #convert to batch from list of dicts to dict of lists
+    batch={k:[x[k] for x in batch] for k in batch[0].keys()}
     batch["img"]=torch.stack(batch["img"])
     batch["relation"]=torch.cat(batch["relation"])
     batch["obj_classes"]=torch.cat(batch["obj_classes"])
