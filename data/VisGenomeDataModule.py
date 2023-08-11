@@ -215,16 +215,20 @@ class VisGenomeDataModule(pl.LightningDataModule):
     def train_dataloader(self, B=None):
         if B is None:
             B=self.batch_size 
+        if self.collate_fn is not None:
+            return torch.utils.data.DataLoader(self.train, batch_size=B, shuffle=not self.stream, num_workers=4, prefetch_factor=3, pin_memory=True,drop_last=True,collate_fn=self.collate_fn)
         return torch.utils.data.DataLoader(self.train, batch_size=B, shuffle=not self.stream, num_workers=4, prefetch_factor=3, pin_memory=True,drop_last=True)
     def val_dataloader(self, B=None):
         if B is None:
             B=self.batch_size
-       
+        if self.collate_fn is not None:
+            return torch.utils.data.DataLoader(self.val, batch_size=B, shuffle=not self.stream, num_workers=1, prefetch_factor=1, pin_memory=True,drop_last=True,collate_fn=self.collate_fn)       
         return torch.utils.data.DataLoader(self.val, batch_size=B, shuffle=not self.stream, num_workers=1, prefetch_factor=1, pin_memory=True,drop_last=True)
     def test_dataloader(self,B=None):
         if B is None:
             B=self.batch_size
-
+        if self.collate_fn is not None:
+            return torch.utils.data.DataLoader(self.test, batch_size=B, shuffle=not self.stream, num_workers=4, prefetch_factor=4, pin_memory=True,drop_last=True,collate_fn=self.collate_fn)
 
         return torch.utils.data.DataLoader(self.test, batch_size=B, shuffle=not self.stream, num_workers=4, prefetch_factor=4, pin_memory=True,drop_last=True)
 
