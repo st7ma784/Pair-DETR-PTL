@@ -85,7 +85,7 @@ class VisGenomeDataset(Dataset):
         captions=[]
         obj_classes=[]
         subj_classes=[]
-        img=None
+        img,boxes=None,None
         for r in item["relationships"]:
             obj_classes.append(" ".join(["a", r["object"]["names"][0]]))
             subj_classes.append(" ".join(["a", r["subject"]["names"][0]]))  
@@ -99,8 +99,8 @@ class VisGenomeDataset(Dataset):
         except FileNotFoundError as e:
             response = requests.get(item["url"])
             img,boxes = prep(Image.open(BytesIO(response.content)),boxes=objects+subjects)
-        finally:
-            return {"img":img,"relation":captions,"objects":boxes[:len(boxes//2)],"subjects":boxes[len(boxes//2):], "obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
+        
+        return {"img":img,"relation":captions,"objects":boxes[:len(boxes//2)],"subjects":boxes[len(boxes//2):], "obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
         
     def __len__(self):
         return len(self.data)
