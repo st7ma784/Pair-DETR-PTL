@@ -120,10 +120,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
         self.cfg.MODEL.DEVICE='cuda'
 
-        print(self.cfg)
         self.detic = build_model(self.cfg)
-        self.detic.eval()
-        self.detic.do_training = False
+        self.detic=self.detic.eval()
         self.loss=nn.BCEWithLogitsLoss(reduction="mean")
         self.weight=nn.Parameter(torch.tensor(0.5))
 
