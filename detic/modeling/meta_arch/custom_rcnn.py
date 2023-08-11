@@ -76,7 +76,10 @@ class CustomRCNN(GeneralizedRCNN):
             'cap_batch_ratio': cfg.MODEL.CAP_BATCH_RATIO,
         })
         if ret['dynamic_classifier']:
-            ret['freq_weight'] = 1
+            ret['freq_weight'] =1 
+            #load_class_freq(
+             ##   cfg.MODEL.ROI_BOX_HEAD.CAT_FREQ_PATH,
+              #  cfg.MODEL.ROI_BOX_HEAD.FED_LOSS_FREQ_WEIGHT)
             ret['num_classes'] = cfg.MODEL.ROI_HEADS.NUM_CLASSES
             ret['num_sample_cats'] = cfg.MODEL.NUM_SAMPLE_CATS
         return ret
