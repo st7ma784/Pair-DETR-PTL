@@ -160,7 +160,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
 
         features = self.detic.backbone(img)
-        proposals, _ = self.detic.proposal_generator(img, features )
+        proposals, _ = self.detic.proposal_generator(img, features,None )
         outputs, _ = self.detic.roi_heads(img, features, proposals)
         print("outputs",outputs.keys())
 
