@@ -104,7 +104,6 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.cfg=get_cfg()
         add_detic_config(self.cfg)
         add_centernet_config(self.cfg)
-        add_detic_config(self.cfg)
         self.cfg.merge_from_file("configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml")
         filename="./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"
         if not os.path.exists("./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"):
@@ -123,25 +122,23 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.text_encoder.eval()
         self.detic = build_model(self.cfg)
         self.detic.eval()
-    def detic_forward(self,batch):
+        self.loss=nn.BCEWithLogitsLoss(reduction="mean")
+        self.weight=nn.Parameter(torch.tensor(0.5))
+
+    def detic_forward(self,**batch):
         #This is going to assume we're pulling the Relation info from VisGenomeDataModule.py 
         # so we'll receive a list of "img", "relation","objects","subjects","obj_classes","subj_classes",batch_idx
-        img,relation,objects,subjects,obj_classes,subj_classes,batch_idx=batch
-        #step one: make big list of all classes, subj, obj, 
-        #step one-half: repeat for all " ".join([sub,rel,obj])
-        #step two: do predict (im,all_classes)
-        #step three: process and cat output, where the output doesnt return for certain masks, then we ought to see if the whole tag DID get returned and send that back instead, otherwise we';ll remove that caption .
-
-
-        #convert images to numpy for DETIC. 
+        img=batch["img"]
+        obj_classes=batch["obj_classes"]
+        subj_classes=batch["subj_classes"]
+        objects=batch["objects"]
+        subjects=batch["subjects"]
+        batch_idx=batch["batch_idx"]
 
         #convert classes and relations to clip encodings. 
         obj_classes_encodings=self.clip.encode_text(obj_classes)
         subj_classes_encodings=self.clip.encode_text(subj_classes)
         #do predictions on all images with DETIC 
-
-
-
         #classifier = self.get_clip_embeddings(self,classes)
         self.detic.roi_heads.num_classes =  obj_classes_encodings.shape[0]+subj_classes_encodings.shape[0]
         metadata = MetadataCatalog.get(str(time.time()))
@@ -179,19 +176,28 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
 
     def training_step(self,batch, batch_idx):
-        image, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
-
-        image,targets,tgt_idx=batch
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
-        
-        captions,summed_masks=self.detic_forward(image,targets,tgt_idx)
+        images=batch["img"]
+        captions=batch["relation"]
+        obj_class_names=batch["obj_classes"]
+        subj_class_names=batch["subj_classes"]
+        obj_boxes=batch["objects"]
+        subj_boxes=batch["subjects"]
+        tgt_idx=batch["batch_idx"]
+        masks_per_caption,masks_per_image=self.detic_forward(**batch)
 
         encodingcap=self.clip.encode_text(captions)
-        encodingim=self.clip.encode_image(image[tgt_idx])
+        encodingim=self.clip.encode_image(images[tgt_idx])
         maska=self.forward(encodingcap)
         maskb=self.forward(encodingim)
-        mask=maska*(self.weight.sigmoid())+maskb*(1-self.weight.sigmoid())
-        loss=nn.functional.binary_cross_entropy_with_logits(mask,summed_masks)
+        #mask=maska*(self.weight.sigmoid())+maskb*(1-self.weight.sigmoid())
+        lossa=self.loss(maska,masks_per_caption)
+        lossb=self.loss(maskb,masks_per_image)
+        self.log("caption_loss",lossa)
+        self.log("image_loss",lossb)
+
+        loss=lossa*(self.weight.relu())+lossb*(1-self.weight.relu())
+
         self.log("train_loss",loss)
         return loss
 
