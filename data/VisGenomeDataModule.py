@@ -115,13 +115,14 @@ def Collate(batch):
     
     #convert to batch from list of dicts to dict of lists
     batch={k:[x[k] for x in batch] for k in batch[0].keys()}
+    batch["batch_idx"]=torch.cat([torch.full((len(x),),i) for i,x in enumerate(batch["relation"])])
+
     batch["img"]=torch.stack(batch["img"])
     batch["relation"]=torch.cat(batch["relation"])
     batch["obj_classes"]=torch.cat(batch["obj_classes"])
     batch["subj_classes"]=torch.cat(batch["subj_classes"])
     batch["objects"]=torch.cat(batch["objects"])
     batch["subjects"]=torch.cat(batch["subjects"])
-    batch["batch_idx"]=torch.cat([torch.full((len(x),),i) for i,x in enumerate(batch[0])])
     
     #batch_idx=torch.cat([torch.full((len(x),),i) for i,x in enumerate(batch[0])])
 
