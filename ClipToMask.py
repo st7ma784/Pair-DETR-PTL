@@ -127,6 +127,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
     def detic_forward(self,**batch):
         #This is going to assume we're pulling the Relation info from VisGenomeDataModule.py 
         # so we'll receive a list of "img", "relation","objects","subjects","obj_classes","subj_classes",batch_idx
+        inputs=[{"image":i} for i in batch["img"]]
         img=batch["img"]
         obj_classes=batch["obj_classes"].squeeze()
         subj_classes=batch["subj_classes"].squeeze()
@@ -155,7 +156,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             self.detic.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold        
         #So - Idea - What if I could use the score to add noise to the output class. 
         print("img",img.shape)
-        outputs=self.detic([i for i in img])
+        outputs=self.detic(inputs)
         print("outputs",outputs.keys())
 
         
