@@ -95,11 +95,11 @@ class VisGenomeDataset(Dataset):
             subjects.append(torch.tensor([r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]]))
             #captions.append(caption)
         try:
-            img,boxes= prep(item["image"],objects+subjects)
+            img,boxes= prep(item["image"],{"boxes":torch.stack(objects+subjects)})
         except FileNotFoundError as e:
             response = requests.get(item["url"])
-            img,boxes = prep(Image.open(BytesIO(response.content)),objects+subjects)
-        
+            img,boxes = prep(Image.open(BytesIO(response.content)),{"boxes":torch.stack(objects+subjects)})
+        print(boxes)
         return {"img":img,"relation":torch.stack(captions),"objects":torch.stack(boxes[:(len(boxes)//2)]),"subjects":torch.stack(boxes[(len(boxes)//2):]), "obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
         
     def __len__(self):
