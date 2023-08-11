@@ -36,28 +36,34 @@ class VisGenomeIterDataset(IterableDataset):
         self.data =self.data.map(self.process,remove_columns=['image_id' , 'image','relationships','width', 'height', 'coco_id', 'flickr_id','url' ])
 
     def process(self,item):
-        caption=""
-        if len(item["relationships"])==0:
-            caption=" an image with no objects interacting"
-        else:
-            r=random.choice(item["relationships"])
+        objects=[]
+        subjects=[]
+        captions=[]
+        obj_classes=[]
+        subj_classes=[]
+
+        for r in item["relationships"]:
+            obj_classes.append(" ".join(["a", r["object"]["names"][0]]))
+            subj_classes.append(" ".join(["a", r["subject"]["names"][0]]))  
             caption=" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])
-        r=self.tokenize(caption)
+            captions.append(self.tokenize(caption))
+            objects.append(datapoints.BoundingBox([r["subject"]["x"],r["subject"]["y"],r["subject"]["w"],r["subject"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]]).to_xyxy_array())
+            subjects.append(datapoints.BoundingBox([r["object"]["x"],r["object"]["y"],r["object"]["w"],r["object"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]]).to_xyxy_array())
+            #captions.append(caption)
         try:
-            return {"img":prep(item["image"]),"relation":r}
+            img,boxes= prep(item["image"],boxes=objects+subjects)
         except FileNotFoundError as e:
             response = requests.get(item["url"])
-            img = Image.open(BytesIO(response.content))
-            print("failed : {}".format(item["image"]))
-            return {"img":prep(img),"relation":r}
+            img,boxes = prep(Image.open(BytesIO(response.content)),boxes=objects+subjects)
+
+        finally:
+            
+            
+            return {"img":img,"relation":captions,"objects":boxes[:len(boxes//2)],"subjects":boxes[len(boxes//2):], "obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
+        
     def __len__(self):
         return 108077
     def __iter__(self):
-        # item= self.data.next()
-        # r=random.choice(item["relationships"])
-        # r=self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]), return_tensors="pt",padding="max_length", truncation=True,max_length=77)['input_ids'])
-        # out= {"img":prep(item["image"]),"relation":r}
-        #print(self.data.__dir__())
         return self.data.__iter__()
 
     
@@ -74,21 +80,27 @@ class VisGenomeDataset(Dataset):
         # self.data =self.data.map(self.process,remove_columns=['image_id' , 'image','relationships','width', 'height', 'coco_id', 'flickr_id','url' ],num_proc=8).filter(lambda example: example is not None)
         
     def process(self,item):
-        caption=" "
-        if len(item["relationships"])==0:
-            caption=" an image with no objects interacting"
-        else:
-            r=random.choice(item["relationships"])
+        objects=[]
+        subjects=[]
+        captions=[]
+        obj_classes=[]
+        subj_classes=[]
+        for r in item["relationships"]:
+            obj_classes.append(" ".join(["a", r["object"]["names"][0]]))
+            subj_classes.append(" ".join(["a", r["subject"]["names"][0]]))  
             caption=" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])
-        r=self.tokenize(caption)
-        #print(item)
+            captions.append(self.tokenize(caption))
+            objects.append(datapoints.BoundingBox([r["subject"]["x"],r["subject"]["y"],r["subject"]["w"],r["subject"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]]).to_xyxy_array())
+            subjects.append(datapoints.BoundingBox([r["object"]["x"],r["object"]["y"],r["object"]["w"],r["object"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]]).to_xyxy_array())
+            #captions.append(caption)
         try:
-            return {"img":prep(item["image"]),"relation":r}
+            img,boxes= prep(item["image"],boxes=objects+subjects)
         except FileNotFoundError as e:
             response = requests.get(item["url"])
-            img = Image.open(BytesIO(response.content))
-            #print("failed : {}".format(item["image"]))
-            return {"img":prep(img),"relation":r}
+            img,boxes = prep(Image.open(BytesIO(response.content)),boxes=objects+subjects)
+        finally:
+            return {"img":img,"relation":captions,"objects":boxes[:len(boxes//2)],"subjects":boxes[len(boxes//2):], "obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
+        
     def __len__(self):
         return len(self.data)
     def __getitem__(self,idx):
@@ -99,56 +111,68 @@ class VisGenomeDatasetBigBoxes(VisGenomeDataset):
         if len(item["relationships"])==0:
             return None
         #this is probably awful,  Why not look at the Pairwise DETR for how it does contrastive loss on multiple objects? 
-        r=random.choice(item["relationships"])
-        #s is the r["subject"] box
-        s=datapoints.BoundingBox([r["subject"]["x"],r["subject"]["y"],r["subject"]["w"],r["subject"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
-        o=datapoints.BoundingBox([r["object"]["x"],r["object"]["y"],r["object"]["w"],r["object"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
+        boxes=[]
+        captions=[]
+        obj_classes=[]
+        subj_classes=[]
 
-        
-        l=datapoints.BoundingBox([min(r["object"]["x"],r["subject"]["x"]),
-                                 min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
-                                 max(r["object"]["x"],r["subject"]["x"])-min(r["object"]["x"],r["subject"]["x"]) +max(r["object"]["w"],r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
-                                max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
-        r=self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]))
-
-        img=item["image"]
+        for r in item["relationships"]:
+            obj_classes.append(" ".join(["a", r["object"]["names"][0]]))
+            subj_classes.append(" ".join(["a", r["subject"]["names"][0]]))      
+            caption=" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])
+            captions.append(self.tokenize(caption))
+           
+            original_bbox=[min(r["object"]["x"],r["subject"]["x"]),
+                                min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
+                                max(r["object"]["x"]+r["object"]["w"],r["subject"]["x"]+r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
+                            max(r["object"]["y"]+r["object"]["h"],r["subject"]["y"]+r["subject"]["h"])]
+            #captions.append(caption)
+            boxes.append(original_bbox)
         try:
-            i,t=prep(img,{"boxes":[s,o,l]})
-            return {"img":i,"relation":r,"targets":t}
+            img,boxes= prep(item["image"],boxes=boxes)
         except FileNotFoundError as e:
             response = requests.get(item["url"])
-            img = Image.open(BytesIO(response.content))
-            #print("failed : {}".format(item["image"]))
-            i,t=prep(img,{"boxes":[s,o,l]})
-            return {"img":i,"targets":t,"relation":r}
+            img,boxes = prep(Image.open(BytesIO(response.content)),boxes=boxes)
+
+        finally:
+            
+            
+            return {"img":img,"relation":torch.stack(captions),"boxes":torch.stack(boxes),"obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
+        
+   
             
 class VisGenomeDatasetIterBigBoxes(VisGenomeDataset):
     def process(self,item):
-
         if len(item["relationships"])==0:
             return None
-        r=random.choice(item["relationships"])
-        #s is the r["subject"] box
-        s=datapoints.BoundingBox([r["subject"]["x"],r["subject"]["y"],r["subject"]["w"],r["subject"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
-        o=datapoints.BoundingBox([r["object"]["x"],r["object"]["y"],r["object"]["w"],r["object"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
+        #this is probably awful,  Why not look at the Pairwise DETR for how it does contrastive loss on multiple objects? 
+        boxes=[]
+        captions=[]
+        obj_classes=[]
+        subj_classes=[]
 
-        
-        l=datapoints.BoundingBox([min(r["object"]["x"],r["subject"]["x"]),
-                                 min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
-                                 max(r["object"]["x"],r["subject"]["x"])-min(r["object"]["x"],r["subject"]["x"]) +max(r["object"]["w"],r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
-                                max(r["object"]["y"],r["subject"]["y"])-min(r["object"]["y"],r["subject"]["y"])+ max(r["object"]["h"],r["subject"]["h"])], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]])
-        r=self.tokenize(" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]]))
-        img=item["image"]
+        for r in item["relationships"]:
+            obj_classes.append(" ".join(["a", r["object"]["names"][0]]))
+            subj_classes.append(" ".join(["a", r["subject"]["names"][0]]))
 
+            caption=" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])
+            captions.append(self.tokenize(caption))
+           
+            original_bbox=[min(r["object"]["x"],r["subject"]["x"]),
+                                min(r["object"]["y"],r["subject"]["y"]), # these find the top left corner
+                                max(r["object"]["x"]+r["object"]["w"],r["subject"]["x"]+r["subject"]["w"]), # find the bottom right corner with max of x ys and add the whs.  
+                            max(r["object"]["y"]+r["object"]["h"],r["subject"]["y"]+r["subject"]["h"])]
+            #captions.append(caption)
+            boxes.append(original_bbox)
         try:
-            i,t=prep(img,{"boxes":[s,o,l]})
-            return {"img":i,"relation":r,"targets":t}
+            img,boxes= prep(item["image"],boxes=boxes)
         except FileNotFoundError as e:
             response = requests.get(item["url"])
-            img = Image.open(BytesIO(response.content))
-            #print("failed : {}".format(item["image"]))
-            i,t=prep(img,{"boxes":[s,o,l]})
-            return {"img":i,"targets":t,"relation":r}
+            img,boxes = prep(Image.open(BytesIO(response.content)),boxes=boxes)
+
+        finally:
+            return {"img":img,"relation":torch.stack(captions),"boxes":torch.stack(boxes),"obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
+        
 # Dataset
 class VisGenomeDataModule(pl.LightningDataModule):
 

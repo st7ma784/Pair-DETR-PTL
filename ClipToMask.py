@@ -36,16 +36,18 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
         #this will give us a mask of the same size as the input. 
         self.weight=nn.Parameter(torch.tensor(0.5))
         if version==1:
-            self.xmlp=MLP(input_size=512,hidden_size=512,output_size=512,depth=layers)
-            self.ymlp=MLP(input_size=512,hidden_size=512,output_size=512,depth=layers)
-            self.finalmlp=MLP(input_size=512,hidden_size=512,output_size=outputsize,depth=layers)
-            self.finalcat=MLP(input_size=2*outputsize,hidden_size=768,output_size=outputsize,depth=layers)
+            self.xmlp=MLP(input_dim=512,hidden_dim=512,output_dim=512,num_layers=layers)
+            self.ymlp=MLP(input_dim=512,hidden_dim=512,output_dim=512,num_layers=layers)
+            self.finalmlp=MLP(input_dim=512,hidden_dim=512,output_dim=outputsize,num_layers=layers)
+            self.finalcat=MLP(input_dim=2*outputsize,hidden_dim=768,output_dim=outputsize,num_layers=layers)
             self.forward=self.from_encoding_to_maskv1
         elif version==2:
-            self.mlp=MLP(input_size=512,hidden_size=1024,output_size=outputsize*outputsize,depth=layers*2)
+            self.mlp=MLP(input_dim=512,hidden_dim=1024,output_dim=outputsize*outputsize,num_layers=layers*2)
             self.forward=self.from_encoding_to_maskv2
         else:
             raise NotImplementedError("Version must be 1 or 2")
+        
+        self.loss=nn.BCEWithLogitsLoss(reduction="mean")
     def from_encoding_to_maskv1(self,encoding):
         xrow=self.xmlp(encoding) # B#512
         ycol=self.ymlp(encoding)
@@ -58,46 +60,45 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
     def from_encoding_to_maskv2(self,encoding):
         return self.mlp(encoding).view(encoding.shape[0],self.outputsize,self.outputsize)
     def train_step(self,batch,batch_idx):
-
-        image,caption,summed_masks=batch
-        encoding=self.clip.encode_text(caption) #B,512
-        maskcap=self(encoding) #B,224,224
+        #assume coco objects with images, and boxes and masks
+        image, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
         encoding=self.clip.encode_image(image) #B,512
         mask_im=self(encoding) #B,224,224
-        
-        lossa=nn.functional.binary_cross_entropy_with_logits(maskcap,summed_masks)
-        lossb=nn.functional.binary_cross_entropy_with_logits(mask_im,summed_masks)
+        maskcap=self(classencodings[tgt_ids]) #B,512
+        lossa= self.loss(maskcap,tgt_masks)
+        lossb= self.loss(mask_im,masks)
         #weight will be a leant param between 0 and 1
 
         weight=self.weight.sigmoid()
         self.log("train_loss_cap",lossa)
         self.log("train_loss_img",lossb)
-        mask=maskcap*(weight)+mask_im*(1-weight)
-        loss=nn.functional.binary_cross_entropy_with_logits(mask,summed_masks)
+        loss=lossa*weight+lossb*(1-weight)
         return loss
     
     def configure_optimizers(self) -> Any:
         optimizer = torch.optim.AdamW(self.parameters(), lr=1e-3)
         return optimizer
 
-from detectron2.engine import DefaultPredictor,build_model
+from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2.utils.visualizer import Visualizer
+from detectron2.modeling import build_model
 from detectron2.data import MetadataCatalog
 import torch
-import os 
+import os ,sys 
 # Detic libraries
 sys.path.insert(0, 'third_party/CenterNet2/')
+import time
 from centernet.config import add_centernet_config
 from detic.config import add_detic_config
 from detic.modeling.utils import reset_cls_test
 from detic.modeling.text.text_encoder import build_text_encoder
 import wget
 from typing import Optional,List
-
+import torchvision
 class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
     #this is going to be a bit more complicated - including a DEtic model to generate the masks needed
-     def __init__(self,*args,**kwargs):
+    def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         self.clip,_ =clip.load("ViT-B/32", device="cuda")
         self.cfg=get_cfg()
@@ -122,23 +123,64 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.text_encoder.eval()
         self.detic = build_model(self.cfg)
         self.detic.eval()
-    def detic_forward(self,images,classes,boxes,class_idx):
-        #takes a list of images and classes and returns the masks
-        #classes are a list of all the names to go and search for with get_clip_embeddings()
-        #boxes, are the annotations that visgenome provides to make sure we have the right things
-        
+    def detic_forward(self,batch):
+        #This is going to assume we're pulling the Relation info from VisGenomeDataModule.py 
+        # so we'll receive a list of "img", "relation","objects","subjects","obj_classes","subj_classes",batch_idx
+        img,relation,objects,subjects,obj_classes,subj_classes,batch_idx=batch
         #step one: make big list of all classes, subj, obj, 
         #step one-half: repeat for all " ".join([sub,rel,obj])
         #step two: do predict (im,all_classes)
         #step three: process and cat output, where the output doesnt return for certain masks, then we ought to see if the whole tag DID get returned and send that back instead, otherwise we';ll remove that caption .
 
 
+        #convert images to numpy for DETIC. 
 
-        #summed_masks is the masks that we're going to use to train the model, which is the set of boxes of each sub,obj pair  in captions
-        #captions is the plain text sub,rel,obj that we're going to use to get the embeddings
-        returns captions,summed_masks
+        #convert classes and relations to clip encodings. 
+        obj_classes_encodings=self.clip.encode_text(obj_classes)
+        subj_classes_encodings=self.clip.encode_text(subj_classes)
+        #do predictions on all images with DETIC 
+
+
+
+        #classifier = self.get_clip_embeddings(self,classes)
+        self.detic.roi_heads.num_classes =  obj_classes_encodings.shape[0]+subj_classes_encodings.shape[0]
+        metadata = MetadataCatalog.get(str(time.time()))
+        metadata.thing_classes = self.detic.roi_heads.num_classes
+        classifier=torch.cat([obj_classes_encodings,subj_classes_encodings],dim=0)
+        zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
+        if self.detic.roi_heads.box_predictor[0].cls_score.norm_weight:
+            zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
+        zs_weight = zs_weight.to(self.cfg.MODEL.DEVICE)
+        for k in range(len(self.detic.roi_heads.box_predictor)):
+            del self.detic.roi_heads.box_predictor[k].cls_score.zs_weight
+            self.detic.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
+        output_score_threshold = self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST
+        for cascade_stages in range(len(self.detic.roi_heads.box_predictor)):
+            self.detic.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold        
+        #So - Idea - What if I could use the score to add noise to the output class. 
+        outputs=self.detic(self,img)
+        print("outputs",outputs.keys())
+
+        
+        found_masks=outputs['instances'].get('pred_masks')
+        found_boxes=outputs['instances'].get('pred_boxes') #these are in xyxy format
+        #check outputs for bounding boxes that are close to the subject and object boxes.
+        #do box iou between outputs and inputs split by batch_idx
+
+        box_ious=torchvision.ops.box_iou(found_boxes,torch.cat([objects,subjects],dim=0))
+        bestboxes=torch.max(box_ious,dim=-1)
+        masks_per_caption= found_masks[bestboxes]# select masks corresponding to best boxes,
+
+        #do matcher based on box iou between outputs and inputs split by batch_idx 
+        batch_one_hot=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])
+        masks_per_caption= found_masks.unsqueeze(-1)@batch_one_hot.unsqueeze(0).unsqueeze(0).float() 
+        masks_per_image=sum(masks_per_caption,dim=-1)
+        return masks_per_caption,masks_per_image
+
 
     def train_step(self,batch, batch_idx):
+        image, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
+
         image,targets,tgt_idx=batch
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
         
@@ -157,3 +199,25 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #B,512
         #we're going to take the classes and search them through detic
 
+if __name__ == "__main__":
+
+    # we're going to need to look at datatest 3 first... which means loading the visual genome dataset.
+    from data.VisGenomeDataModule import VisGenomeDataModule
+    from argparse import ArgumentParser
+    parser = ArgumentParser()
+    parser.add_argument('--Cache_dir', type=str, default='.', help='path to download and cache data')
+    parser.add_argument('--batch_size', type=int, default=3, help='batch size')
+    parser.add_argument('--stream', default=False, type=bool,help='stream data',)
+    parser.add_argument("--COCO", default=False, type=bool,help="Use COCO style data")
+    args=parser.parse_args()
+    dir=os.path.join(args.Cache_dir,"data")
+    dm =VisGenomeDataModule(Cache_dir=dir,batch_size=args.batch_size)
+    dm.prepare_data()
+    dm.setup()
+
+    model=Exp3ClipToVisGenomeMask(layers=2,version=2)
+
+    trainer = pl.Trainer(gpus=1,precision=16,max_epochs=1)
+    trainer.fit(model, dm)
+
+    
