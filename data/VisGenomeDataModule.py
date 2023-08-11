@@ -106,7 +106,24 @@ class VisGenomeDataset(Dataset):
         return len(self.data)
     def __getitem__(self,idx):
         return self.process(self.data.__getitem__(idx))
+def Collate(batch):
+    #batch is a list of dicts with keys img, relation, objects, subjects, obj_classes, subj_classes
+    #we're boing to stack the images, relations, obj_classes, subj_classes as these are all to be handed to CLIP
+    #we're going to cat the objects and subjects as these boxes are to be handed to DETR
+    #we're going to make out batch_idx with torch.cat( torch.fill(idx in batch, len(batch[idx])))
 
+    batch=zip(*batch)
+    batch["img"]=torch.stack(batch["img"])
+    batch["relation"]=torch.cat(batch["relation"])
+    batch["obj_classes"]=torch.cat(batch["obj_classes"])
+    batch["subj_classes"]=torch.cat(batch["subj_classes"])
+    batch["objects"]=torch.cat(batch["objects"])
+    batch["subjects"]=torch.cat(batch["subjects"])
+    batch["batch_idx"]=torch.cat([torch.full((len(x),),i) for i,x in enumerate(batch[0])])
+    
+    #batch_idx=torch.cat([torch.full((len(x),),i) for i,x in enumerate(batch[0])])
+
+    return batch
 class VisGenomeDatasetBigBoxes(VisGenomeDataset):
     def process(self,item):
         if len(item["relationships"])==0:
@@ -183,13 +200,14 @@ class VisGenomeDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.stream=stream
         self.tokenizer=CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32") 
-
+        self.collate_fn=None
         if fullBoxes:
             self.dataConstructor=VisGenomeDatasetBigBoxes
             if self.stream:
                 self.dataConstructor=VisGenomeDatasetIterBigBoxes
         else:
             self.dataConstructor=VisGenomeDataset
+            self.collate_fn=Collate
             if self.stream:
                 self.dataConstructor=VisGenomeIterDataset
         self.T=T
