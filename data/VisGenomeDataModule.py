@@ -91,8 +91,8 @@ class VisGenomeDataset(Dataset):
             subj_classes.append(" ".join(["a", r["subject"]["names"][0]]))  
             caption=" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])
             captions.append(self.tokenize(caption))
-            objects.append(datapoints.BoundingBox([r["subject"]["x"],r["subject"]["y"],r["subject"]["w"],r["subject"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]]).to_xyxy())
-            subjects.append(datapoints.BoundingBox([r["object"]["x"],r["object"]["y"],r["object"]["w"],r["object"]["h"]], format=datapoints.BoundingBoxFormat.XYWH, spatial_size=[item["width"],item["height"]]).to_xyxy())
+            objects.append(torch.tensor([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]]))
+            subjects.append(torch.tensor([r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]]))
             #captions.append(caption)
         try:
             img,boxes= prep(item["image"],boxes=objects+subjects)
