@@ -85,6 +85,7 @@ class VisGenomeDataset(Dataset):
         captions=[]
         obj_classes=[]
         subj_classes=[]
+        img=None
         for r in item["relationships"]:
             obj_classes.append(" ".join(["a", r["object"]["names"][0]]))
             subj_classes.append(" ".join(["a", r["subject"]["names"][0]]))  
