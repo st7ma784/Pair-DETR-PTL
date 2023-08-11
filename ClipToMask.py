@@ -101,6 +101,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         self.clip,_ =clip.load("ViT-B/32", device="cuda")
+        self.clip.eval()
         self.cfg=get_cfg()
         add_detic_config(self.cfg)
         add_centernet_config(self.cfg)
@@ -118,8 +119,6 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
         self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
         self.cfg.MODEL.DEVICE='cuda'
-        self.text_encoder = build_text_encoder(pretrain=True)
-        self.text_encoder.eval()
         self.detic = build_model(self.cfg)
         self.detic.eval()
         self.loss=nn.BCEWithLogitsLoss(reduction="mean")
@@ -179,10 +178,6 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
         images=batch["img"]
         captions=batch["relation"]
-        obj_class_names=batch["obj_classes"]
-        subj_class_names=batch["subj_classes"]
-        obj_boxes=batch["objects"]
-        subj_boxes=batch["subjects"]
         tgt_idx=batch["batch_idx"]
         masks_per_caption,masks_per_image=self.detic_forward(**batch)
 
