@@ -121,7 +121,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.cfg.MODEL.DEVICE='cuda'
 
         self.detic = build_model(self.cfg)
-        self.detic=self.detic.eval()
+        self.detic.eval()
         self.detic.training=False
         self.loss=nn.BCEWithLogitsLoss(reduction="mean")
         self.weight=nn.Parameter(torch.tensor(0.5))
@@ -158,12 +158,12 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             self.detic.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold        
         #So - Idea - What if I could use the score to add noise to the output class. 
         print("img",img.shape)
-
-        outputs=self.detic.inference(img)
-        features = self.detic.backbone(img)
-        proposals, _ = self.detic.proposal_generator(img, features,None )
-        outputs, _ = self.detic.roi_heads(img, features, proposals)
-        print("outputs",outputs.keys())
+        with torch.no_grad():
+            outputs=self.detic(img)
+            features = self.detic.backbone(img)
+            proposals, _ = self.detic.proposal_generator(img, features,None )
+            outputs, _ = self.detic.roi_heads(img, features, proposals)
+            print("outputs",outputs.keys())
 
         
         found_masks=outputs['instances'].get('pred_masks')
