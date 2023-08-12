@@ -210,7 +210,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
         #do matcher based on box iou between outputs and inputs split by batch_idx 
         batch_one_hot=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])
-        masks_per_caption= found_masks.unsqueeze(-1)@batch_one_hot.unsqueeze(0).unsqueeze(0).float() 
+        masks_per_caption= found_masks.unsqueeze(-1)@batch_one_hot.unsqueeze(1).float() 
         masks_per_image=sum(masks_per_caption,dim=-1)
         return masks_per_caption,masks_per_image
 
