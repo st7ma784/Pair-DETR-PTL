@@ -121,8 +121,6 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.cfg.MODEL.DEVICE='cuda'
 
         self.detic = DefaultPredictor(self.cfg)
-        self.detic.eval()
-        self.detic.training=False
         self.loss=nn.BCEWithLogitsLoss(reduction="mean")
         self.weight=nn.Parameter(torch.tensor(0.5))
 
