@@ -98,13 +98,7 @@ class CustomRCNN(GeneralizedRCNN):
         features = self.backbone(images)
         proposals, _ = self.proposal_generator(images, features, None)
         results, _ = self.roi_heads(images, features, proposals)
-        if do_postprocess:
-            assert not torch.jit.is_scripting(), \
-                "Scripting is not supported for postprocess."
-            return CustomRCNN._postprocess(
-                results, batched_inputs, images.image_sizes)
-        else:
-            return results
+        return results
 
 
     def forward(self, batched_inputs):
