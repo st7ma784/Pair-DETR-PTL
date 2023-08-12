@@ -95,7 +95,7 @@ class CustomRCNN(GeneralizedRCNN):
         assert detected_instances is None
 
         
-        features = self.backbone(images.tensor)
+        features = self.backbone(images)
         proposals, _ = self.proposal_generator(images, features, None)
         results, _ = self.roi_heads(images, features, proposals)
         if do_postprocess:
