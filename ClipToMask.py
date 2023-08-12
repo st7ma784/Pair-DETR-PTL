@@ -194,7 +194,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             outputs, _ = self.detic.model.roi_heads(img, featuresOUT, proposals)
         #     print("outputs",outputs.keys())
 
-        print("outputs",outputs.keys())
+        print("outputs",outputs[0].keys())
         found_masks=outputs['instances'].get('pred_masks')
         found_boxes=outputs['instances'].get('pred_boxes') #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
