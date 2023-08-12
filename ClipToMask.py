@@ -120,7 +120,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
         self.cfg.MODEL.DEVICE='cuda'
 
-        self.detic = build_model(self.cfg)
+        self.detic = DefaultPredictor(self.cfg)
         self.detic.eval()
         self.detic.training=False
         self.loss=nn.BCEWithLogitsLoss(reduction="mean")
@@ -159,13 +159,14 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #So - Idea - What if I could use the score to add noise to the output class. 
         print("img",img.shape)
         with torch.no_grad():
-            features = self.detic.backbone(img)
-            print(self.detic.proposal_generator)
-            #creeate list of b items of len obj_classes+subj_classes
-            gt=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])# n_images x n_classes
-            proposals, _ = self.detic.proposal_generator(img, features,gt.T )
-            outputs, _ = self.detic.roi_heads(img, features, proposals)
-            print("outputs",outputs.keys())
+            outputs = self.detic.predictor(img)
+        #     features = self.detic.backbone(img)
+        #     print(self.detic.proposal_generator)
+        #     #creeate list of b items of len obj_classes+subj_classes
+        #     gt=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])# n_images x n_classes
+        #     proposals, _ = self.detic.proposal_generator(img, features,gt.T )
+        #     outputs, _ = self.detic.roi_heads(img, features, proposals)
+        #     print("outputs",outputs.keys())
 
         
         found_masks=outputs['instances'].get('pred_masks')
