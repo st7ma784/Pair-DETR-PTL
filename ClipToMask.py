@@ -152,7 +152,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         metadata = MetadataCatalog.get(str(time.time()))
         metadata.thing_classes = self.detic.model.roi_heads.num_classes
         classifier=torch.cat([obj_classes_encodings,subj_classes_encodings],dim=0)
-        zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
+        zs_weight = classifier# torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
         if self.detic.model.roi_heads.box_predictor[0].cls_score.norm_weight:
             zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
         zs_weight = zs_weight.to(self.cfg.MODEL.DEVICE)
