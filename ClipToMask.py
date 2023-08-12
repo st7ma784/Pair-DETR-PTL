@@ -162,13 +162,15 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #So - Idea - What if I could use the score to add noise to the output class. 
         print("img",img.shape)
         with torch.no_grad():
-            #outputs = self.detic.model(img)
-            features = self.detic.model.backbone(img)
-        #     print(self.detic.proposal_generator)
+            outputs = self.detic.model(TensorWrapper(img))
+        #   features = self.detic.model.backbone(img)
+        #   
+        #   print(self.detic.proposal_generator)
 
             #we#re going to create input with as objects that input.tensor=img and input.image_sizes=img.shape[1:].unsqueeze(0).repeat(img.shape[0],1,1)
             inputs=TensorWrapper(img)
-            proposals, _ = self.detic.model.proposal_generator(inputs, features)
+
+            proposals, _ = self.detic.model.proposal_generator(inputs, features,)
         #     outputs, _ = self.detic.model.roi_heads(img, features, proposals)
         #     print("outputs",outputs.keys())
 
