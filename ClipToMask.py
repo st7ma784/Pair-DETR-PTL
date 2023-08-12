@@ -171,22 +171,22 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             #apparently Tensor obj has no attribute image_sizes
             setattr(img,"image_sizes",torch.tensor(img.shape[1:]).unsqueeze(0).repeat(img.shape[0],1))
 
-            features = [featuresOUT[f] for f in self.detic.model.proposal_generator.in_features]
-            _, reg_pred_per_level, agn_hm_pred_per_level = self.detic.model.proposal_generator.centernet_head(features)
-            grids = self.detic.model.proposal_generator.compute_grids(features)
-            agn_hm_pred_per_level = [x.sigmoid() if x is not None else None \
-                for x in agn_hm_pred_per_level]
+            #             features = [featuresOUT[f] for f in self.detic.model.proposal_generator.in_features]
+            #             _, reg_pred_per_level, agn_hm_pred_per_level = self.detic.model.proposal_generator.centernet_head(features)
+            #             grids = self.detic.model.proposal_generator.compute_grids(features)
+            #             agn_hm_pred_per_level = [x.sigmoid() if x is not None else None \
+            #                 for x in agn_hm_pred_per_level]
 
-            proposals = self.detic.model.proposal_generator.predict_instances(
-                grids, agn_hm_pred_per_level, reg_pred_per_level, 
-               torch.tensor(img.shape[1:]).unsqueeze(0).repeat(img.shape[0],1)
-, [None for _ in agn_hm_pred_per_level])
-            for p in range(len(proposals)):
-                    proposals[p].proposal_boxes = proposals[p].get('pred_boxes')
-                    proposals[p].objectness_logits = proposals[p].get('scores')
-                    proposals[p].remove('pred_boxes')
-                    proposals[p].remove('scores')
-                    proposals[p].remove('pred_classes')
+            #             proposals = self.detic.model.proposal_generator.predict_instances(
+            #                 grids, agn_hm_pred_per_level, reg_pred_per_level, 
+            #                torch.tensor(img.shape[1:]).unsqueeze(0).repeat(img.shape[0],1)
+            # , [None for _ in agn_hm_pred_per_level])
+            #             for p in range(len(proposals)):
+            #                     proposals[p].proposal_boxes = proposals[p].get('pred_boxes')
+            #                     proposals[p].objectness_logits = proposals[p].get('scores')
+            #                     proposals[p].remove('pred_boxes')
+            #                     proposals[p].remove('scores')
+            #                     proposals[p].remove('pred_classes')
             
             proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
 
