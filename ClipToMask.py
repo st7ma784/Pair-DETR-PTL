@@ -100,7 +100,7 @@ import torchvision
 class TensorWrapper():
     def __init__(self,tensor):
         self.tensor=tensor
-        self.image_sizes=tensor.shape[1:].unsqueeze(0).repeat(tensor.shape[0],1,1)
+        self.image_sizes=torch.tensor(tensor.shape[1:]).unsqueeze(0).repeat(tensor.shape[0],1,1)
 class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
     #this is going to be a bit more complicated - including a DEtic model to generate the masks needed
     def __init__(self,*args,**kwargs):
@@ -168,7 +168,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
             #we#re going to create input with as objects that input.tensor=img and input.image_sizes=img.shape[1:].unsqueeze(0).repeat(img.shape[0],1,1)
             inputs=TensorWrapper(img)
-            proposals, _ = self.detic.model.proposal_generator(img, features, )
+            proposals, _ = self.detic.model.proposal_generator(inputs, features)
         #     outputs, _ = self.detic.model.roi_heads(img, features, proposals)
         #     print("outputs",outputs.keys())
 
