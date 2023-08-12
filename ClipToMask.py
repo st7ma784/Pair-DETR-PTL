@@ -194,8 +194,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             outputs, _ = self.detic.model.roi_heads(img, featuresOUT, proposals)
         #     print("outputs",outputs.keys())
         #outputs is a list of Instances, each instance has pred_boxes, pred_classes, pred_masks, scores
-        found_masks=[outputs[i]['instances'].get('pred_masks') for i in range(len(outputs))]
-        found_boxes=[outputs[i]['instances'].get('pred_boxes') for i in range(len(outputs))] #these are in xyxy format
+        found_masks=[outputs[i].get('pred_masks') for i in range(len(outputs))]
+        found_boxes=[outputs[i].get('pred_boxes') for i in range(len(outputs))] #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
         #do box iou between outputs and inputs split by batch_idx
         found_boxes=torch.cat(found_boxes,dim=0)
