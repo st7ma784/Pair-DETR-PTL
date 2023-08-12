@@ -100,7 +100,7 @@ import torchvision
 class TensorWrapper():
     def __init__(self,tensor):
         self.tensor=tensor
-        self.image_sizes=torch.tensor(tensor.shape[1:]).unsqueeze(0).repeat(tensor.shape[0],1)
+        self.tensor.image_sizes=torch.tensor(tensor.shape[1:]).unsqueeze(0).repeat(tensor.shape[0],1)
     def size(self):
         return self.tensor.size()
 class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
