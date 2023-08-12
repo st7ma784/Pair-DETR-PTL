@@ -188,7 +188,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
                     proposals[p].remove('scores')
                     proposals[p].remove('pred_classes')
             
-            #proposals, _ = self.detic.model.proposal_generator(images=img, features=features,)
+            proposals, _ = self.detic.model.proposal_generator(img, features,None)
 
             
             outputs, _ = self.detic.model.roi_heads(img, featuresOUT, proposals)
