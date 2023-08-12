@@ -167,9 +167,9 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         with torch.no_grad():
             #outputs = self.detic.model(img)
             featuresOUT = self.detic.model.backbone(img)
-            img.image_sizes=[(224,224)*img.shape[0]]
+            img.image_sizes=[(224,224)]*img.shape[0]
             #apparently Tensor obj has no attribute image_sizes
-            setattr(img,"image_sizes",[(224,224)*img.shape[0]])
+            setattr(img,"image_sizes",[(224,224)]*img.shape[0])
 
             #             features = [featuresOUT[f] for f in self.detic.model.proposal_generator.in_features]
             #             _, reg_pred_per_level, agn_hm_pred_per_level = self.detic.model.proposal_generator.centernet_head(features)
