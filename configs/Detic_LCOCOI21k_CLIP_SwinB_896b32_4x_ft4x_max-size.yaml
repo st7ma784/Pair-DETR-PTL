@@ -24,9 +24,6 @@ SOLVER:
   BASE_LR: 0.0001
   WARMUP_ITERS: 1000
   WARMUP_FACTOR: 0.001
-DATASETS:
-  TRAIN: ("lvis_v1_train+coco","imagenet_lvis-22k")
-  TEST: ('oid_val_expanded', 'objects365_v2_val')
 DATALOADER:
   SAMPLER_TRAIN: "MultiDatasetSampler"
   DATASET_RATIO: [1, 16]

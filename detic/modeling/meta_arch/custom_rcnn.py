@@ -87,14 +87,14 @@ class CustomRCNN(GeneralizedRCNN):
 
     def inference(
         self,
-        batched_inputs: Tuple[Dict[str, torch.Tensor]],
+        images,
         detected_instances: Optional[List[Instances]] = None,
-        do_postprocess: bool = True,
+        do_postprocess: bool = False,
     ):
         assert not self.training
         assert detected_instances is None
 
-        images = self.preprocess_image(batched_inputs)
+        
         features = self.backbone(images.tensor)
         proposals, _ = self.proposal_generator(images, features, None)
         results, _ = self.roi_heads(images, features, proposals)
