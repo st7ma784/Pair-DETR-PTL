@@ -123,7 +123,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
                 filename = wget.download(url)
                 print("fetched to {}".format(filename))
         self.cfg.MODEL.WEIGHTS = filename
-        self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.12  # set threshold for this model
+        self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.6  # set threshold for this model
         self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
         self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
         self.cfg.MODEL.DEVICE='cuda'
@@ -193,8 +193,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             
             outputs, _ = self.detic.model.roi_heads(img, featuresOUT, proposals)
         #     print("outputs",outputs.keys())
-
-        print("outputs",outputs[0])
+        #outputs is a list of Instances, each instance has pred_boxes, pred_classes, pred_masks, scores
         found_masks=outputs['instances'].get('pred_masks')
         found_boxes=outputs['instances'].get('pred_boxes') #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
