@@ -166,7 +166,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         print("img",img.shape)
         with torch.no_grad():
             outputs = self.detic.model(img)
-        #   features = self.detic.model.backbone(img)
+            features = self.detic.model.backbone(img)
         #   
         #   print(self.detic.proposal_generator)
 
