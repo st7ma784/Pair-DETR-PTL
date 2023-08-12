@@ -166,12 +166,12 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         print("img",img.shape)
         with torch.no_grad():
             #outputs = self.detic.model(img)
-            features = self.detic.model.backbone(img)
+            featuresOUT = self.detic.model.backbone(img)
             img.image_sizes=torch.tensor(img.shape[1:]).unsqueeze(0).repeat(img.shape[0],1)
             #apparently Tensor obj has no attribute image_sizes
             setattr(img,"image_sizes",torch.tensor(img.shape[1:]).unsqueeze(0).repeat(img.shape[0],1))
 
-            features = [features[f] for f in self.detic.model.proposal_generator.in_features]
+            features = [featuresOUT[f] for f in self.detic.model.proposal_generator.in_features]
             _, reg_pred_per_level, agn_hm_pred_per_level = self.detic.model.proposal_generator.centernet_head(features)
             grids = self.detic.model.proposal_generator.compute_grids(features)
             agn_hm_pred_per_level = [x.sigmoid() if x is not None else None \
@@ -186,7 +186,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             #proposals, _ = self.detic.model.proposal_generator(images=img, features=features,)
 
             
-            outputs, _ = self.detic.model.roi_heads(img, features, proposals)
+            outputs, _ = self.detic.model.roi_heads(img, featuresOUT, proposals)
         #     print("outputs",outputs.keys())
 
         
