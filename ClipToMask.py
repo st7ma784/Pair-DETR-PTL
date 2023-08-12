@@ -140,20 +140,20 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         subj_classes_encodings=self.clip.encode_text(subj_classes)
         #do predictions on all images with DETIC 
         #classifier = self.get_clip_embeddings(self,classes)
-        self.detic.roi_heads.num_classes =  obj_classes_encodings.shape[0]+subj_classes_encodings.shape[0]
+        self.detic.model.roi_heads.num_classes =  obj_classes_encodings.shape[0]+subj_classes_encodings.shape[0]
         metadata = MetadataCatalog.get(str(time.time()))
-        metadata.thing_classes = self.detic.roi_heads.num_classes
+        metadata.thing_classes = self.detic.model.roi_heads.num_classes
         classifier=torch.cat([obj_classes_encodings,subj_classes_encodings],dim=0)
         zs_weight = torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
         if self.detic.roi_heads.box_predictor[0].cls_score.norm_weight:
             zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
         zs_weight = zs_weight.to(self.cfg.MODEL.DEVICE)
-        for k in range(len(self.detic.roi_heads.box_predictor)):
-            del self.detic.roi_heads.box_predictor[k].cls_score.zs_weight
-            self.detic.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
+        for k in range(len(self.detic.model.roi_heads.box_predictor)):
+            del self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight
+            self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
         output_score_threshold = self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST
-        for cascade_stages in range(len(self.detic.roi_heads.box_predictor)):
-            self.detic.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold        
+        for cascade_stages in range(len(self.detic.model.roi_heads.box_predictor)):
+            self.detic.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold        
         #So - Idea - What if I could use the score to add noise to the output class. 
         print("img",img.shape)
         with torch.no_grad():
