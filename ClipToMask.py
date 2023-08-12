@@ -161,7 +161,9 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         with torch.no_grad():
             features = self.detic.backbone(img)
             print(self.detic.proposal_generator)
-            proposals, _ = self.detic.proposal_generator(img, features,None )
+            #creeate list of b items of len obj_classes+subj_classes
+            gt=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])# n_images x n_classes
+            proposals, _ = self.detic.proposal_generator(img, features,gt.T )
             outputs, _ = self.detic.roi_heads(img, features, proposals)
             print("outputs",outputs.keys())
 
