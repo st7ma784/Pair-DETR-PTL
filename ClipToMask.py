@@ -195,13 +195,13 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #     print("outputs",outputs.keys())
         #outputs is a list of Instances, each instance has pred_boxes, pred_classes, pred_masks, scores
         found_masks=[outputs[i].get('pred_masks') for i in range(len(outputs))]
-        found_boxes=[outputs[i].get('pred_boxes') for i in range(len(outputs))] #these are in xyxy format
+        found_boxes=[outputs[i].get('pred_boxes').tensor for i in range(len(outputs))] #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
         #do box iou between outputs and inputs split by batch_idx
 
 
         #These are Boxes, we need to convert them to tensors,
-        print("found_boxes",found_boxes)
+        #print("found_boxes",found_boxes)
         found_boxes=torch.cat(found_boxes,dim=0)
         found_masks=torch.cat(found_masks,dim=0)
         box_ious=torchvision.ops.box_iou(found_boxes,torch.cat([objects,subjects],dim=0))
