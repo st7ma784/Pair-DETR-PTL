@@ -257,6 +257,8 @@ class DeticCascadeROIHeads(CascadeROIHeads):
         """
         Support classifier_info and add_feature_to_prop
         """
+        print("prop", len(proposals))
+        print("proposals[0]", proposals[0])
         pool_boxes = [x.proposal_boxes for x in proposals]
         box_features = self.box_pooler(features, pool_boxes)
         box_features = _ScaleGradient.apply(box_features, 1.0 / self.num_cascade_stages)
