@@ -108,8 +108,9 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.clip,_ =clip.load("ViT-B/32", device="cuda")
         self.clip.eval()
         self.cfg=get_cfg()
-        add_detic_config(self.cfg)
         add_centernet_config(self.cfg)
+
+        add_detic_config(self.cfg)
         self.cfg.merge_from_file("configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml")
         filename="./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"
         if not os.path.exists("./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"):
