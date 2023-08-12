@@ -96,6 +96,11 @@ from detic.modeling.text.text_encoder import build_text_encoder
 import wget
 from typing import Optional,List
 import torchvision
+
+class TensorWrapper():
+    def __init__(self,tensor):
+        self.tensor=tensor
+        self.image_sizes=tensor.shape[1:].unsqueeze(0).repeat(tensor.shape[0],1,1)
 class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
     #this is going to be a bit more complicated - including a DEtic model to generate the masks needed
     def __init__(self,*args,**kwargs):
@@ -157,12 +162,13 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #So - Idea - What if I could use the score to add noise to the output class. 
         print("img",img.shape)
         with torch.no_grad():
-            outputs = self.detic.model(img)
-        #     features = self.detic.model.backbone(img)
+            #outputs = self.detic.model(img)
+            features = self.detic.model.backbone(img)
         #     print(self.detic.proposal_generator)
-        #     #creeate list of b items of len obj_classes+subj_classes
-        #     gt=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])# n_images x n_classes
-        #     proposals, _ = self.detic.model.proposal_generator(img, features,gt.T )
+
+            #we#re going to create input with as objects that input.tensor=img and input.image_sizes=img.shape[1:].unsqueeze(0).repeat(img.shape[0],1,1)
+            inputs=TensorWrapper(img)
+            proposals, _ = self.detic.model.proposal_generator(img, features, )
         #     outputs, _ = self.detic.model.roi_heads(img, features, proposals)
         #     print("outputs",outputs.keys())
 
