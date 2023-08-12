@@ -122,6 +122,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
         self.detic = build_model(self.cfg)
         self.detic=self.detic.eval()
+        self.detic.training=False
         self.loss=nn.BCEWithLogitsLoss(reduction="mean")
         self.weight=nn.Parameter(torch.tensor(0.5))
 
@@ -158,7 +159,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #So - Idea - What if I could use the score to add noise to the output class. 
         print("img",img.shape)
 
-
+        outputs=self.detic.inference(img)
         features = self.detic.backbone(img)
         proposals, _ = self.detic.proposal_generator(img, features,None )
         outputs, _ = self.detic.roi_heads(img, features, proposals)
