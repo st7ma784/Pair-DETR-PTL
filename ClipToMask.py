@@ -171,7 +171,21 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             #apparently Tensor obj has no attribute image_sizes
             setattr(img,"image_sizes",torch.tensor(img.shape[1:]).unsqueeze(0).repeat(img.shape[0],1))
 
-            proposals, _ = self.detic.model.proposal_generator(images=img, features=features,)
+            #proposals, _ = self.detic.model.proposal_generator(images=img, features=features,)
+            features = [features[f] for f in self.detic.model.proposal_generator.in_features]
+            _, reg_pred_per_level, agn_hm_pred_per_level = self.centernet_head(features)
+            grids = self.compute_grids(features)
+            agn_hm_pred_per_level = [x.sigmoid() if x is not None else None \
+                for x in agn_hm_pred_per_level]
+
+            proposals = self.predict_instances(
+                grids, agn_hm_pred_per_level, reg_pred_per_level, 
+               torch.tensor(img.shape[1:]).unsqueeze(0).repeat(img.shape[0],1)
+, [None for _ in agn_hm_pred_per_level])
+       
+            
+            
+            
             outputs, _ = self.detic.model.roi_heads(img, features, proposals)
         #     print("outputs",outputs.keys())
 
