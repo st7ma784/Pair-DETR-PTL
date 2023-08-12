@@ -183,7 +183,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 , [None for _ in agn_hm_pred_per_level])
        
             
-            proposals, _ = self.detic.model.proposal_generator(images=img, features=features,)
+            #proposals, _ = self.detic.model.proposal_generator(images=img, features=features,)
 
             
             outputs, _ = self.detic.model.roi_heads(img, features, proposals)
