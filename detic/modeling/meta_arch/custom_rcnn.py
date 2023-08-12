@@ -107,29 +107,29 @@ class CustomRCNN(GeneralizedRCNN):
             return results
 
 
-    def forward(self, batched_inputs: List[Dict[str, torch.Tensor]]):
+    def forward(self, batched_inputs):
         """
         Add ann_type
         Ignore proposal loss when training with image labels
         """
         if not self.training:
             return self.inference(batched_inputs)
+        if not isinstance(torch.Tensor):
+            images = self.preprocess_image(batched_inputs)
 
-        images = self.preprocess_image(batched_inputs)
-
-        ann_type = 'box'
-        gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
-        if self.with_image_labels:
-            for inst, x in zip(gt_instances, batched_inputs):
-                inst._ann_type = x['ann_type']
-                inst._pos_category_ids = x['pos_category_ids']
-            ann_types = [x['ann_type'] for x in batched_inputs]
-            assert len(set(ann_types)) == 1
-            ann_type = ann_types[0]
-            if ann_type in ['prop', 'proptag']:
-                for t in gt_instances:
-                    t.gt_classes *= 0
-        
+            ann_type = 'box'
+            gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
+            if self.with_image_labels:
+                for inst, x in zip(gt_instances, batched_inputs):
+                    inst._ann_type = x['ann_type']
+                    inst._pos_category_ids = x['pos_category_ids']
+                ann_types = [x['ann_type'] for x in batched_inputs]
+                assert len(set(ann_types)) == 1
+                ann_type = ann_types[0]
+                if ann_type in ['prop', 'proptag']:
+                    for t in gt_instances:
+                        t.gt_classes *= 0
+            
         if self.fp16: # TODO (zhouxy): improve
             with autocast():
                 features = self.backbone(images.tensor.half())
