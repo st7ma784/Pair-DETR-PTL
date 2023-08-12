@@ -181,7 +181,12 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
                 grids, agn_hm_pred_per_level, reg_pred_per_level, 
                torch.tensor(img.shape[1:]).unsqueeze(0).repeat(img.shape[0],1)
 , [None for _ in agn_hm_pred_per_level])
-       
+            for p in range(len(proposals)):
+                    proposals[p].proposal_boxes = proposals[p].get('pred_boxes')
+                    proposals[p].objectness_logits = proposals[p].get('scores')
+                    proposals[p].remove('pred_boxes')
+                    proposals[p].remove('scores')
+                    proposals[p].remove('pred_classes')
             
             #proposals, _ = self.detic.model.proposal_generator(images=img, features=features,)
 
