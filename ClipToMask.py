@@ -221,13 +221,14 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #do matcher based on box iou between outputs and inputs split by batch_idx 
         batch_one_hot=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])
         print("batch_one_hot",batch_one_hot.shape)
-        print("masks_per_caption",obj_masks_per_caption.shape)
-        obj_masks_per_caption= obj_masks_per_caption*batch_one_hot.unsqueeze(-1).unsqueeze(-1).float() 
-        sub_masks_per_caption= sub_masks_per_caption*batch_one_hot.unsqueeze(-1).unsqueeze(-1).float()
-        print("masks_per_caption",obj_masks_per_caption)
+        #print("masks_per_caption",obj_masks_per_caption.shape)
+        #print("masks_per_caption",obj_masks_per_caption)
         masks_per_caption=torch.logical_or(obj_masks_per_caption,sub_masks_per_caption).float()
-        masks_per_image=torch.sum(masks_per_caption,dim=1)
-        return masks_per_caption,masks_per_image
+        idx_masks_per_caption= masks_per_caption*batch_one_hot.unsqueeze(-1).unsqueeze(-1).float() 
+
+        
+        masks_per_image=torch.sum(idx_masks_per_caption,dim=1)
+        return masks_per_caption.squeeze(),masks_per_image
 
 
     def training_step(self,batch, batch_idx):
@@ -241,6 +242,10 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         encodingim=self.clip.encode_image(images[tgt_idx])
         maska=self.forward(encodingcap)
         maskb=self.forward(encodingim)
+
+        #interpolate the masks to the same size
+        masks_per_caption=torch.nn.functional.interpolate(masks_per_caption.unsqueeze(1),size=maska.shape[-2:])
+        masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:])
         #mask=maska*(self.weight.sigmoid())+maskb*(1-self.weight.sigmoid())
         lossa=self.loss(maska,masks_per_caption)
         lossb=self.loss(maskb,masks_per_image)
