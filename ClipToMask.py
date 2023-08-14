@@ -53,10 +53,14 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
     def from_encoding_to_maskv1(self,encoding):
         xrow=self.xmlp(encoding) # B#512
         ycol=self.ymlp(encoding)
+        # print("xrow",xrow.shape)
+        # print("ycol",ycol.shape)
+
         imageFeatures=torch.bmm(xrow.unsqueeze(-1),ycol.unsqueeze(1))#B,512,512
         mask1= self.finalmlp(imageFeatures)
-        imageFeatures1=torch.bmm(xrow.unsqueeze(1),ycol.unsqueeze(-1))
-        mask2=self.finalmlp(imageFeatures)
+        imageFeatures1=torch.bmm(ycol.unsqueeze(-1),xrow.unsqueeze(1))
+        # print("imageFeatures1",imageFeatures1.shape)
+        mask2=self.finalmlp(imageFeatures1)
         both_masks=self.finalcat(torch.cat([mask1,mask2],dim=-1))
         return both_masks
     def from_encoding_to_maskv2(self,encoding):
@@ -314,7 +318,7 @@ if __name__ == "__main__":
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument('--Cache_dir', type=str, default='.', help='path to download and cache data')
-    parser.add_argument('--batch_size', type=int, default=8, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=6, help='batch size')
     parser.add_argument('--stream', default=False, type=bool,help='stream data',)
     parser.add_argument("--COCO", default=False, type=bool,help="Use COCO style data")
     args=parser.parse_args()
@@ -323,7 +327,7 @@ if __name__ == "__main__":
     dm.prepare_data()
     dm.setup()
 
-    model=Exp3ClipToVisGenomeMask(layers=6,version=2)
+    model=Exp3ClipToVisGenomeMask(layers=2,version=1)
     logger=pl.loggers.WandbLogger(project="ClipToMask",entity="st7ma784",name="Exp3ClipToVisGenomeMask")
     trainer = pl.Trainer(gpus=1,precision=32,max_epochs=1,fast_dev_run=False,logger=logger)
     trainer.fit(model, dm)

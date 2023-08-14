@@ -102,8 +102,15 @@ class VisGenomeDataset(Dataset):
         except RuntimeError as e:
             print(e)
             return None
-        return {"img":img,"relation":torch.stack(captions),"objects":boxes["boxes"][:(len(boxes["boxes"])//2)],"subjects":boxes["boxes"][(len(boxes["boxes"])//2):], "obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
-        
+        # print("captions",captions)
+        # print("subjects",subj_classes)
+        outputs= {"img":img,
+                  "relation":torch.stack(captions),
+                  "objects":boxes["boxes"][:(len(boxes["boxes"])//2)],
+                  "subjects":boxes["boxes"][(len(boxes["boxes"])//2):],
+                    "obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),
+                    "subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
+        return outputs
     def __len__(self):
         return len(self.data)
     def __getitem__(self,idx):
@@ -244,12 +251,15 @@ class VisGenomeDataModule(pl.LightningDataModule):
     def setup(self, stage=None):
         '''called on each GPU separately - stage defines if we are at fit or test step'''
         #print("Entered COCO datasetup")
-        
-        #if stage == 'fit' or stage is None:
-        self.train=self.dataConstructor(T=self.T,dir=self.data_dir,split="train",tokenizer=self.tokenizer)
-    
-
-
+        dataset=self.dataConstructor(T=self.T,dir=self.data_dir,split="train",tokenizer=self.tokenizer)
+        if self.stream:
+            self.train=dataset
+        else:
+            #do split 80, 10, 10
+            sizes=[int(len(dataset)*x) for x in [.8,.1]]
+            sizes.append(len(dataset)-sum(sizes))
+            self.train, self.val, self.test = torch.utils.data.random_split(dataset, sizes)
+     
 
 if __name__ == "__main__":
     #run this to test the dataloader
