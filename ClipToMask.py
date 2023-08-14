@@ -284,7 +284,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
     #     captions=batch["relation"].squeeze()
     #     tgt_idx=batch["batch_idx"]
     #     encodingcap=self.clip.encode_text(captions).float()
-    #     encodingim=self.clip.encode_image(images[tgt_idx]).float()
+    #     encodingim=self.clip.encode_image(images).float()
               
     #     maska=self.forward(encodingcap)
     #     maskb=self.forward(encodingim)
