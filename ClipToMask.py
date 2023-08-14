@@ -287,7 +287,7 @@ if __name__ == "__main__":
 
     model=Exp3ClipToVisGenomeMask(layers=2,version=2)
 
-    trainer = pl.Trainer(gpus=1,precision=32,max_epochs=1)
+    trainer = pl.Trainer(gpus=1,precision=32,max_epochs=1,fast_dev_run=True,progress_bar_refresh_rate=20)
     trainer.fit(model, dm)
 
     
