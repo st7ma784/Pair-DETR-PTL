@@ -131,7 +131,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.detic = DefaultPredictor(self.cfg)
         self.loss=nn.BCEWithLogitsLoss(reduction="mean")
         self.weight=nn.Parameter(torch.tensor(0.5))
-
+    @torch.no_grad()
     def detic_forward(self,**batch):
         #This is going to assume we're pulling the Relation info from VisGenomeDataModule.py 
         # so we'll receive a list of "img", "relation","objects","subjects","obj_classes","subj_classes",batch_idx
