@@ -142,8 +142,6 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         objects=batch["objects"]
         subjects=batch["subjects"]
         batch_idx=batch["batch_idx"]
-
-        #convert classes and relations to clip encodings. 
         obj_classes_encodings=self.clip.encode_text(obj_classes)
         subj_classes_encodings=self.clip.encode_text(subj_classes)
         #do predictions on all images with DETIC 
@@ -163,35 +161,31 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         for cascade_stages in range(len(self.detic.model.roi_heads.box_predictor)):
             self.detic.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold        
         #So - Idea - What if I could use the score to add noise to the output class. 
-        print("img",img.shape)
-        with torch.no_grad():
-            #outputs = self.detic.model(img)
-            featuresOUT = self.detic.model.backbone(img)
-            img.image_sizes=[(224,224)]*img.shape[0]
-            #apparently Tensor obj has no attribute image_sizes
-            setattr(img,"image_sizes",[(224,224)]*img.shape[0])
+        featuresOUT = self.detic.model.backbone(img)
+        img.image_sizes=[(224,224)]*img.shape[0]
+        setattr(img,"image_sizes",[(224,224)]*img.shape[0])
 
-            #             features = [featuresOUT[f] for f in self.detic.model.proposal_generator.in_features]
-            #             _, reg_pred_per_level, agn_hm_pred_per_level = self.detic.model.proposal_generator.centernet_head(features)
-            #             grids = self.detic.model.proposal_generator.compute_grids(features)
-            #             agn_hm_pred_per_level = [x.sigmoid() if x is not None else None \
-            #                 for x in agn_hm_pred_per_level]
+        #             features = [featuresOUT[f] for f in self.detic.model.proposal_generator.in_features]
+        #             _, reg_pred_per_level, agn_hm_pred_per_level = self.detic.model.proposal_generator.centernet_head(features)
+        #             grids = self.detic.model.proposal_generator.compute_grids(features)
+        #             agn_hm_pred_per_level = [x.sigmoid() if x is not None else None \
+        #                 for x in agn_hm_pred_per_level]
 
-            #             proposals = self.detic.model.proposal_generator.predict_instances(
-            #                 grids, agn_hm_pred_per_level, reg_pred_per_level, 
-            #                torch.tensor(img.shape[1:]).unsqueeze(0).repeat(img.shape[0],1)
-            # , [None for _ in agn_hm_pred_per_level])
-            #             for p in range(len(proposals)):
-            #                     proposals[p].proposal_boxes = proposals[p].get('pred_boxes')
-            #                     proposals[p].objectness_logits = proposals[p].get('scores')
-            #                     proposals[p].remove('pred_boxes')
-            #                     proposals[p].remove('scores')
-            #                     proposals[p].remove('pred_classes')
-            
-            proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
+        #             proposals = self.detic.model.proposal_generator.predict_instances(
+        #                 grids, agn_hm_pred_per_level, reg_pred_per_level, 
+        #                torch.tensor(img.shape[1:]).unsqueeze(0).repeat(img.shape[0],1)
+        # , [None for _ in agn_hm_pred_per_level])
+        #             for p in range(len(proposals)):
+        #                     proposals[p].proposal_boxes = proposals[p].get('pred_boxes')
+        #                     proposals[p].objectness_logits = proposals[p].get('scores')
+        #                     proposals[p].remove('pred_boxes')
+        #                     proposals[p].remove('scores')
+        #                     proposals[p].remove('pred_classes')
+        
+        proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
 
-            
-            outputs, _ = self.detic.model.roi_heads(img, featuresOUT, proposals)
+        
+        outputs, _ = self.detic.model.roi_heads(img, featuresOUT, proposals)
         #     print("outputs",outputs.keys())
         #outputs is a list of Instances, each instance has pred_boxes, pred_classes, pred_masks, scores
         found_masks=[outputs[i].get('pred_masks') for i in range(len(outputs))]
@@ -204,8 +198,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #print("found_boxes",found_boxes)
         found_boxes=torch.cat(found_boxes,dim=0)
         found_masks=torch.cat(found_masks,dim=0)
-        print("found_boxes",found_boxes.shape)
-        print("found_masks",found_masks.shape)
+     
         #found_boxes torch.Size([45, 4])
         #found_masks torch.Size([45, 1, 28, 28])
         object_box_ious=torchvision.ops.box_iou(found_boxes,objects)
@@ -214,13 +207,11 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         
         bestobjboxes=torch.max(object_box_ious,dim=0).indices
         bestsubjboxes=torch.max(subject_box_ious,dim=0).indices #draw out which dim is which
-        print("bestboxes indices ",bestobjboxes.shape)
         obj_masks_per_caption= found_masks[bestobjboxes]# select masks corresponding to best boxes,
         sub_masks_per_caption= found_masks[bestsubjboxes]
 
         #do matcher based on box iou between outputs and inputs split by batch_idx 
         batch_one_hot=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])
-        print("batch_one_hot",batch_one_hot.shape)
         #print("masks_per_caption",obj_masks_per_caption.shape)
         #print("masks_per_caption",obj_masks_per_caption)
         masks_per_caption=torch.logical_or(obj_masks_per_caption,sub_masks_per_caption).float()
@@ -236,26 +227,19 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         images=batch["img"]
         captions=batch["relation"].squeeze()
         tgt_idx=batch["batch_idx"]
-        encodingcap=self.clip.encode_text(captions)
-        encodingim=self.clip.encode_image(images[tgt_idx])
+        encodingcap=self.clip.encode_text(captions).float()
+        encodingim=self.clip.encode_image(images[tgt_idx]).float()
               
         maska=self.forward(encodingcap)
         maskb=self.forward(encodingim)
 
-        with torch.no_grad():
-
-            masks_per_caption,masks_per_image=self.detic_forward(**batch)
-
-
-
-            #interpolate the masks to the same size
-            masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:])
-            masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:])
+        masks_per_caption,masks_per_image=self.detic_forward(**batch)
+        masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
+        masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:]).squeeze(1)
         #mask=maska*(self.weight.sigmoid())+maskb*(1-self.weight.sigmoid())
-        print("maska",maska.shape)
-        print("maskb",maskb.shape)
-        print("masks_per_caption",masks_per_caption.shape)
-        print("masks_per_image",masks_per_image.shape)
+        
+
+
         lossa=self.loss(maska,masks_per_caption)
         lossb=self.loss(maskb,masks_per_image)
         self.log("caption_loss",lossa)
@@ -286,9 +270,9 @@ if __name__ == "__main__":
     dm.prepare_data()
     dm.setup()
 
-    model=Exp3ClipToVisGenomeMask(layers=2,version=2)
+    model=Exp3ClipToVisGenomeMask(layers=4,version=2)
 
-    trainer = pl.Trainer(gpus=1,precision=16,max_epochs=1)
+    trainer = pl.Trainer(gpus=1,precision=32,max_epochs=1)
     trainer.fit(model, dm)
 
     
