@@ -209,6 +209,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #found_boxes torch.Size([45, 4])
         #found_masks torch.Size([45, 1, 28, 28])
         box_ious=torchvision.ops.box_iou(found_boxes,torch.cat([objects,subjects],dim=0))
+        print("box_ious",box_ious.shape)
         bestboxes=torch.max(box_ious,dim=-1).indices
         masks_per_caption= found_masks[bestboxes]# select masks corresponding to best boxes,
 
