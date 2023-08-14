@@ -156,7 +156,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         zs_weight = zs_weight.to(self.cfg.MODEL.DEVICE)
         for k in range(len(self.detic.model.roi_heads.box_predictor)):
             #del self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight
-            self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
+            self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight.weight = zs_weight
         output_score_threshold = self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST
         for cascade_stages in range(len(self.detic.model.roi_heads.box_predictor)):
             self.detic.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold        
