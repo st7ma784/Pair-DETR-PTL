@@ -34,7 +34,7 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
         # this means we need to expand the information there...
         #to do this we're going to take our B,F and train a row of pixels for x and y, multiply them and then pass that through a third mlp
         #this will give us a mask of the same size as the input. 
-        self.weight=nn.Parameter(torch.tensor(0.5))
+        self.w=0.5
         if version==1:
             self.xmlp=MLP(input_dim=512,hidden_dim=512,output_dim=512,num_layers=layers)
             self.ymlp=MLP(input_dim=512,hidden_dim=512,output_dim=512,num_layers=layers)
@@ -69,7 +69,7 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
         lossb= self.loss(mask_im,masks)
         #weight will be a leant param between 0 and 1
 
-        weight=self.weight.sigmoid()
+        weight=self.w
         self.log("train_loss_cap",lossa)
         self.log("train_loss_img",lossb)
         loss=lossa*weight+lossb*(1-weight)
@@ -186,10 +186,21 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
                 proposals[p].remove('scores')
                 proposals[p].remove('pred_classes')
 
-        #proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
+        ##proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
 
         
-        outputs, _ = self.detic.model.roi_heads(img, featuresOUT, proposals)
+        outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier,None,None))
+        #So heres what I don't understand.... 
+        '''
+        In this roi_heads function, we take the set of proposals, and then we run them through the roi_heads.
+        each ROi_head is a detic_roi_head we take the max value from each head. Each head has a DETIC ROI Predictor, that essentially just does f @ zs_weight?
+        So - we're going to need to do a few things here.
+
+        1. We need to take the zs_weight and the f and do a matrix multiply
+        2. We need to take the max value from each head
+        '''
+
+
         #     print("outputs",outputs.keys())
         #outputs is a list of Instances, each instance has pred_boxes, pred_classes, pred_masks, scores
         found_masks=[outputs[i].get('pred_masks') for i in range(len(outputs))]

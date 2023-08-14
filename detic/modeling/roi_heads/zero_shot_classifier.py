@@ -5,6 +5,15 @@ from torch import nn
 from torch.nn import functional as F
 from detectron2.config import configurable
 from detectron2.layers import Linear, ShapeSpec
+class myZeroShotClassifier(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear = nn.Linear(512, 512)
+
+    def forward(self, x, classifier):
+        x = self.linear(x)
+        x = torch.mm(x, classifier)
+        return x
 
 class ZeroShotClassifier(nn.Module):
     @configurable
