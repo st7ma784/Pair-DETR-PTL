@@ -158,6 +158,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             #print(self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight.__dir__())
             #del self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight
             #self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight = torch.nn.Parameter(zs_weight,requires_grad=False)
+            print("zs_weight",zs_weight.shape)
+            print("cls_score",self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight.shape)
             self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight.copy_(zs_weight)
         
         output_score_threshold = self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST
