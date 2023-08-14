@@ -111,7 +111,6 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.clip.eval()
         self.cfg=get_cfg()
         add_centernet_config(self.cfg)
-
         add_detic_config(self.cfg)
         self.cfg.merge_from_file("configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml")
         filename="./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"
@@ -129,6 +128,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.cfg.MODEL.DEVICE='cuda'
 
         self.detic = DefaultPredictor(self.cfg)
+        self.detic.model.eval()
         self.loss=nn.BCEWithLogitsLoss(reduction="mean")
         self.weight=nn.Parameter(torch.tensor(0.5))
     @torch.no_grad()
@@ -155,7 +155,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
         zs_weight = zs_weight.to(self.cfg.MODEL.DEVICE)
         for k in range(len(self.detic.model.roi_heads.box_predictor)):
-            del self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight
+            #del self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight
             self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
         output_score_threshold = self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST
         for cascade_stages in range(len(self.detic.model.roi_heads.box_predictor)):
