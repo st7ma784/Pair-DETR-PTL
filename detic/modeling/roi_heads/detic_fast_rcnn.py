@@ -433,11 +433,12 @@ class DeticFastRCNNOutputLayers(FastRCNNOutputLayers):
         if x.dim() > 2:
             x = torch.flatten(x, start_dim=1)
         scores = []
-   
+
         if classifier_info[0] is not None:
             cls_scores = self.cls_score(x, classifier=classifier_info[0])
             scores.append(cls_scores)
         else:
+            print("I...shouldnt be here")
             cls_scores = self.cls_score(x)
             scores.append(cls_scores)
 
@@ -448,6 +449,7 @@ class DeticFastRCNNOutputLayers(FastRCNNOutputLayers):
             else:
                 caption_scores = self.cls_score(x, classifier=cap_cls)
             scores.append(caption_scores)
+        #print(scores)
         scores = torch.cat(scores, dim=1) # B x C' or B x N or B x (C'+N)
 
         proposal_deltas = self.bbox_pred(x)

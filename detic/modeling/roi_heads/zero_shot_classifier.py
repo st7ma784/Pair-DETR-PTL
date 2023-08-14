@@ -83,14 +83,20 @@ class ZeroShotClassifier(nn.Module):
         '''
         x = self.linear(x)
         if classifier is not None:
+            #print("classifier", classifier)
             zs_weight = classifier.permute(1, 0).contiguous() # D x C'
-            zs_weight = F.normalize(zs_weight, p=2, dim=0) \
-                if self.norm_weight else zs_weight
+            # zs_weight = F.normalize(zs_weight, p=2, dim=0) \
+            #     if self.norm_weight else zs_weight
+            #print(zs_weight.shape)
         else:
             zs_weight = self.zs_weight
         if self.norm_weight:
             x = self.norm_temperature * F.normalize(x, p=2, dim=1)
         x = torch.mm(x, zs_weight)
+        # if torch.any(torch.isnan(x)):
+        #     print('x is nan - damn it!')
+        #     print("is zs_weight nan?", torch.any(torch.isnan(zs_weight)))
+        #     print("is classifier nan?", torch.any(torch.isnan(classifier)))
         if self.use_bias:
             x = x + self.cls_bias
         return x

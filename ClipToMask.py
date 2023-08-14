@@ -27,6 +27,7 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
     def __init__(self,layers:int,version:int,outputsize=224):
         super().__init__()
         self.clip,_ =clip.load("ViT-B/32", device="cuda")
+        self.clip.eval()
         self.outputsize=outputsize
         #We'ere going to build a model that takes the clip embeddings and tries to predict the mask
         #mask shape is BxHxW
@@ -34,7 +35,8 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
         # this means we need to expand the information there...
         #to do this we're going to take our B,F and train a row of pixels for x and y, multiply them and then pass that through a third mlp
         #this will give us a mask of the same size as the input. 
-        self.w=0.5
+        self.version=version
+        self.w=torch.nn.Parameter(torch.tensor(0.5))
         if version==1:
             self.xmlp=MLP(input_dim=512,hidden_dim=512,output_dim=512,num_layers=layers)
             self.ymlp=MLP(input_dim=512,hidden_dim=512,output_dim=512,num_layers=layers)
@@ -70,15 +72,26 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
         #weight will be a leant param between 0 and 1
 
         weight=self.w
+        self.log("weight",weight)
         self.log("train_loss_cap",lossa)
         self.log("train_loss_img",lossb)
         loss=lossa*weight+lossb*(1-weight)
         return loss
     
     def configure_optimizers(self) -> Any:
-        optimizer = torch.optim.AdamW(self.parameters(), lr=1e-6)
-        return optimizer
+        if self.version==2:
+            optimizer = torch.optim.AdamW([p for p in self.mlp.parameters()]+[self.w], lr=1e-3)
+            return optimizer
+        elif self.version==1:
+            optimizer=torch.optim.AdamW([p for p in self.xmlp.parameters()]+
+            [p for p in self.ymlp.parameters()]+
+            [p for p in self.finalmlp.parameters()]+
+            [p for p in self.finalcat.parameters()]+
+            [self.w],lr=1e-3)
+            return optimizer
+        else:
 
+            raise NotImplementedError("Version must be 1 or 2")
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2.utils.visualizer import Visualizer
@@ -107,8 +120,6 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
     #this is going to be a bit more complicated - including a DEtic model to generate the masks needed
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
-        self.clip,_ =clip.load("ViT-B/32", device="cuda")
-        self.clip.eval()
         self.cfg=get_cfg()
         add_centernet_config(self.cfg)
         add_detic_config(self.cfg)
@@ -129,8 +140,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
         self.detic = DefaultPredictor(self.cfg)
         self.detic.model.eval()
-        self.loss=nn.BCEWithLogitsLoss(reduction="mean")
-        self.w=0.5
+        self.loss=nn.MSELoss(reduction="mean")
     @torch.no_grad()
     def detic_forward(self,**batch):
         #This is going to assume we're pulling the Relation info from VisGenomeDataModule.py 
@@ -149,7 +159,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.detic.model.roi_heads.num_classes =  obj_classes_encodings.shape[0]+subj_classes_encodings.shape[0]
         # metadata = MetadataCatalog.get(str(time.time()))
         # metadata.thing_classes = self.detic.model.roi_heads.num_classes
-        classifier=torch.cat([obj_classes_encodings,subj_classes_encodings],dim=0)
+        classifier=torch.cat([obj_classes_encodings.clone().detach(),subj_classes_encodings.clone().detach()],dim=0)
         # zs_weight = classifier.T# torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
         if self.detic.model.roi_heads.box_predictor[0].cls_score.norm_weight:
             classifier = torch.nn.functional.normalize(classifier, p=2, dim=0)
@@ -170,26 +180,27 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         img.image_sizes=[(224,224)]*img.shape[0]
         setattr(img,"image_sizes",[(224,224)]*img.shape[0])
 
-        features = [featuresOUT[f] for f in self.detic.model.proposal_generator.in_features]
-        _, reg_pred_per_level, agn_hm_pred_per_level = self.detic.model.proposal_generator.centernet_head(features)
-        grids = self.detic.model.proposal_generator.compute_grids(features)
-        agn_hm_pred_per_level = [x.sigmoid() if x is not None else None \
-            for x in agn_hm_pred_per_level]
+        # features = [featuresOUT[f] for f in self.detic.model.proposal_generator.in_features]
+        # _, reg_pred_per_level, agn_hm_pred_per_level = self.detic.model.proposal_generator.centernet_head(features)
+        # grids = self.detic.model.proposal_generator.compute_grids(features)
+        # agn_hm_pred_per_level = [x.sigmoid() if x is not None else None \
+        #     for x in agn_hm_pred_per_level]
 
-        proposals = self.detic.model.proposal_generator.predict_instances(
-            grids, agn_hm_pred_per_level, reg_pred_per_level, 
-            [(224,224)]*img.shape[0], [None for _ in agn_hm_pred_per_level])
-        for p in range(len(proposals)):
-                proposals[p].proposal_boxes = proposals[p].get('pred_boxes')
-                proposals[p].objectness_logits = proposals[p].get('scores')
-                proposals[p].remove('pred_boxes')
-                proposals[p].remove('scores')
-                proposals[p].remove('pred_classes')
+        # proposals = self.detic.model.proposal_generator.predict_instances(
+        #     grids, agn_hm_pred_per_level, reg_pred_per_level, 
+        #     [(224,224)]*img.shape[0], [None for _ in agn_hm_pred_per_level])
+        # for p in range(len(proposals)):
+        #         proposals[p].proposal_boxes = proposals[p].get('pred_boxes')
+        #         proposals[p].objectness_logits = proposals[p].get('scores')
+        #         proposals[p].remove('pred_boxes')
+        #         proposals[p].remove('scores')
+        #         proposals[p].remove('pred_classes')
 
-        ##proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
-
-        
-        outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier.float(),None,None))
+        proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
+        #fault is after here
+        if torch.any(torch.isnan(classifier)):
+            print("classifier is nan...off to a bad start <<<<<<<<<<<<<<<<")
+        outputs, _ = self.detic.model.roi_heads(img, featuresOUT, proposals,classifier_info=(classifier.clone().detach().float(),None,None))
         #So heres what I don't understand.... 
         '''
         In this roi_heads function, we take the set of proposals, and then we run them through the roi_heads.
@@ -212,8 +223,12 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #These are Boxes, we need to convert them to tensors,
         found_boxes=torch.cat(found_boxes,dim=0)
         found_masks=torch.cat(found_masks,dim=0)
-        print("found_boxes",found_boxes.shape)
-
+        if len(found_boxes)==0:
+            print("no boxes found")
+            print("outputs",outputs)
+            #print("proposals",proposals)
+            #print("features",featuresOUT)
+            #print("img",img)
         #found_boxes torch.Size([45, 4])
         #found_masks torch.Size([45, 1, 28, 28])
         object_box_ious=torchvision.ops.box_iou(found_boxes,objects)
@@ -232,8 +247,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         masks_per_caption=torch.logical_or(obj_masks_per_caption,sub_masks_per_caption).float()
         idx_masks_per_caption= masks_per_caption*batch_one_hot.unsqueeze(-1).unsqueeze(-1).float() 
 
-        
-        masks_per_image=torch.sum(idx_masks_per_caption,dim=1)
+        #print("idx_masks_per_caption",idx_masks_per_caption.shape)
+        masks_per_image=torch.sum(idx_masks_per_caption,dim=0)
         return masks_per_caption,masks_per_image
 
 
@@ -243,12 +258,14 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         captions=batch["relation"].squeeze()
         tgt_idx=batch["batch_idx"]
         encodingcap=self.clip.encode_text(captions).float()
-        encodingim=self.clip.encode_image(images[tgt_idx]).float()
+        encodingim=self.clip.encode_image(images).float()
               
         maska=self.forward(encodingcap)
         maskb=self.forward(encodingim)
+        #print("maskb",maskb.shape)
 
         masks_per_caption,masks_per_image=self.detic_forward(**batch)
+        #print("masks_per_image",masks_per_image.shape)
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
         masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:]).squeeze(1)
         #mask=maska*(self.weight.sigmoid())+maskb*(1-self.weight.sigmoid())
@@ -257,6 +274,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
         lossa=self.loss(maska,masks_per_caption)
         lossb=self.loss(maskb,masks_per_image)
+        self.log("weight",self.w,prog_bar=True)
+
         self.log("caption_loss",lossa,prog_bar=True)
         self.log("image_loss",lossb,prog_bar=True)
 
@@ -268,7 +287,34 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         
         #B,512
         #we're going to take the classes and search them through detic
+    # def validation_step(self,batch,batch_idx):
+    #     images=batch["img"]
+    #     captions=batch["relation"].squeeze()
+    #     tgt_idx=batch["batch_idx"]
+    #     encodingcap=self.clip.encode_text(captions).float()
+    #     encodingim=self.clip.encode_image(images[tgt_idx]).float()
+              
+    #     maska=self.forward(encodingcap)
+    #     maskb=self.forward(encodingim)
 
+    #     masks_per_caption,masks_per_image=self.detic_forward(**batch)
+    #     masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
+    #     masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:]).squeeze(1)
+        
+    #     # #next log the images GT masks and CLIP masks with WandB onto an image.
+    #     # self.logger.experiment.log({
+    #     #     "val_img":wandb.Image(images[tgt_idx], masks={
+    #     #         "prediction": {"mask_data": maskb.cpu().numpy(), "class_labels": "mask"},
+    #     #         "ground_truth": {"mask_data": masks_per_image.cpu().numpy(), "class_labels": "mask"}
+    #     #     }),
+
+    #     #     "val_caption":wandb.Image(images[tgt_idx], masks={
+    #     #         "prediction": {"mask_data": maska.cpu().numpy(), "class_labels": "mask"},
+    #     #         "ground_truth": {"mask_data": masks_per_caption.cpu().numpy(), "class_labels": "mask"}
+    #     #     }),
+
+
+        
 if __name__ == "__main__":
 
     # we're going to need to look at datatest 3 first... which means loading the visual genome dataset.
@@ -276,7 +322,7 @@ if __name__ == "__main__":
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument('--Cache_dir', type=str, default='.', help='path to download and cache data')
-    parser.add_argument('--batch_size', type=int, default=6, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=8, help='batch size')
     parser.add_argument('--stream', default=False, type=bool,help='stream data',)
     parser.add_argument("--COCO", default=False, type=bool,help="Use COCO style data")
     args=parser.parse_args()
@@ -285,9 +331,9 @@ if __name__ == "__main__":
     dm.prepare_data()
     dm.setup()
 
-    model=Exp3ClipToVisGenomeMask(layers=2,version=2)
-
-    trainer = pl.Trainer(gpus=1,precision=32,max_epochs=1,fast_dev_run=True)
+    model=Exp3ClipToVisGenomeMask(layers=6,version=2)
+    logger=pl.loggers.WandbLogger(project="ClipToMask",entity="st7ma784",name="Exp3ClipToVisGenomeMask")
+    trainer = pl.Trainer(gpus=1,precision=32,max_epochs=1,fast_dev_run=False,logger=logger)
     trainer.fit(model, dm)
 
     

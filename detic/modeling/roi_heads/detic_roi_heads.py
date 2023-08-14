@@ -90,6 +90,10 @@ class DeticCascadeROIHeads(CascadeROIHeads):
         Add mult proposal scores at testing
         Add ann_type
         """
+
+        # if classifier_info[0] is not None:
+        #     if torch.any(torch.isnan(classifier_info[0])):
+        #         print("classifier_info[0] failed ahead of _forward_box...")
         if (not self.training) and self.mult_proposal_score:
             if len(proposals) > 0 and proposals[0].has('scores'):
                 proposal_scores = [p.get('scores') for p in proposals]
@@ -100,19 +104,30 @@ class DeticCascadeROIHeads(CascadeROIHeads):
         head_outputs = []  # (predictor, predictions, proposals)
         prev_pred_boxes = None
         image_sizes = [x.image_size for x in proposals]
-
+        # print("features", features)
+        # print("proposals", proposals)
+        # print("image_sizes", image_sizes)
+        #fai;t after here
         for k in range(self.num_cascade_stages):
             if k > 0:
                 proposals = self._create_proposals_from_boxes(
                     prev_pred_boxes, image_sizes,
                     logits=[p.objectness_logits for p in proposals])
-                if self.training and ann_type in ['box']:
-                    proposals = self._match_and_label_boxes(
-                        proposals, k, targets)
+                # if self.training and ann_type in ['box']:
+                #     proposals = self._match_and_label_boxes(
+                #         proposals, k, targets)
             predictions = self._run_stage(features, proposals, k, 
                 classifier_info=classifier_info)
+            #these are coming out nan...
             prev_pred_boxes = self.box_predictor[k].predict_boxes(
                 (predictions[0], predictions[1]), proposals)
+            #check nans in predictions
+            # if torch.any(torch.isnan(predictions[0])):
+            #     print("prediction0s failed...")
+            # if torch.any(torch.isnan(predictions[1])):
+            #     print("prediction1s failed...")
+            # print("prev_pred_boxes", prev_pred_boxes)
+            # print("proposals", proposals)
             head_outputs.append((self.box_predictor[k], predictions, proposals))
         
         if self.training:
@@ -142,16 +157,20 @@ class DeticCascadeROIHeads(CascadeROIHeads):
         else:
             # Each is a list[Tensor] of length #image. Each tensor is Ri x (K+1)
             scores_per_stage = [h[0].predict_probs(h[1], h[2]) for h in head_outputs]
+            #print("scores_per_stage", scores_per_stage)
             scores = [
                 sum(list(scores_per_image)) * (1.0 / self.num_cascade_stages)
                 for scores_per_image in zip(*scores_per_stage)
             ]
+
             if self.mult_proposal_score:
                 scores = [(s * ps[:, None]) ** 0.5 \
                     for s, ps in zip(scores, proposal_scores)]
+
             if self.one_class_per_proposal:
                 scores = [s * (s == s[:, :-1].max(dim=1)[0][:, None]).float() for s in scores]
             predictor, predictions, proposals = head_outputs[-1]
+            
             boxes = predictor.predict_boxes(
                 (predictions[0], predictions[1]), proposals)
             pred_instances, _ = fast_rcnn_inference(
@@ -191,8 +210,10 @@ class DeticCascadeROIHeads(CascadeROIHeads):
                     device=proposals[0].objectness_logits.device))
             return proposals, losses
         else:
+            #print("in not training")
             pred_instances = self._forward_box(
                 features, proposals, classifier_info=classifier_info)
+            #print("pred_instances", pred_instances)#fault is before here! 
             pred_instances = self.forward_with_given_boxes(features, pred_instances)
             return pred_instances, {}
 
@@ -257,13 +278,18 @@ class DeticCascadeROIHeads(CascadeROIHeads):
         """
         Support classifier_info and add_feature_to_prop
         """
-        # print("prop", len(proposals))
-        # print("proposals[0]", proposals[0])
+        # if torch.any(torch.isnan(classifier_info[0])):
+        #     print("classifier_info[0] failed...")
+        # print("in _run_stage")
+        # print("stage", stage)
+        # print("features", features)
+        # print("proposals", proposals)
         pool_boxes = [x.proposal_boxes for x in proposals]
         box_features = self.box_pooler(features, pool_boxes)
         box_features = _ScaleGradient.apply(box_features, 1.0 / self.num_cascade_stages)
         box_features = self.box_head[stage](box_features)
         if self.add_feature_to_prop:
+            print("in brancj")
             feats_per_image = box_features.split(
                 [len(p) for p in proposals], dim=0)
             for feat, p in zip(feats_per_image, proposals):
