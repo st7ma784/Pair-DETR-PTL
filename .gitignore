@@ -32,4 +32,5 @@ train2017.zip
 val2017.zip
 lightning_logs/*
 test2017.*
-wandb/
+wandb
+wandb/*
