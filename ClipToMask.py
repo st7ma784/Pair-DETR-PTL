@@ -130,7 +130,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.detic = DefaultPredictor(self.cfg)
         self.detic.model.eval()
         self.loss=nn.BCEWithLogitsLoss(reduction="mean")
-        self.weight=nn.Parameter(torch.tensor(0.5))
+        self.weight=0.5
     @torch.no_grad()
     def detic_forward(self,**batch):
         #This is going to assume we're pulling the Relation info from VisGenomeDataModule.py 
@@ -249,7 +249,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.log("caption_loss",lossa)
         self.log("image_loss",lossb)
 
-        loss=lossa*(self.weight.relu())+lossb*(1-self.weight.relu())
+        loss=lossa*(self.weight)+lossb*(1-self.weight)
 
         self.log("train_loss",loss)
         return loss
