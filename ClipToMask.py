@@ -238,16 +238,18 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         tgt_idx=batch["batch_idx"]
         encodingcap=self.clip.encode_text(captions)
         encodingim=self.clip.encode_image(images[tgt_idx])
+              
+        maska=self.forward(encodingcap)
+        maskb=self.forward(encodingim)
+
         with torch.no_grad():
 
             masks_per_caption,masks_per_image=self.detic_forward(**batch)
 
-      
-            maska=self.forward(encodingcap)
-            maskb=self.forward(encodingim)
+
 
             #interpolate the masks to the same size
-            masks_per_caption=torch.nn.functional.interpolate(masks_per_caption.unsqueeze(1),size=maska.shape[-2:])
+            masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:])
             masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:])
         #mask=maska*(self.weight.sigmoid())+maskb*(1-self.weight.sigmoid())
         print("maska",maska.shape)
