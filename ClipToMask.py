@@ -228,7 +228,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
         
         masks_per_image=torch.sum(idx_masks_per_caption,dim=1)
-        return masks_per_caption.squeeze(),masks_per_image
+        return masks_per_caption,masks_per_image
 
 
     def training_step(self,batch, batch_idx):
@@ -236,17 +236,24 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         images=batch["img"]
         captions=batch["relation"].squeeze()
         tgt_idx=batch["batch_idx"]
-        masks_per_caption,masks_per_image=self.detic_forward(**batch)
-
         encodingcap=self.clip.encode_text(captions)
         encodingim=self.clip.encode_image(images[tgt_idx])
-        maska=self.forward(encodingcap)
-        maskb=self.forward(encodingim)
+        with torch.no_grad():
 
-        #interpolate the masks to the same size
-        masks_per_caption=torch.nn.functional.interpolate(masks_per_caption.unsqueeze(1),size=maska.shape[-2:])
-        masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:])
+            masks_per_caption,masks_per_image=self.detic_forward(**batch)
+
+      
+            maska=self.forward(encodingcap)
+            maskb=self.forward(encodingim)
+
+            #interpolate the masks to the same size
+            masks_per_caption=torch.nn.functional.interpolate(masks_per_caption.unsqueeze(1),size=maska.shape[-2:])
+            masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:])
         #mask=maska*(self.weight.sigmoid())+maskb*(1-self.weight.sigmoid())
+        print("maska",maska.shape)
+        print("maskb",maskb.shape)
+        print("masks_per_caption",masks_per_caption.shape)
+        print("masks_per_image",masks_per_image.shape)
         lossa=self.loss(maska,masks_per_caption)
         lossb=self.loss(maskb,masks_per_image)
         self.log("caption_loss",lossa)
