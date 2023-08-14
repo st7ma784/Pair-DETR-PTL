@@ -226,7 +226,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         sub_masks_per_caption= sub_masks_per_caption*batch_one_hot.unsqueeze(-1).unsqueeze(-1).float()
         print("masks_per_caption",obj_masks_per_caption)
         masks_per_caption=torch.logical_or(obj_masks_per_caption,sub_masks_per_caption).float()
-        masks_per_image=sum(masks_per_caption,dim=1)
+        masks_per_image=torch.sum(masks_per_caption,dim=1)
         return masks_per_caption,masks_per_image
 
 
