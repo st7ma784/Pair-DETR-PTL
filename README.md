@@ -45,14 +45,14 @@ DC5-R101.
 
 Goals: 
 
--[x] - get this working 
--[x] - Get this working on custom data 
--[x] - implement DETIC from CLIP EMbs 
--[ ] - Can I modify the positional embedding to carry CLIP info? 
+- [x] - get this working 
+- [x] - Get this working on custom data 
+- [x] - implement DETIC from CLIP EMbs 
+- [ ] - Can I modify the positional embedding to carry CLIP info? 
 
 
 
 Sidequest: 
--[x] - Does CLIP contain enough info to straight up predict positional embeddings? 
--[x] - Understand why Linear_sum_assignment is the best way forward
--[x] - Can CLIP predict Masks for more complex items than just DETIC?
+- [x] - Does CLIP contain enough info to straight up predict positional embeddings? 
+- [x] - Understand why Linear_sum_assignment is the best way forward
+- [x] - Can CLIP predict Masks for more complex items than just DETIC?
