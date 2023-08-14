@@ -153,7 +153,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         zs_weight = classifier.T# torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
         if self.detic.model.roi_heads.box_predictor[0].cls_score.norm_weight:
             zs_weight = torch.nn.functional.normalize(zs_weight, p=2, dim=0)
-        zs_weight = zs_weight.to(self.cfg.MODEL.DEVICE)
+        zs_weight = zs_weight.to(self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight)
         for k in range(len(self.detic.model.roi_heads.box_predictor)):
             #print(self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight.__dir__())
             del self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight
@@ -170,23 +170,23 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         img.image_sizes=[(224,224)]*img.shape[0]
         setattr(img,"image_sizes",[(224,224)]*img.shape[0])
 
-        # features = [featuresOUT[f] for f in self.detic.model.proposal_generator.in_features]
-        # _, reg_pred_per_level, agn_hm_pred_per_level = self.detic.model.proposal_generator.centernet_head(features)
-        # grids = self.detic.model.proposal_generator.compute_grids(features)
-        # agn_hm_pred_per_level = [x.sigmoid() if x is not None else None \
-        #     for x in agn_hm_pred_per_level]
+        features = [featuresOUT[f] for f in self.detic.model.proposal_generator.in_features]
+        _, reg_pred_per_level, agn_hm_pred_per_level = self.detic.model.proposal_generator.centernet_head(features)
+        grids = self.detic.model.proposal_generator.compute_grids(features)
+        agn_hm_pred_per_level = [x.sigmoid() if x is not None else None \
+            for x in agn_hm_pred_per_level]
 
-        # proposals = self.detic.model.proposal_generator.predict_instances(
-        #     grids, agn_hm_pred_per_level, reg_pred_per_level, 
-        #     torch.tensor(img.shape[1:]).unsqueeze(0).repeat(img.shape[0],1), [None for _ in agn_hm_pred_per_level])
-        # for p in range(len(proposals)):
-        #         proposals[p].proposal_boxes = proposals[p].get('pred_boxes')
-        #         proposals[p].objectness_logits = proposals[p].get('scores')
-        #         proposals[p].remove('pred_boxes')
-        #         proposals[p].remove('scores')
-        #         proposals[p].remove('pred_classes')
+        proposals = self.detic.model.proposal_generator.predict_instances(
+            grids, agn_hm_pred_per_level, reg_pred_per_level, 
+            [(224,224)]*img.shape[0], [None for _ in agn_hm_pred_per_level])
+        for p in range(len(proposals)):
+                proposals[p].proposal_boxes = proposals[p].get('pred_boxes')
+                proposals[p].objectness_logits = proposals[p].get('scores')
+                proposals[p].remove('pred_boxes')
+                proposals[p].remove('scores')
+                proposals[p].remove('pred_classes')
 
-        proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
+        #proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
 
         
         outputs, _ = self.detic.model.roi_heads(img, featuresOUT, proposals)
