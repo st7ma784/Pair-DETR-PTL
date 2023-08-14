@@ -189,7 +189,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         ##proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
 
         
-        outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier,None,None))
+        outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier.float(),None,None))
         #So heres what I don't understand.... 
         '''
         In this roi_heads function, we take the set of proposals, and then we run them through the roi_heads.
