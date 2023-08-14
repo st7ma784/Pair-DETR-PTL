@@ -257,12 +257,12 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
         lossa=self.loss(maska,masks_per_caption)
         lossb=self.loss(maskb,masks_per_image)
-        self.log("caption_loss",lossa)
-        self.log("image_loss",lossb)
+        self.log("caption_loss",lossa,prog_bar=True)
+        self.log("image_loss",lossb,prog_bar=True)
 
         loss=lossa*(self.w)+lossb*(1-self.w)
 
-        self.log("train_loss",loss)
+        self.log("train_loss",loss,prog_bar=True)
         return loss
 
         
