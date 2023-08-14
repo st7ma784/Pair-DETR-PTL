@@ -113,8 +113,10 @@ def Collate(batch):
     #we're boing to stack the images, relations, obj_classes, subj_classes as these are all to be handed to CLIP
     #we're going to cat the objects and subjects as these boxes are to be handed to DETR
     #we're going to make out batch_idx with torch.cat( torch.fill(idx in batch, len(batch[idx])))
-
+    #remove None 
+    batch=[x for x in batch if x is not None]
     
+
     #convert to batch from list of dicts to dict of lists
     batch={k:[x[k] for x in batch] for k in batch[0].keys()}
     batch["batch_idx"]=torch.cat([torch.full((len(x),),i) for i,x in enumerate(batch["relation"])])
@@ -159,6 +161,8 @@ class VisGenomeDatasetBigBoxes(VisGenomeDataset):
 
         finally:
             
+            if len(boxes)==0:
+                return None
             
             return {"img":img,"relation":torch.stack(captions),"boxes":torch.stack(boxes),"obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),"subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
         

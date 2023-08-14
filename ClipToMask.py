@@ -195,10 +195,10 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
 
         #These are Boxes, we need to convert them to tensors,
-        #print("found_boxes",found_boxes)
         found_boxes=torch.cat(found_boxes,dim=0)
         found_masks=torch.cat(found_masks,dim=0)
-     
+        print("found_boxes",found_boxes.shape)
+
         #found_boxes torch.Size([45, 4])
         #found_masks torch.Size([45, 1, 28, 28])
         object_box_ious=torchvision.ops.box_iou(found_boxes,objects)
@@ -261,7 +261,7 @@ if __name__ == "__main__":
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument('--Cache_dir', type=str, default='.', help='path to download and cache data')
-    parser.add_argument('--batch_size', type=int, default=3, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=6, help='batch size')
     parser.add_argument('--stream', default=False, type=bool,help='stream data',)
     parser.add_argument("--COCO", default=False, type=bool,help="Use COCO style data")
     args=parser.parse_args()
@@ -270,7 +270,7 @@ if __name__ == "__main__":
     dm.prepare_data()
     dm.setup()
 
-    model=Exp3ClipToVisGenomeMask(layers=4,version=2)
+    model=Exp3ClipToVisGenomeMask(layers=2,version=2)
 
     trainer = pl.Trainer(gpus=1,precision=32,max_epochs=1)
     trainer.fit(model, dm)
