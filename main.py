@@ -21,7 +21,23 @@ from model import *
 import pytorch_lightning as pl
 from transformers import CLIPTokenizer
 import numpy as np
-
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2.utils.visualizer import Visualizer
+from detectron2.modeling import build_model
+from detectron2.data import MetadataCatalog
+import torch
+import os ,sys 
+# Detic libraries
+sys.path.insert(0, 'third_party/CenterNet2/')
+import time
+from centernet.config import add_centernet_config
+from detic.config import add_detic_config
+from detic.modeling.utils import reset_cls_test
+from detic.modeling.text.text_encoder import build_text_encoder
+import wget
+from typing import Optional,List
+import torchvision
 # class DETRsegm(nn.Module):
 #     def __init__(self, detr, freeze_detr=False):
 #         super().__init__()
@@ -317,8 +333,87 @@ class PairDETR(pl.LightningModule):
         #         if 'segm' in self.postprocessors.keys():
         #             self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
 
+class VisGenomeModule(PairDETR):
+    #in this module, we're going to do the same as above, only we need to also process the masks first with DETIC as in the ClipToMask module
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.cfg=get_cfg()
+        add_centernet_config(self.cfg)
+        add_detic_config(self.cfg)
+        self.cfg.merge_from_file("configs/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.yaml")
+        filename="./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"
+        if not os.path.exists("./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"):
+            if os.path.exists("./Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth"):
+                os.system("cp ./Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth ./models/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth")
+            else:
+                url = 'https://dl.fbaipublicfiles.com/detic/Detic_LCOCOI21k_CLIP_SwinB_896b32_4x_ft4x_max-size.pth'
+                filename = wget.download(url)
+                print("fetched to {}".format(filename))
+        self.cfg.MODEL.WEIGHTS = filename
+        self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.6  # set threshold for this model
+        self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
+        self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
+        self.cfg.MODEL.DEVICE='cuda'
+
+        self.detic = DefaultPredictor(self.cfg)
+        self.detic.model.eval()
+
+    @torch.no_grad()
+    def detic_forward(self,**batch):
+        img=batch["img"]
+        obj_classes=batch["obj_classes"].squeeze()
+        subj_classes=batch["subj_classes"].squeeze()
+        objects=batch["objects"]
+        subjects=batch["subjects"]
+        batch_idx=batch["batch_idx"]
+        obj_classes_encodings=self.clip.encode_text(obj_classes)
+        subj_classes_encodings=self.clip.encode_text(subj_classes)
+        classifier=torch.cat([obj_classes_encodings,subj_classes_encodings],dim=0)
+        featuresOUT = self.detic.model.backbone(img)
+        img.image_sizes=[(224,224)]*img.shape[0]
+        setattr(img,"image_sizes",[(224,224)]*img.shape[0])
+        proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
+        outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier.clone().detach().float(),None,None))
+        found_masks=[outputs[i].get('pred_masks') for i in range(len(outputs))]
+        found_boxes=[outputs[i].get('pred_boxes').tensor for i in range(len(outputs))] #these are in xyxy format
+        found_boxes=torch.cat(found_boxes,dim=0)
+        found_masks=torch.cat(found_masks,dim=0)
+        object_box_ious=torchvision.ops.box_iou(found_boxes,objects)
+        subject_box_ious=torchvision.ops.box_iou(found_boxes,subjects)
+        bestobjboxes=torch.max(object_box_ious,dim=0).indices
+        bestsubjboxes=torch.max(subject_box_ious,dim=0).indices #draw out which dim is which
+        obj_masks_per_caption= found_masks[bestobjboxes]# select masks corresponding to best boxes,
+        sub_masks_per_caption= found_masks[bestsubjboxes]
+        batch_one_hot=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])
+        masks_per_caption=torch.logical_or(obj_masks_per_caption,sub_masks_per_caption).float()
+        idx_masks_per_caption= masks_per_caption*batch_one_hot.unsqueeze(-1).unsqueeze(-1).float() 
+        masks_per_image=torch.sum(idx_masks_per_caption,dim=0)
+        return masks_per_caption,masks_per_image
+    def do_batch(self,batch):
+        #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
+        img=batch["img"]
+        obj_classes=batch["obj_classes"].squeeze()
+        subj_classes=batch["subj_classes"].squeeze()
+        objects=batch["objects"]
+        subjects=batch["subjects"]
+        batch_idx=batch["batch_idx"]
+        captions=batch["relation"].squeeze()
+        tgt_idx=batch["batch_idx"]
+
+        masks_per_caption,masks_per_image=self.detic_forward(**batch)
+              
 
 
+        
+        #we need to get batch to be the same as: 
+        #samples, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch        return batch
+    def training_step(self,batch,batch_idx):
+       
+        return super(self,PairDETR).training_step(self.do_batch(batch),batch_idx)
+    def test_step(self,batch,batch_idx):
+        return super(self,PairDETR).test_step(self.do_batch(batch),batch_idx)
+    def validation_step(self,batch,batch_idx):
+        return super(self,PairDETR).validation_step(self.do_batch(batch),batch_idx)
 if __name__ == '__main__':
     from argparser import get_args_parser
     import argparse
@@ -338,6 +433,15 @@ if __name__ == '__main__':
     #convert to dict
     args = vars(args)
     model=PairDETR(**args)
+
+
+    #or use VisGenomeForTraining....
+    '''
+    dm =VisGenomeDataModule(Cache_dir=args.coco_path,batch_size=4)
+    dm.prepare_data()
+    dm.setup()
+    '''
+
     trainer = pl.Trainer(
                          precision=16,
                          max_epochs=20,#args['epochs'], 
