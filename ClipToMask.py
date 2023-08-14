@@ -156,13 +156,13 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         subj_classes_encodings=self.clip.encode_text(subj_classes)
         #do predictions on all images with DETIC 
         #classifier = self.get_clip_embeddings(self,classes)
-        self.detic.model.roi_heads.num_classes =  obj_classes_encodings.shape[0]+subj_classes_encodings.shape[0]
+        #self.detic.model.roi_heads.num_classes =  obj_classes_encodings.shape[0]+subj_classes_encodings.shape[0]
         # metadata = MetadataCatalog.get(str(time.time()))
         # metadata.thing_classes = self.detic.model.roi_heads.num_classes
-        classifier=torch.cat([obj_classes_encodings.clone().detach(),subj_classes_encodings.clone().detach()],dim=0)
+        classifier=torch.cat([obj_classes_encodings,subj_classes_encodings],dim=0)
         # zs_weight = classifier.T# torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
-        if self.detic.model.roi_heads.box_predictor[0].cls_score.norm_weight:
-            classifier = torch.nn.functional.normalize(classifier, p=2, dim=0)
+        # if self.detic.model.roi_heads.box_predictor[0].cls_score.norm_weight:
+        #     classifier = torch.nn.functional.normalize(classifier, p=2, dim=1)
         # zs_weight = zs_weight.to(self.detic.model.roi_heads.box_predictor[0].cls_score.zs_weight)
         # for k in range(len(self.detic.model.roi_heads.box_predictor)):
         #     #print(self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight.__dir__())
@@ -198,9 +198,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
         proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
         #fault is after here
-        if torch.any(torch.isnan(classifier)):
-            print("classifier is nan...off to a bad start <<<<<<<<<<<<<<<<")
-        outputs, _ = self.detic.model.roi_heads(img, featuresOUT, proposals,classifier_info=(classifier.clone().detach().float(),None,None))
+        outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier.clone().detach().float(),None,None))
         #So heres what I don't understand.... 
         '''
         In this roi_heads function, we take the set of proposals, and then we run them through the roi_heads.
@@ -223,12 +221,6 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #These are Boxes, we need to convert them to tensors,
         found_boxes=torch.cat(found_boxes,dim=0)
         found_masks=torch.cat(found_masks,dim=0)
-        if len(found_boxes)==0:
-            print("no boxes found")
-            print("outputs",outputs)
-            #print("proposals",proposals)
-            #print("features",featuresOUT)
-            #print("img",img)
         #found_boxes torch.Size([45, 4])
         #found_masks torch.Size([45, 1, 28, 28])
         object_box_ious=torchvision.ops.box_iou(found_boxes,objects)
@@ -303,7 +295,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         
     #     # #next log the images GT masks and CLIP masks with WandB onto an image.
     #     # self.logger.experiment.log({
-    #     #     "val_img":wandb.Image(images[tgt_idx], masks={
+    #     #     "val_img":wandb.Image(images, masks={
     #     #         "prediction": {"mask_data": maskb.cpu().numpy(), "class_labels": "mask"},
     #     #         "ground_truth": {"mask_data": masks_per_image.cpu().numpy(), "class_labels": "mask"}
     #     #     }),
