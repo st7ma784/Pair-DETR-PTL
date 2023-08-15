@@ -183,7 +183,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             object_box_ious=torchvision.ops.box_iou(obj,boxes)
             subject_box_ious=torchvision.ops.box_iou(subj,boxes)
             if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
-                all_masks.append(torch.zeros((0,masks.shape[1],masks.shape[2])))
+                all_masks.append(torch.zeros((1,0,28,28),device=self.device))
                 spans.append(0)
                 break
             best_obj_boxes=torch.max(object_box_ious,dim=1).indices
@@ -213,10 +213,11 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         maskb=self.forward(encodingim)
         #print("maskb",maskb.shape)
 
-        masks_per_caption,masks_per_image=self.detic_forward(**batch)
+        masks_per_caption,masks_per_image,splits=self.detic_forward(**batch)
         print("masks_per_caption",masks_per_caption.shape)
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
-        masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:]).squeeze(1)
+        #print("masks_per_image",masks_per_image.shape)
+        masks_per_image=torch.nn.functional.interpolate(masks_per_image,size=maskb.shape[-2:]).squeeze(1)
         #mask=maska*(self.weight.sigmoid())+maskb*(1-self.weight.sigmoid())
         
 
@@ -247,7 +248,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         maskb=self.forward(encodingim)
 
         masks_per_caption,masks_per_image, splits=self.detic_forward(**batch)
-       
+
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
         #print("masks_per_image",masks_per_image.shape)
         masks_per_image=torch.nn.functional.interpolate(masks_per_image,size=maskb.shape[-2:]).squeeze(1)
@@ -261,19 +262,19 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
                             torch.max(stacked[:,3],dim=-1).values],dim=1)
 
         batch_ann_counts=torch.bincount(tgt_idx,minlength=images.shape[0]).tolist()
-        print("batch_ann_counts",batch_ann_counts)
-        print("splits",splits)
-        print("masks_per_caption",masks_per_caption.shape)
-        print("masksa",maska.shape)
+        # print("batch_ann_counts",batch_ann_counts)
+        # print("splits",splits)
+        # print("masks_per_caption",masks_per_caption.shape)
+        # print("masksa",maska.shape)
         self.logger.log_image(key="validation samples",
             images=[i for i in images],
             masks=[{
-                "prediction": {"mask_data": maska.cpu(), "class_labels":  ca},
-                "ground_truth": {"mask_data": masks_per_caption.cpu(), "class_labels": cb}
-            } for maska,masks_per_caption,ca,cb in zip(maska.split(batch_ann_counts),masks_per_caption.split(splits),torch.arange(tgt_bbox.shape[0]).split(batch_ann_counts),torch.arange(sum(splits)).split(splits))],
-            boxes=[{
-                "ground_truth": {"box_data": tgt_bbox, "class_labels": c},
-            } for tgt_bbox,c in zip(tgt_bbox.split(batch_ann_counts),torch.arange(tgt_bbox.shape[0]).split(batch_ann_counts))],
+                "prediction": {"mask_data": torch.argmax(maska*torch.arange(maska.shape[0],device=maska.device).unsqueeze(-1).unsqueeze(-1),dim=0).cpu().numpy().astype(int)},##"class_labels":  ca
+                "ground_truth": {"mask_data":torch.argmax(masks_per_caption*torch.arange(masks_per_caption.shape[0],device=masks_per_caption.device).unsqueeze(-1).unsqueeze(-1),dim=0).cpu().numpy().astype(int)},# "class_labels": cb
+            } for maska,masks_per_caption,ca,cb in zip(maska.to(torch.int).split(batch_ann_counts),masks_per_caption.to(torch.int).split(splits),torch.arange(tgt_bbox.shape[0]).split(batch_ann_counts),torch.arange(sum(splits)).split(splits))],
+            # boxes=[{
+            #     "ground_truth": {"box_data": tgt_bbox.tolist()},# "class_labels": c},
+            # } for tgt_bbox,c in zip(tgt_bbox.split(batch_ann_counts),torch.arange(tgt_bbox.shape[0]).split(batch_ann_counts))],
         )
 
         
@@ -293,7 +294,7 @@ if __name__ == "__main__":
     dm.prepare_data()
     dm.setup()
 
-    model=Exp3ClipToVisGenomeMask(layers=2,version=1)
+    model=Exp3ClipToVisGenomeMask(layers=2,version=2)
     logger=pl.loggers.WandbLogger(project="ClipToMask",entity="st7ma784",name="Exp3ClipToVisGenomeMask")
     trainer = pl.Trainer(gpus=1,precision=32,max_epochs=1,fast_dev_run=False,logger=logger)
     trainer.fit(model, dm)

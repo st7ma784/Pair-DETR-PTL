@@ -130,7 +130,10 @@ def Collate(batch):
     #convert to batch from list of dicts to dict of lists
     batch={k:[x[k] for x in batch] for k in batch[0].keys()}
     batch["batch_idx"]=torch.cat([torch.full((len(x),),i) for i,x in enumerate(batch["relation"])])
-
+    #check batch[img] is none empty
+    if len(batch["img"])==0:
+        print("oops")
+        return None
     batch["img"]=torch.stack(batch["img"])
     batch["relation"]=torch.cat(batch["relation"])
     batch["obj_classes"]=torch.cat(batch["obj_classes"])
