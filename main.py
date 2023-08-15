@@ -416,11 +416,11 @@ class VisGenomeModule(PairDETR):
         return img, targets , classencodings, masks_per_image, batch_idx, (tgt_ids,tgt_bbox,masks_per_caption,tgt_sizes)
     def training_step(self,batch,batch_idx):
        
-        return super(self,PairDETR).training_step(self.do_batch(batch),batch_idx)
+        return super().training_step(self.do_batch(batch),batch_idx)
     def test_step(self,batch,batch_idx):
-        return super(self,PairDETR).test_step(self.do_batch(batch),batch_idx)
+        return super().test_step(self.do_batch(batch),batch_idx)
     def validation_step(self,batch,batch_idx):
-        return super(self,PairDETR).validation_step(self.do_batch(batch),batch_idx)
+        return super().validation_step(self.do_batch(batch),batch_idx)
     
 
 
