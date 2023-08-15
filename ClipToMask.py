@@ -23,6 +23,23 @@ import pytorch_lightning as pl
 from torch.utils.data import DataLoader
 import clip
 from model import MLP
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2.utils.visualizer import Visualizer
+from detectron2.modeling import build_model
+from detectron2.data import MetadataCatalog
+import torch
+import os ,sys 
+# Detic libraries
+sys.path.insert(0, 'third_party/CenterNet2/')
+import time
+from centernet.config import add_centernet_config
+from detic.config import add_detic_config
+from detic.modeling.utils import reset_cls_test
+from detic.modeling.text.text_encoder import build_text_encoder
+import wget
+from typing import Optional,List
+import torchvision
 class Exp2CLIPtoCOCOMask(pl.LightningModule):
     def __init__(self,layers:int,version:int,outputsize=224):
         super().__init__()
@@ -42,6 +59,8 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
             self.ymlp=MLP(input_dim=512,hidden_dim=512,output_dim=512,num_layers=layers)
             self.finalmlp=MLP(input_dim=512,hidden_dim=512,output_dim=outputsize,num_layers=layers)
             self.finalcat=MLP(input_dim=2*outputsize,hidden_dim=768,output_dim=outputsize,num_layers=layers)
+            self.finalcat2=MLP(input_dim=512,hidden_dim=512,output_dim=outputsize,num_layers=layers)
+
             self.forward=self.from_encoding_to_maskv1
         elif version==2:
             self.mlp=MLP(input_dim=512,hidden_dim=1024,output_dim=outputsize*outputsize,num_layers=layers*2)
@@ -62,7 +81,9 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
         # print("imageFeatures1",imageFeatures1.shape)
         mask2=self.finalmlp(imageFeatures1)
         both_masks=self.finalcat(torch.cat([mask1,mask2],dim=-1))
-        return both_masks
+        print("both_masks",both_masks.shape)
+        both_masks=self.finalcat2(both_masks.permute(0,2,1))
+        return both_masks.view(encoding.shape[0],self.outputsize,self.outputsize)
     def from_encoding_to_maskv2(self,encoding):
         return self.mlp(encoding).view(encoding.shape[0],self.outputsize,self.outputsize)
     def training_step(self,batch,batch_idx):
@@ -96,23 +117,7 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
         else:
 
             raise NotImplementedError("Version must be 1 or 2")
-from detectron2.engine import DefaultPredictor
-from detectron2.config import get_cfg
-from detectron2.utils.visualizer import Visualizer
-from detectron2.modeling import build_model
-from detectron2.data import MetadataCatalog
-import torch
-import os ,sys 
-# Detic libraries
-sys.path.insert(0, 'third_party/CenterNet2/')
-import time
-from centernet.config import add_centernet_config
-from detic.config import add_detic_config
-from detic.modeling.utils import reset_cls_test
-from detic.modeling.text.text_encoder import build_text_encoder
-import wget
-from typing import Optional,List
-import torchvision
+
 
 class TensorWrapper():
     def __init__(self,tensor):
@@ -217,6 +222,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #     print("outputs",outputs.keys())
         #outputs is a list of Instances, each instance has pred_boxes, pred_classes, pred_masks, scores
         found_masks=[outputs[i].get('pred_masks') for i in range(len(outputs))]
+        splits=[len(outputs[i].get('pred_boxes')) for i in range(len(outputs))]
         found_boxes=[outputs[i].get('pred_boxes').tensor for i in range(len(outputs))] #these are in xyxy format
         #check outputs for bounding boxes that are close to the subject and object boxes.
         #do box iou between outputs and inputs split by batch_idx
@@ -231,21 +237,26 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         subject_box_ious=torchvision.ops.box_iou(found_boxes,subjects)
 
         
-        bestobjboxes=torch.max(object_box_ious,dim=0).indices
-        bestsubjboxes=torch.max(subject_box_ious,dim=0).indices #draw out which dim is which
+        bestobjboxes=torch.max(object_box_ious,dim=1).indices
+        bestsubjboxes=torch.max(subject_box_ious,dim=1).indices #draw out which dim is which
+
+        print("bestobjboxes",bestobjboxes.shape)
+        print("splits",splits)
         obj_masks_per_caption= found_masks[bestobjboxes]# select masks corresponding to best boxes,
         sub_masks_per_caption= found_masks[bestsubjboxes]
-
+        
         #do matcher based on box iou between outputs and inputs split by batch_idx 
         batch_one_hot=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])
-        #print("masks_per_caption",obj_masks_per_caption.shape)
+        #print("obj masks_per_caption",obj_masks_per_caption.shape)
         #print("masks_per_caption",obj_masks_per_caption)
         masks_per_caption=torch.logical_or(obj_masks_per_caption,sub_masks_per_caption).float()
         idx_masks_per_caption= masks_per_caption*batch_one_hot.unsqueeze(-1).unsqueeze(-1).float() 
 
         #print("idx_masks_per_caption",idx_masks_per_caption.shape)
         masks_per_image=torch.sum(idx_masks_per_caption,dim=0)
-        return masks_per_caption,masks_per_image
+
+        assert masks_per_caption.shape[0]==sum(splits)
+        return masks_per_caption,masks_per_image,splits
 
 
     def training_step(self,batch, batch_idx):
@@ -261,7 +272,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #print("maskb",maskb.shape)
 
         masks_per_caption,masks_per_image=self.detic_forward(**batch)
-        #print("masks_per_image",masks_per_image.shape)
+        print("masks_per_caption",masks_per_caption.shape)
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
         masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:]).squeeze(1)
         #mask=maska*(self.weight.sigmoid())+maskb*(1-self.weight.sigmoid())
@@ -293,8 +304,10 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         maska=self.forward(encodingcap)
         maskb=self.forward(encodingim)
 
-        masks_per_caption,masks_per_image=self.detic_forward(**batch)
+        masks_per_caption,masks_per_image, splits=self.detic_forward(**batch)
+        #print("masks_per_caption",masks_per_caption.shape)
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
+        #print("masks_per_image",masks_per_image.shape)
         masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:]).squeeze(1)
         objects=batch["objects"] # bbox in xyxy format
         subjects=batch["subjects"] # bbox in xyxy format  
@@ -304,21 +317,17 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
                               torch.min(stacked[:,1],dim=-1).values, # these find the top left corner
                                 torch.max(stacked[:,2],dim=-1).values, # find the bottom right corner with max of x ys and add the whs.  
                             torch.max(stacked[:,3],dim=-1).values],dim=1)
-        boxes=[[]*images.shape[0]]
-        classes=[[]*images.shape[0]]
-        for ann,cidx,idx in zip(tgt_bbox,tgt_idx,batch_idx):
-            boxes[idx].append(ann)
-            classes[idx].append(cidx)
-        #do mask indexing - do torch .arange masks_per_captions.shape[0] * torch.one_hot batch_idx,  then multiply this by masks, to get masks per caption of unique numbers
-        #next log the images GT masks and CLIP masks with WandB onto an image.
+
+        batch_ann_counts=torch.bincount(tgt_idx,minlength=images.shape[0]).tolist()
+        #print("masks_per_caption",masks_per_caption.shape)
         self.logger.log_image(key="validation samples",
-            images=images,
+            images=[i for i in images],
             masks={
-                "prediction": {"mask_data": maskb.cpu().numpy(), "class_labels": "mask"},
-                "ground_truth": {"mask_data": masks_per_image.cpu().numpy(), "class_labels": "mask"}
+                "prediction": {"mask_data": maska.cpu().split(batch_ann_counts), "class_labels":  torch.arange(tgt_bbox.shape[0])},
+                "ground_truth": {"mask_data": masks_per_caption.cpu().split(splits), "class_labels": torch.arange(sum(splits))}
             },
             boxes={
-                "ground_truth": {"box_data": boxes, "class_labels": classes},
+                "ground_truth": {"box_data": tgt_bbox.split(batch_ann_counts), "class_labels": torch.arange(tgt_bbox.shape[0])},
             }
         )
 
