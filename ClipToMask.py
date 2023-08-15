@@ -283,32 +283,43 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         
         #B,512
         #we're going to take the classes and search them through detic
-    # def validation_step(self,batch,batch_idx):
-    #     images=batch["img"]
-    #     captions=batch["relation"].squeeze()
-    #     tgt_idx=batch["batch_idx"]
-    #     encodingcap=self.clip.encode_text(captions).float()
-    #     encodingim=self.clip.encode_image(images).float()
+    def validation_step(self,batch,batch_idx):
+        images=batch["img"]
+        captions=batch["relation"].squeeze()
+        tgt_idx=batch["batch_idx"]
+        encodingcap=self.clip.encode_text(captions).float()
+        encodingim=self.clip.encode_image(images).float()
               
-    #     maska=self.forward(encodingcap)
-    #     maskb=self.forward(encodingim)
+        maska=self.forward(encodingcap)
+        maskb=self.forward(encodingim)
 
-    #     masks_per_caption,masks_per_image=self.detic_forward(**batch)
-    #     masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
-    #     masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:]).squeeze(1)
-        
-    #     # #next log the images GT masks and CLIP masks with WandB onto an image.
-    #     # self.logger.experiment.log({
-    #     #     "val_img":wandb.Image(images, masks={
-    #     #         "prediction": {"mask_data": maskb.cpu().numpy(), "class_labels": "mask"},
-    #     #         "ground_truth": {"mask_data": masks_per_image.cpu().numpy(), "class_labels": "mask"}
-    #     #     }),
-
-    #     #     "val_caption":wandb.Image(images[tgt_idx], masks={
-    #     #         "prediction": {"mask_data": maska.cpu().numpy(), "class_labels": "mask"},
-    #     #         "ground_truth": {"mask_data": masks_per_caption.cpu().numpy(), "class_labels": "mask"}
-    #     #     }),
-
+        masks_per_caption,masks_per_image=self.detic_forward(**batch)
+        masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
+        masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:]).squeeze(1)
+        objects=batch["objects"] # bbox in xyxy format
+        subjects=batch["subjects"] # bbox in xyxy format  
+        #tgt_bbox is all the concatenates bboxes
+        tgt_bbox=torch.stack([torch.min(objects[:,0],subjects[:,0]).values,
+                                    torch.min(objects[:,1],subjects[:,1]), # these find the top left corner
+                                torch.max(objects[:,2],subjects[:,2]), # find the bottom right corner with max of x ys and add the whs.  
+                            torch.max(objects[:,3],subjects[:,3])],dim=1)
+        boxes=[[]*images.shape[0]]
+        classes=[[]*images.shape[0]]
+        for ann,cidx,idx in zip(tgt_bbox,tgt_idx,batch_idx):
+            boxes[idx].append(ann)
+            classes[idx].append(cidx)
+        #do mask indexing - do torch .arange masks_per_captions.shape[0] * torch.one_hot batch_idx,  then multiply this by masks, to get masks per caption of unique numbers
+        #next log the images GT masks and CLIP masks with WandB onto an image.
+        self.logger.log_image(key="validation samples",
+            images=images,
+            masks={
+                "prediction": {"mask_data": maskb.cpu().numpy(), "class_labels": "mask"},
+                "ground_truth": {"mask_data": masks_per_image.cpu().numpy(), "class_labels": "mask"}
+            },
+            boxes={
+                "ground_truth": {"box_data": boxes, "class_labels": classes},
+            }
+        )
 
         
 if __name__ == "__main__":
