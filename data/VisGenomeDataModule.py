@@ -92,7 +92,7 @@ class VisGenomeDataset(Dataset):
             obj_classes.append(" ".join(["a", r["object"]["names"][0]]))
             subj_classes.append(" ".join(["a", r["subject"]["names"][0]]))  
             caption=" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])
-            captions.append(self.tokenize(caption))
+            captions.append(caption)
             objects.append(torch.tensor([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]]))
             subjects.append(torch.tensor([r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]]))
             #captions.append(caption)
@@ -104,14 +104,15 @@ class VisGenomeDataset(Dataset):
         except RuntimeError as e:
             print(e)
             return None
-        # print("captions",captions)
-        # print("subjects",subj_classes)
+        captions=torch.stack([self.tokenize(x) for x in captions])
+        obj_classes=torch.stack([self.tokenize(x) for x in obj_classes])
+        subj_classes=torch.stack([self.tokenize(x) for x in subj_classes])
         outputs= {"img":img,
-                  "relation":torch.stack(captions),
+                  "relation":captions,
                   "objects":boxes["boxes"][:(len(boxes["boxes"])//2)],
                   "subjects":boxes["boxes"][(len(boxes["boxes"])//2):],
-                    "obj_classes":torch.stack([self.tokenize(x) for x in obj_classes]),
-                    "subj_classes":torch.stack([self.tokenize(x) for x in subj_classes])}
+                    "obj_classes":obj_classes,
+                    "subj_classes":subj_classes}
         return outputs
     def __len__(self):
         return len(self.data)

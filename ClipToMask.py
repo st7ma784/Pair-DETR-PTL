@@ -81,7 +81,7 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
         # print("imageFeatures1",imageFeatures1.shape)
         mask2=self.finalmlp(imageFeatures1)
         both_masks=self.finalcat(torch.cat([mask1,mask2],dim=-1))
-        print("both_masks",both_masks.shape)
+        #print("both_masks",both_masks.shape)
         both_masks=self.finalcat2(both_masks.permute(0,2,1))
         return both_masks.view(encoding.shape[0],self.outputsize,self.outputsize)
     def from_encoding_to_maskv2(self,encoding):
@@ -163,100 +163,42 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         batch_idx=batch["batch_idx"]
         obj_classes_encodings=self.clip.encode_text(obj_classes)
         subj_classes_encodings=self.clip.encode_text(subj_classes)
-        #do predictions on all images with DETIC 
-        #classifier = self.get_clip_embeddings(self,classes)
-        #self.detic.model.roi_heads.num_classes =  obj_classes_encodings.shape[0]+subj_classes_encodings.shape[0]
-        # metadata = MetadataCatalog.get(str(time.time()))
-        # metadata.thing_classes = self.detic.model.roi_heads.num_classes
         classifier=torch.cat([obj_classes_encodings,subj_classes_encodings],dim=0)
-        # zs_weight = classifier.T# torch.cat([classifier, classifier.new_zeros((classifier.shape[0], 1))], dim=1) # D x (C + 1)
-        # if self.detic.model.roi_heads.box_predictor[0].cls_score.norm_weight:
-        #     classifier = torch.nn.functional.normalize(classifier, p=2, dim=1)
-        # zs_weight = zs_weight.to(self.detic.model.roi_heads.box_predictor[0].cls_score.zs_weight)
-        # for k in range(len(self.detic.model.roi_heads.box_predictor)):
-        #     #print(self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight.__dir__())
-        #     del self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight
-        #     self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight = zs_weight
-            # print("zs_weight",zs_weight.shape)
-            # print("cls_score",self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight.shape)
-            #self.detic.model.roi_heads.box_predictor[k].cls_score.zs_weight.copy_(zs_weight)
-        
-        # output_score_threshold = self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST
-        # for cascade_stages in range(len(self.detic.model.roi_heads.box_predictor)):
-        #     self.detic.model.roi_heads.box_predictor[cascade_stages].test_score_thresh = output_score_threshold        
-        #So - Idea - What if I could use the score to add noise to the output class. 
         featuresOUT = self.detic.model.backbone(img)
         img.image_sizes=[(224,224)]*img.shape[0]
         setattr(img,"image_sizes",[(224,224)]*img.shape[0])
 
-        # features = [featuresOUT[f] for f in self.detic.model.proposal_generator.in_features]
-        # _, reg_pred_per_level, agn_hm_pred_per_level = self.detic.model.proposal_generator.centernet_head(features)
-        # grids = self.detic.model.proposal_generator.compute_grids(features)
-        # agn_hm_pred_per_level = [x.sigmoid() if x is not None else None \
-        #     for x in agn_hm_pred_per_level]
-
-        # proposals = self.detic.model.proposal_generator.predict_instances(
-        #     grids, agn_hm_pred_per_level, reg_pred_per_level, 
-        #     [(224,224)]*img.shape[0], [None for _ in agn_hm_pred_per_level])
-        # for p in range(len(proposals)):
-        #         proposals[p].proposal_boxes = proposals[p].get('pred_boxes')
-        #         proposals[p].objectness_logits = proposals[p].get('scores')
-        #         proposals[p].remove('pred_boxes')
-        #         proposals[p].remove('scores')
-        #         proposals[p].remove('pred_classes')
-
         proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
-        #fault is after here
         outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier.clone().detach().float(),None,None))
-        #So heres what I don't understand.... 
-        '''
-        In this roi_heads function, we take the set of proposals, and then we run them through the roi_heads.
-        each ROi_head is a detic_roi_head we take the max value from each head. Each head has a DETIC ROI Predictor, that essentially just does f @ zs_weight?
-        So - we're going to need to do a few things here.
-
-        1. We need to take the zs_weight and the f and do a matrix multiply
-        2. We need to take the max value from each head
-        '''
-
-
-        #     print("outputs",outputs.keys())
-        #outputs is a list of Instances, each instance has pred_boxes, pred_classes, pred_masks, scores
+        
         found_masks=[outputs[i].get('pred_masks') for i in range(len(outputs))]
-        splits=[len(outputs[i].get('pred_boxes')) for i in range(len(outputs))]
         found_boxes=[outputs[i].get('pred_boxes').tensor for i in range(len(outputs))] #these are in xyxy format
-        #check outputs for bounding boxes that are close to the subject and object boxes.
-        #do box iou between outputs and inputs split by batch_idx
-
-
-        #These are Boxes, we need to convert them to tensors,
-        found_boxes=torch.cat(found_boxes,dim=0)
-        found_masks=torch.cat(found_masks,dim=0)
-        #found_boxes torch.Size([45, 4])
-        #found_masks torch.Size([45, 1, 28, 28])
-        object_box_ious=torchvision.ops.box_iou(found_boxes,objects)
-        subject_box_ious=torchvision.ops.box_iou(found_boxes,subjects)
+    
+        #split the gt up by batch_idx
+        splits=torch.bincount(batch_idx,minlength=img.shape[0]).tolist()
+        per_img_objects=objects.split(splits)
+        per_img_subjects=subjects.split(splits)
+        all_masks,spans=[],[]
+        for obj,subj,boxes,masks in zip(per_img_objects,per_img_subjects,found_boxes,found_masks):
+            object_box_ious=torchvision.ops.box_iou(obj,boxes)
+            subject_box_ious=torchvision.ops.box_iou(subj,boxes)
+            if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
+                all_masks.append(torch.zeros((0,masks.shape[1],masks.shape[2])))
+                spans.append(0)
+                break
+            best_obj_boxes=torch.max(object_box_ious,dim=1).indices
+            best_subj_boxes=torch.max(subject_box_ious,dim=1).indices
+            masks=torch.logical_or(masks[best_obj_boxes],masks[best_subj_boxes]).float()
+            all_masks.append(masks)
+            spans.append(len(masks))
 
         
-        bestobjboxes=torch.max(object_box_ious,dim=1).indices
-        bestsubjboxes=torch.max(subject_box_ious,dim=1).indices #draw out which dim is which
-
-        print("bestobjboxes",bestobjboxes.shape)
-        print("splits",splits)
-        obj_masks_per_caption= found_masks[bestobjboxes]# select masks corresponding to best boxes,
-        sub_masks_per_caption= found_masks[bestsubjboxes]
-        
-        #do matcher based on box iou between outputs and inputs split by batch_idx 
-        batch_one_hot=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])
-        #print("obj masks_per_caption",obj_masks_per_caption.shape)
-        #print("masks_per_caption",obj_masks_per_caption)
-        masks_per_caption=torch.logical_or(obj_masks_per_caption,sub_masks_per_caption).float()
-        idx_masks_per_caption= masks_per_caption*batch_one_hot.unsqueeze(-1).unsqueeze(-1).float() 
-
+        masks_per_caption=torch.cat(all_masks,dim=0)
         #print("idx_masks_per_caption",idx_masks_per_caption.shape)
-        masks_per_image=torch.sum(idx_masks_per_caption,dim=0)
+        masks_per_image=torch.stack([torch.sum(masks,dim=0).clamp(0,1) for masks in all_masks])
 
-        assert masks_per_caption.shape[0]==sum(splits)
-        return masks_per_caption,masks_per_image,splits
+        assert masks_per_caption.shape[0]==sum(spans)
+        return masks_per_caption,masks_per_image,spans
 
 
     def training_step(self,batch, batch_idx):
@@ -305,10 +247,10 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         maskb=self.forward(encodingim)
 
         masks_per_caption,masks_per_image, splits=self.detic_forward(**batch)
-        #print("masks_per_caption",masks_per_caption.shape)
+       
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
         #print("masks_per_image",masks_per_image.shape)
-        masks_per_image=torch.nn.functional.interpolate(masks_per_image.unsqueeze(1),size=maskb.shape[-2:]).squeeze(1)
+        masks_per_image=torch.nn.functional.interpolate(masks_per_image,size=maskb.shape[-2:]).squeeze(1)
         objects=batch["objects"] # bbox in xyxy format
         subjects=batch["subjects"] # bbox in xyxy format  
         #tgt_bbox is all the concatenates bboxes
@@ -319,16 +261,19 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
                             torch.max(stacked[:,3],dim=-1).values],dim=1)
 
         batch_ann_counts=torch.bincount(tgt_idx,minlength=images.shape[0]).tolist()
-        #print("masks_per_caption",masks_per_caption.shape)
+        print("batch_ann_counts",batch_ann_counts)
+        print("splits",splits)
+        print("masks_per_caption",masks_per_caption.shape)
+        print("masksa",maska.shape)
         self.logger.log_image(key="validation samples",
             images=[i for i in images],
-            masks={
-                "prediction": {"mask_data": maska.cpu().split(batch_ann_counts), "class_labels":  torch.arange(tgt_bbox.shape[0])},
-                "ground_truth": {"mask_data": masks_per_caption.cpu().split(splits), "class_labels": torch.arange(sum(splits))}
-            },
-            boxes={
-                "ground_truth": {"box_data": tgt_bbox.split(batch_ann_counts), "class_labels": torch.arange(tgt_bbox.shape[0])},
-            }
+            masks=[{
+                "prediction": {"mask_data": maska.cpu(), "class_labels":  ca},
+                "ground_truth": {"mask_data": masks_per_caption.cpu(), "class_labels": cb}
+            } for maska,masks_per_caption,ca,cb in zip(maska.split(batch_ann_counts),masks_per_caption.split(splits),torch.arange(tgt_bbox.shape[0]).split(batch_ann_counts),torch.arange(sum(splits)).split(splits))],
+            boxes=[{
+                "ground_truth": {"box_data": tgt_bbox, "class_labels": c},
+            } for tgt_bbox,c in zip(tgt_bbox.split(batch_ann_counts),torch.arange(tgt_bbox.shape[0]).split(batch_ann_counts))],
         )
 
         
