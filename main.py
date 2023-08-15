@@ -235,7 +235,7 @@ class PairDETR(pl.LightningModule):
             #then multiple boxes up by HW to get the right size
             boxes=boxes.cpu().numpy()*200
             #then draw boxes
-
+            # this..... is not how to do it ! 
             self.log( "train_images", [wandb.Image(Images=images, boxes=boxes[i]) for i in range(images.shape[0])],prog_bar=False,rank_zero_only=True)
 
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
@@ -394,19 +394,26 @@ class VisGenomeModule(PairDETR):
         img=batch["img"]
         obj_classes=batch["obj_classes"].squeeze()
         subj_classes=batch["subj_classes"].squeeze()
-        objects=batch["objects"]
-        subjects=batch["subjects"]
+        objects=batch["objects"] # bbox in xyxy format
+        subjects=batch["subjects"] # bbox in xyxy format
         batch_idx=batch["batch_idx"]
         captions=batch["relation"].squeeze()
-        tgt_idx=batch["batch_idx"]
-
         masks_per_caption,masks_per_image=self.detic_forward(**batch)
-              
-
-
+        classencodings=captions if captions.shape[-1] ==512 else self.clip.encode_text(captions)
+        #targets are the coco format annotations  
+        #tgt_ids is which encoding each caption has. 
+        tgt_ids=torch.arange(classencodings.shape[0],device=self.device)       
+        #tgt_bbox is all the concatenates bboxes
+        tgt_bbox=torch.stack([torch.min(objects[:,0],subjects[:,0]).values,
+                                    torch.min(objects[:,1],subjects[:,1]), # these find the top left corner
+                                torch.max(objects[:,2],subjects[:,2]), # find the bottom right corner with max of x ys and add the whs.  
+                            torch.max(objects[:,3],subjects[:,3])],dim=1)
+        #tgt_sizes is the number of labels per image
         
-        #we need to get batch to be the same as: 
-        #samples, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch        return batch
+        tgt_sizes= torch.nn.funtional.one_hot(batch_idx,num_classes=img.shape[0]).sum(dim=0)
+        targets = [dict(zip(["labels","boxes","masks","boxes"],v)) for v in zip(tgt_ids,tgt_bbox,masks_per_caption,tgt_sizes)]
+
+        return img, targets , classencodings, masks_per_image, batch_idx, (tgt_ids,tgt_bbox,masks_per_caption,tgt_sizes)
     def training_step(self,batch,batch_idx):
        
         return super(self,PairDETR).training_step(self.do_batch(batch),batch_idx)
@@ -414,6 +421,9 @@ class VisGenomeModule(PairDETR):
         return super(self,PairDETR).test_step(self.do_batch(batch),batch_idx)
     def validation_step(self,batch,batch_idx):
         return super(self,PairDETR).validation_step(self.do_batch(batch),batch_idx)
+    
+
+
 if __name__ == '__main__':
     from argparser import get_args_parser
     import argparse
@@ -422,25 +432,33 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.output_dir:
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
-    #make wandb logger
-    run=wandb.init(project="SPARC",entity="st7ma784",name="VRE",config=args)
-
-    logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=args.coco_path,log_model=True)
-
-    #wandb_logger = WandbLogger(project='pairdetr',entity="st7ma784",log_model=True)
-    from data.coco import COCODataModule
-    data=COCODataModule(Cache_dir=args.coco_path,batch_size=4)
-    #convert to dict
+    savepath=args.coco_path
     args = vars(args)
-    model=PairDETR(**args)
+
+
+    # #make wandb logger
+    # run=wandb.init(project="SPARC",entity="st7ma784",name="VRE",config=args)
+
+    # logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=savepath,log_model=True)
+
+    # #wandb_logger = WandbLogger(project='pairdetr',entity="st7ma784",log_model=True)
+    # from data.coco import COCODataModule
+    # data=COCODataModule(Cache_dir=args.coco_path,batch_size=4)
+    # #convert to dict
+    # model=PairDETR(**args)
 
 
     #or use VisGenomeForTraining....
-    '''
-    dm =VisGenomeDataModule(Cache_dir=args.coco_path,batch_size=4)
-    dm.prepare_data()
-    dm.setup()
-    '''
+    from data.VisGenomeDataModule import VisGenomeDataModule
+    data =VisGenomeDataModule(Cache_dir=args.coco_path,batch_size=4)
+    data.prepare_data()
+    data.setup()
+    model=VisGenomeModule(**args)
+    run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
+
+    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",experiment=run, save_dir=savepath,log_model=True)
+
+    
 
     trainer = pl.Trainer(
                          precision=16,
