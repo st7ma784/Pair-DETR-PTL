@@ -183,14 +183,15 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             object_box_ious=torchvision.ops.box_iou(obj,boxes)
             subject_box_ious=torchvision.ops.box_iou(subj,boxes)
             if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
-                all_masks.append(torch.zeros((1,0,28,28),device=self.device))
+                # all_masks.append(torch.zeros((1,0,28,28),device=self.device))
                 spans.append(0)
-                break
-            best_obj_boxes=torch.max(object_box_ious,dim=1).indices
-            best_subj_boxes=torch.max(subject_box_ious,dim=1).indices
-            masks=torch.logical_or(masks[best_obj_boxes],masks[best_subj_boxes]).float()
-            all_masks.append(masks)
-            spans.append(len(masks))
+                #pass
+            else:    
+                best_obj_boxes=torch.max(object_box_ious,dim=1).indices
+                best_subj_boxes=torch.max(subject_box_ious,dim=1).indices
+                masks=torch.logical_or(masks[best_obj_boxes],masks[best_subj_boxes]).float()
+                all_masks.append(masks)
+                spans.append(len(masks))
 
         
         masks_per_caption=torch.cat(all_masks,dim=0)
@@ -218,10 +219,15 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
         #print("masks_per_image",masks_per_image.shape)
         masks_per_image=torch.nn.functional.interpolate(masks_per_image,size=maskb.shape[-2:]).squeeze(1)
-        #mask=maska*(self.weight.sigmoid())+maskb*(1-self.weight.sigmoid())
+       
         
 
+        #i KNEW it was going to be DIFFERENT SHAPES!! 
 
+        print("maska",maska.shape)
+        print("maskb",maskb.shape)
+        print("masks_per_caption",masks_per_caption.shape)
+        print("masks_per_image",masks_per_image.shape)
         lossa=self.loss(maska,masks_per_caption)
         lossb=self.loss(maskb,masks_per_image)/(224*224)
         self.log("weight",self.w,prog_bar=True)
