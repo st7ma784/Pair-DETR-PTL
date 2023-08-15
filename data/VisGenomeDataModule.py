@@ -32,9 +32,9 @@ class VisGenomeIterDataset(IterableDataset):
         self.tokenizer=tokenizer
         if tokenizer is None:
             self.tokenizer=CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32",cache_dir=dir) 
-        self.tokenize=lambda x:self.tokenizer(x,return_tensors="pt",padding="max_length", truncation=True,max_length=77)['input_ids']
         self.data =self.data.map(self.process,remove_columns=['image_id' , 'image','relationships','width', 'height', 'coco_id', 'flickr_id','url' ])
-
+    def tokenize(self,x):
+        return self.tokenizer(x,return_tensors="pt",padding="max_length", truncation=True,max_length=77)['input_ids']
     def process(self,item):
         objects=[]
         subjects=[]
@@ -76,7 +76,9 @@ class VisGenomeDataset(Dataset):
         self.tokenizer=tokenizer
         if tokenizer is None:
             self.tokenizer=CLIPTokenizer.from_pretrained("openai/clip-vit-base-patch32",cache_dir=dir) 
-        self.tokenize=lambda x:self.tokenizer(x,return_tensors="pt",padding="max_length", truncation=True,max_length=77)['input_ids']
+    
+    def tokenize(self,x):
+        return self.tokenizer(x,return_tensors="pt",padding="max_length", truncation=True,max_length=77)['input_ids']
         # self.data =self.data.map(self.process,remove_columns=['image_id' , 'image','relationships','width', 'height', 'coco_id', 'flickr_id','url' ],num_proc=8).filter(lambda example: example is not None)
         
     def process(self,item):
