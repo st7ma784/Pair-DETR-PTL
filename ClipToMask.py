@@ -299,10 +299,11 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         objects=batch["objects"] # bbox in xyxy format
         subjects=batch["subjects"] # bbox in xyxy format  
         #tgt_bbox is all the concatenates bboxes
-        tgt_bbox=torch.stack([torch.min(objects[:,0],subjects[:,0]).values,
-                                    torch.min(objects[:,1],subjects[:,1]), # these find the top left corner
-                                torch.max(objects[:,2],subjects[:,2]), # find the bottom right corner with max of x ys and add the whs.  
-                            torch.max(objects[:,3],subjects[:,3])],dim=1)
+        stacked=torch.stack([objects,subjects],dim=-1)
+        tgt_bbox=torch.stack([torch.min(stacked[:,0],dim=-1).values,
+                              torch.min(stacked[:,1],dim=-1).values, # these find the top left corner
+                                torch.max(stacked[:,2],dim=-1).values, # find the bottom right corner with max of x ys and add the whs.  
+                            torch.max(stacked[:,3],dim=-1).values],dim=1)
         boxes=[[]*images.shape[0]]
         classes=[[]*images.shape[0]]
         for ann,cidx,idx in zip(tgt_bbox,tgt_idx,batch_idx):
