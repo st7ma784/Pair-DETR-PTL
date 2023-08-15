@@ -60,7 +60,6 @@ import torchvision
 
 #         out["pred_masks"] = outputs_seg_masks
 #         return out
-
 class PairDETR(pl.LightningModule):
     def __init__(self,**args):
         super().__init__()
@@ -94,7 +93,7 @@ class PairDETR(pl.LightningModule):
         self.aux_loss = args['aux_loss']
         self.loss=nn.CrossEntropyLoss(reduction="mean")
         self.clip_projection=nn.Linear(512,hidden_dim)
-   
+
         nn.init.constant_(self.bbox_embed.layers[-1].weight.data, 0)
         nn.init.constant_(self.bbox_embed.layers[-1].bias.data, 0)
         nn.init.constant_(self.input_proj.weight.data, 0)
@@ -332,6 +331,8 @@ class PairDETR(pl.LightningModule):
         #         #    self.log('coco_eval_bbox',self.coco_evaluator.coco_eval['bbox'].stats.tolist())
         #         if 'segm' in self.postprocessors.keys():
         #             self.log('coco_eval_masks',self.coco_evaluator.coco_eval['segm'].stats.tolist())
+import clip
+
 
 class VisGenomeModule(PairDETR):
     #in this module, we're going to do the same as above, only we need to also process the masks first with DETIC as in the ClipToMask module
@@ -354,7 +355,7 @@ class VisGenomeModule(PairDETR):
         self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
         self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
         self.cfg.MODEL.DEVICE='cuda'
-
+        self.clip, self.preprocess = clip.load("ViT-B/32", device=self.device)
         self.detic = DefaultPredictor(self.cfg)
         self.detic.model.eval()
 
