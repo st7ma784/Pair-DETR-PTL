@@ -276,7 +276,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
         masks_per_caption,masks_per_image, splits=self.detic_forward(**batch)
         #
-        print("masks_per_caption",masks_per_caption.shape)
+        #print("masks_per_caption",masks_per_caption.shape)
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
         #print("masks_per_image",masks_per_image.shape)
         masks_per_image=torch.nn.functional.interpolate(masks_per_image,size=maskb.shape[-2:]).squeeze(1)
