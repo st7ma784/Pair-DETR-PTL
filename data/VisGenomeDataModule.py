@@ -96,8 +96,8 @@ class VisGenomeDataset(Dataset):
             subj_classes.append(" ".join(["a", r["subject"]["names"][0]]))  
             caption=" ".join(["a",r["subject"]["names"][0],r["predicate"],r["object"]["names"][0]])
             captions.append(caption)
-            objects.append(torch.tensor([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]]))
-            subjects.append(torch.tensor([r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]]))
+            objects.append(torch.tensor([r["subject"]["x"],r["subject"]["y"],r["subject"]["x"]+r["subject"]["w"],r["subject"]["y"]+r["subject"]["h"]])/torch.tensor([item["width"],item["height"],item["width"],item["height"]]))
+            subjects.append(torch.tensor([r["object"]["x"],r["object"]["y"],r["object"]["x"]+r["object"]["w"],r["object"]["y"]+r["object"]["h"]])/torch.tensor([item["width"],item["height"],item["width"],item["height"]]))
             #captions.append(caption)
         try:
             img,boxes= prep(item["image"],{"boxes":torch.stack(objects+subjects)})
