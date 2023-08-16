@@ -476,7 +476,7 @@ if __name__ == '__main__':
     model=VisGenomeModule(**args)
     #run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
 
-    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",log_model=True)
+    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",log_model=False)
 
     
 
