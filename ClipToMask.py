@@ -297,8 +297,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.logger.log_image(key="validation samples",
             images=[i for i in images],
             masks=[{
-                "prediction": {"mask_data": torch.argmax(maska*torch.arange(maska.shape[0],device=maska.device).unsqueeze(-1).unsqueeze(-1),dim=0).cpu().numpy().astype(int)},##"class_labels":  ca
-                "ground_truth": {"mask_data":torch.argmax(masks_per_caption*torch.arange(masks_per_caption.shape[0],device=masks_per_caption.device).unsqueeze(-1).unsqueeze(-1),dim=0).cpu().numpy().astype(int)},# "class_labels": cb
+                "prediction": {"mask_data": torch.argmax(torch.cat([torch.full((1,*maska.shape[1:]),0.001,device=maska.device),maska],dim=0),dim=0).cpu().numpy().astype(int)},##"class_labels":  ca
+                "ground_truth": {"mask_data":torch.argmax(torch.cat([torch.full((1,*masks_per_caption.shape[1:]),0.001,device=masks_per_caption.device),masks_per_caption],dim=0),dim=0).cpu().numpy().astype(int)},# "class_labels": cb
             } for maska,masks_per_caption,ca,cb in zip(maska.to(torch.int).split(batch_ann_counts),masks_per_caption.to(torch.int).split(splits),torch.arange(tgt_bbox.shape[0]).split(batch_ann_counts),torch.arange(sum(splits)).split(splits))],
             # boxes=[{
             #     "ground_truth": {"box_data": tgt_bbox.tolist()},# "class_labels": c},
