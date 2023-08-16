@@ -187,19 +187,23 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
                 spans.append(0)
                 #pass
             else:    
-                best_obj_boxes=torch.max(object_box_ious,dim=1).indices
-                best_subj_boxes=torch.max(subject_box_ious,dim=1).indices
+                best_obj_boxes=torch.nn.functional.gumbel_softmax(object_box_ious, tau=1, hard=False, eps=1e-10, dim=- 1)
+                best_subj_boxes=torch.nn.functional.gumbel_softmax(subject_box_ious,tau=1, hard=False, eps=1e-10,dim=-1)
+                print("masks shapes",masks.shape)
+                print("best_obj_boxes",best_obj_boxes.shape)
+                print("best_subj_boxes",best_subj_boxes.shape)
+                
                 masks=torch.logical_or(masks[best_obj_boxes],masks[best_subj_boxes]).float()
                 all_masks.append(masks)
                 spans.append(len(masks))
-
+                #print("all_masks",all_masks)
         
         masks_per_caption=torch.cat(all_masks,dim=0)
         #print("idx_masks_per_caption",idx_masks_per_caption.shape)
         masks_per_image=torch.stack([torch.sum(masks,dim=0).clamp(0,1) for masks in all_masks])
 
         assert masks_per_caption.shape[0]==sum(spans)
-        return masks_per_caption,masks_per_image,spans
+        return masks_per_caption,masks_per_image,spans,cap_indexes 
 
 
     def training_step(self,batch, batch_idx):
@@ -214,7 +218,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         maskb=self.forward(encodingim)
         #print("maskb",maskb.shape)
 
-        masks_per_caption,masks_per_image,splits=self.detic_forward(**batch)
+        masks_per_caption,masks_per_image,detic_splits,cap_indexes=self.detic_forward(**batch)
         print("masks_per_caption",masks_per_caption.shape)
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
         #print("masks_per_image",masks_per_image.shape)
@@ -228,7 +232,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         print("maskb",maskb.shape)
         print("masks_per_caption",masks_per_caption.shape)
         print("masks_per_image",masks_per_image.shape)
-        lossa=self.loss(maska,masks_per_caption)
+        lossa=self.loss(maska[cap_indexes],masks_per_caption)
         lossb=self.loss(maskb,masks_per_image)/(224*224)
         self.log("weight",self.w,prog_bar=True)
 
