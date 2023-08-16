@@ -436,6 +436,13 @@ class VisGenomeModule(PairDETR):
         return super().validation_step(self.do_batch(batch),batch_idx)
     
 
+    def configure_optimizers(self):
+
+        optimizer = torch.optim.AdamW(super().parameters(),
+                                    lr=self.learning_rate,
+                                    weight_decay=self.args['weight_decay'])
+        # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, self.args['lr_drop'])
+        return [optimizer]
 
 if __name__ == '__main__':
     from argparser import get_args_parser
