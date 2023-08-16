@@ -476,7 +476,7 @@ if __name__ == '__main__':
     model=VisGenomeModule(**args)
     #run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
 
-    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",log_model=False)
+    #logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",log_model=False)
 
     
 
@@ -486,7 +486,7 @@ if __name__ == '__main__':
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
                          accumulate_grad_batches=1,
-                         logger=logtool,
+                         #logger=logtool,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
                          fast_dev_run=False,  
