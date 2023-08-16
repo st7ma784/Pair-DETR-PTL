@@ -377,19 +377,31 @@ class VisGenomeModule(PairDETR):
         outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier.clone().detach().float(),None,None))
         found_masks=[outputs[i].get('pred_masks') for i in range(len(outputs))]
         found_boxes=[outputs[i].get('pred_boxes').tensor for i in range(len(outputs))] #these are in xyxy format
-        found_boxes=torch.cat(found_boxes,dim=0)
-        found_masks=torch.cat(found_masks,dim=0)
-        object_box_ious=torchvision.ops.box_iou(found_boxes,objects)
-        subject_box_ious=torchvision.ops.box_iou(found_boxes,subjects)
-        bestobjboxes=torch.max(object_box_ious,dim=0).indices
-        bestsubjboxes=torch.max(subject_box_ious,dim=0).indices #draw out which dim is which
-        obj_masks_per_caption= found_masks[bestobjboxes]# select masks corresponding to best boxes,
-        sub_masks_per_caption= found_masks[bestsubjboxes]
-        batch_one_hot=torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0])
-        masks_per_caption=torch.logical_or(obj_masks_per_caption,sub_masks_per_caption).float()
-        idx_masks_per_caption= masks_per_caption*batch_one_hot.unsqueeze(-1).unsqueeze(-1).float() 
-        masks_per_image=torch.sum(idx_masks_per_caption,dim=0)
-        return masks_per_caption,masks_per_image
+        splits=torch.bincount(batch_idx,minlength=img.shape[0]).tolist()
+        per_img_objects=objects.split(splits)
+        per_img_subjects=subjects.split(splits)
+        all_masks,spans,index_arrays=[],[],[]
+        for obj,subj,boxes,masks in zip(per_img_objects,per_img_subjects,found_boxes,found_masks):
+            object_box_ious=torchvision.ops.box_iou(obj,boxes)
+            subject_box_ious=torchvision.ops.box_iou(subj,boxes)
+            if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
+                all_masks.append(torch.zeros((max(obj.shape[0],subj.shape[0]),1,28,28),device=self.device))
+                spans.append(max(obj.shape[0],subj.shape[0]))
+            else:    
+                best_obj_boxes=torch.nn.functional.gumbel_softmax(object_box_ious, tau=1, hard=False, eps=1e-10, dim=0)
+                best_subj_boxes=torch.nn.functional.gumbel_softmax(subject_box_ious,tau=1, hard=False, eps=1e-10,dim=0)
+                masks=masks.flatten(1)
+                masks=torch.logical_or(best_obj_boxes@masks,best_subj_boxes@masks).float()
+                masks=masks.unflatten(1,(1, 28,28))
+                all_masks.append(masks)
+                spans.append(len(masks))
+                index_arrays.append(torch.logical_or(best_obj_boxes,best_subj_boxes))
+               
+        masks_per_caption=torch.cat(all_masks,dim=0)
+        masks_per_image=torch.stack([torch.sum(masks,dim=0).clamp(0,1) for masks in all_masks])
+        assert masks_per_caption.shape[0]==sum(spans)
+        return masks_per_caption,masks_per_image,spans
+
     def do_batch(self,batch):
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
         img=batch["img"]
