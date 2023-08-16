@@ -473,7 +473,7 @@ class HungarianMatcher(nn.Module):
         C = C.view(bs, num_queries, -1).sigmoid().cpu()
 
 
-        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(tgt_sizes, -1))]
+        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(tgt_sizes.tolist(), -1))]
         # GT_class_indexes=torch.stack([i for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
         # target_classes_o=encodings[class_lookup[GT_class_indexes]]
         # print(torch.allclose(target_classes_o/torch.norm(target_classes_o,dim=-1,keepdim=True),tgt_embs))
@@ -566,10 +566,12 @@ class SetCriterion(nn.Module):
         """
 
         src_idx =(indices[0],indices[1])   # should probably just check these are the right way around.     
+        
         #tgt_idx = (indices[0],indices[2])
-        src_masks = outputs["pred_masks"][src_idx]
+        src_masks = outputs["pred_masks"][indices[1]]
+        #print("src masks",src_masks.shape) # should be ann *200*200
         masks=torch.stack([targets[t]['masks'][i] for (t, i) in zip(indices[0],indices[2])])
-        src_masks = interpolate(src_masks[:, None], size=masks.shape[-2:],
+        src_masks = interpolate(src_masks.unsqueeze(1), size=masks.shape[-2:],
                                 mode="bilinear", align_corners=False)[:, 0].flatten(1)
         masks = masks.flatten(1).to(src_masks)
         masks = masks.view(src_masks.shape)
@@ -579,7 +581,7 @@ class SetCriterion(nn.Module):
         }
 
     def forward(self, **kwargs):
-        encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=kwargs["encodings"],kwargs["outputs"],kwargs["targets"],kwargs["tgt_sizes"],kwargs["tgt_embs"],kwargs["tgt_bbox"],kwargs["class_lookup"],kwargs["num_boxes"]
+        encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=kwargs["classencodings"],kwargs["outputs"],kwargs["targets"],kwargs["tgt_sizes"],kwargs["tgt_embs"],kwargs["tgt_bbox"],kwargs["class_lookup"],kwargs["num_boxes"]
         losses = {}
         indices = self.matcher(outputs,tgt_sizes=tgt_sizes,tgt_embs=tgt_embs,tgt_bbox=tgt_bbox)        
         #these refer to batch, then the index within batch and should be able to get the embeddings from this 
@@ -602,7 +604,7 @@ class SetCriterion(nn.Module):
         
         src_idx= (indices[0], indices[1]) #0,1 was the original version, 
         
-        return losses, outputs['pred_logits'][src_idx], outputs['pred_boxes'][(indices[0][0], indices[1][0])]
+        return losses, outputs['pred_logits'][src_idx], outputs['pred_boxes'][(indices[0], indices[1])]
 
 
 
@@ -711,8 +713,8 @@ class FastCriterion(nn.Module):
         # out_iou_total=-torch.sub(out_ious,1)
            
 
-        gt_log_iou_scores=torch.nn.functional.softmax(iou_scores,dim=0) #46,211
-        gt_one_hot=torch.nn.functional.gumbel_softmax(gt_log_iou_scores,dim=0,hard=True) #46,211
+        gt_log_iou_scores=torch.nn.functional.softmax(iou_scores,dim=1) #46,211
+        gt_one_hot=torch.nn.functional.gumbel_softmax(gt_log_iou_scores,dim=1,hard=True) #46,211
         #print(output_bbox.shape,gt_one_hot.shape)
         gt_selected_boxes=output_bbox.T@gt_one_hot
         gt_selected_boxes=gt_selected_boxes.T
@@ -737,16 +739,19 @@ class FastCriterion(nn.Module):
         #for each gt class we want to find the best fit in the output logits, and then use that to find the best fit mask
         scores=predicted_classes@tgt_embs.T # B,Q,f @  F,GTB = B,Q,GTB 
         scores=torch.flatten(scores,0,1) # BQ,GTB
-        indices=torch.argmax(scores,dim=0) # BQ
-        overall_mask_loss=torch.nn.functional.mse_loss(output_masks.flatten(0,1)[indices],tgt_masks,reduction='mean')
+
+        indices=torch.nn.functional.gumbel_softmax(scores,hard=True,dim=0).T # BQ
+        a=indices@output_masks.flatten(1)
+        output_masks=a.unflatten(1,(tgt_masks.shape[-2:]))
+        overall_mask_loss=torch.nn.functional.mse_loss(output_masks,tgt_masks,reduction='mean')
         #overall_mask_loss=torchvision.ops.sigmoid_focal_loss(output_masks.flatten(0,1)[indices],tgt_masks,reduction='mean')
         #we could then do the same kind of best fit, taking each individual object mask against the gt, finding the loss of the best fit. 
 
         ########## DO MASK LOSS 2 ################
-        immask=torch.mean(output_masks,dim=1) #B,W,H
-        immask_loss=torch.nn.functional.mse_loss(immask,im_masks,reduction='mean')
+        # immask=torch.mean(GT.unflatten(1,(tgt_masks.shape[-2:])),dim=1) #B,W,H
+        # immask_loss=torch.nn.functional.mse_loss(immask,im_masks,reduction='mean')
 
-        output_class_masks=torch.einsum('bqwh,bcq->bcwh',output_masks,similarity)/output_masks.shape[1] #B,Q,W,H
+        output_class_masks=torch.einsum('qwh,bcq->bcwh',output_masks,similarity)/output_masks.shape[1] #B,Q,W,H
         output_class_masks=torch.nn.functional.softmax(output_class_masks,dim=1)
         # #now we need to get the ground truth masks
         batch_lookup=torch.nn.functional.one_hot(batch_idx,num_classes=output_class_masks.shape[0]).T
@@ -1320,3 +1325,53 @@ def _get_activation_fn(activation):
     if activation == "glu":
         return F.glu
     raise RuntimeError(F"activation should be relu/gelu, not {activation}.")
+
+
+
+def dice_loss(inputs, targets, num_boxes):
+    """
+    Compute the DICE loss, similar to generalized IOU for masks
+    Args:
+        inputs: A float tensor of arbitrary shape.
+                The predictions for each example.
+        targets: A float tensor with the same shape as inputs. Stores the binary
+                 classification label for each element in inputs
+                (0 for the negative class and 1 for the positive class).
+    """
+    # print("dice loss")
+    # print("inputs",inputs.shape)
+    # print("targets",targets.shape)
+    # print("num_boxes",num_boxes)
+    inputs = inputs.sigmoid().flatten(1)
+    numerator = 2 * (inputs * targets).sum(1)
+    #print("numerator",numerator.shape)
+    denominator = inputs.sum(-1) + targets.sum(-1)
+    loss = 1 - (numerator + 1) / (denominator + 1)
+    #print("loss",loss.shape)
+    return loss.sum() / num_boxes
+
+
+def sigmoid_focal_loss(inputs, targets, num_boxes, gamma: float = 2):
+    """
+    Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
+    Args:
+        inputs: A float tensor of arbitrary shape.
+                The predictions for each example.
+        targets: A float tensor with the same shape as inputs. Stores the binary
+                 classification label for each element in inputs
+                (0 for the negative class and 1 for the positive class).
+        alpha: (optional) Weighting factor in range (0,1) to balance
+                positive vs negative examples. Default = -1 (no weighting).
+        gamma: Exponent of the modulating factor (1 - p_t) to
+               balance easy vs hard examples.
+    Returns:
+        Loss tensor
+    """
+    print("sigmoid focal loss")
+
+    prob = inputs.sigmoid()
+    ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
+    p_t = prob * targets + (1 - prob) * (1 - targets)
+    loss = ce_loss * ((1 - p_t) ** gamma)
+    print("sigloss",loss.shape)
+    return loss.mean().sum() / num_boxes
