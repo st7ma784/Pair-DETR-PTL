@@ -447,11 +447,18 @@ class VisGenomeModule(PairDETR):
                             torch.max(stack[:,3],dim=-1).values],dim=1)
         #tgt_sizes is the number of labels per image
         #print("tgt_bbox",tgt_bbox.shape)
-
+        #print("tgt_ids",tgt_ids.shape)
         tgt_sizes= torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0]).sum(dim=0)
         targets = [dict(list(zip(['labels','boxes','masks'],v))) for v in zip(tgt_ids,tgt_bbox,masks_per_caption.squeeze())]
         # print(targets)
-        return img, targets , dict(enumerate(classencodings)), masks_per_image.squeeze(1), batch_idx, (tgt_ids,tgt_bbox,masks_per_caption.squeeze(),tgt_sizes)
+        #targets is a set of all annotations smooshed together- we need to undo this with the tgt_sizes
+        steps=[0]+tgt_sizes.tolist()+[None]
+        steps=[sum(steps[:i]) for i in range(1,len(steps))]
+        
+        targetsets=[targets[i:j] for i,j in zip(steps,steps[1:])]
+        batched=[{k : torch.stack([t[k] for t in ts],dim=0) for k in ts[0].keys()} for ts in targetsets ]
+        
+        return img, batched , dict(enumerate(classencodings)), masks_per_image.squeeze(1), batch_idx, (tgt_ids,tgt_bbox,masks_per_caption.squeeze(),tgt_sizes)
     def training_step(self,batch,batch_idx):
        
         return super().training_step(self.do_batch(batch),batch_idx)
