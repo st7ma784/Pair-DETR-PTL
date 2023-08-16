@@ -634,7 +634,7 @@ class FastCriterion(nn.Module):
         self.relu = nn.ReLU()
         self.logger = kwargs['logger'] if 'logger' in kwargs else None
     def forward(self, **kwargs): 
-        encodings,outputs,tgt_masks,tgt_embs,tgt_ids,tgt_bbox,im_masks,batch_idx = kwargs["encodings"],kwargs["outputs"],kwargs["tgt_masks"],kwargs["tgt_embs"],kwargs["tgt_ids"],kwargs["tgt_bbox"],kwargs["im_masks"],kwargs["batch_idx"]
+        encodings,outputs,tgt_masks,tgt_embs,tgt_ids,tgt_bbox,im_masks,batch_idx = kwargs["classencodings"],kwargs["outputs"],kwargs["tgt_masks"],kwargs["tgt_embs"],kwargs["tgt_ids"],kwargs["tgt_bbox"],kwargs["im_masks"],kwargs["batch_idx"]
         #need to add  encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=1) to args
         image_width=224# hard coded for now
         class_encodings=encodings # c, 512

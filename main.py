@@ -194,7 +194,7 @@ class PairDETR(pl.LightningModule):
             #convert v to tensor and put it on the device
             self.weight_dict[k]=torch.as_tensor(v,device=self.device)
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx2):
         samples, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
         #targets = [{k: v.to(self.device,non_blocking=True) for k, v in t.items()} for t in targets]
         #print("classencodings",classencodings.keys())
@@ -228,14 +228,25 @@ class PairDETR(pl.LightningModule):
 
 
         #log the images with boxes 
-        if batch_idx%100==0:
+        if batch_idx2%100==0 and hasattr(self.logger,"log_image"):
             #images need unnormalized, to  be in 0-255, and in CHW
-            images=samples[0].cpu().numpy()*255
+            images=samples[0].detach().cpu().numpy()*255
             #then multiple boxes up by HW to get the right size
-            boxes=boxes.cpu().numpy()*200
-            #then draw boxes
-            # this..... is not how to do it ! 
-            self.log( "train_images", [wandb.Image(Images=images, boxes=boxes[i]) for i in range(images.shape[0])],prog_bar=False,rank_zero_only=True)
+            boxes=boxes.detach().cpu().numpy()*224
+            batch_ann_counts=torch.bincount(batch_idx,minlength=images.shape[0])
+            self.logger.log_image(key="train samples",
+                images=[i for i in images],
+                # masks=[{
+                #     "prediction": {"mask_data": torch.argmax(torch.cat([torch.full((1,*maska.shape[1:]),0.2,device=maska.device),maska],dim=0),dim=0).cpu().numpy().astype(int),"class_labels": {i:str(i) for i in range(ca)}},
+                #     "ground_truth": {"mask_data":torch.argmax(torch.cat([torch.full((1,*masks_per_caption.shape[1:]),0.2,device=masks_per_caption.device),masks_per_caption],dim=0),dim=0).cpu().numpy().astype(int),"class_labels": {i:str(i) for i in range(cb)}}
+                # } for maska,masks_per_caption,ca,cb in zip(maska.to(torch.int).split(batch_ann_counts),masks_per_caption.to(torch.int).split(splits),batch_ann_counts,splits)],
+                boxes=[{
+                    "ground_truth": {"box_data": tgt_bbox.tolist(),"class_labels": classencodings},
+                    "prediction": {"box_data": box.tolist(),"class_labels": classencodings},
+                        }
+                 for tgt_bbox,box,c in zip(tgt_bbox.split(batch_ann_counts),boxes.split(batch_ann_counts))],
+            )
+            #self.log( "train_images", [wandb.Image(Images=images, boxes=boxes[i]) for i in range(images.shape[0])],prog_bar=False,rank_zero_only=True)
 
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
         logits2=predictions2/torch.norm(predictions2,dim=-1,keepdim=True)
@@ -417,16 +428,17 @@ class VisGenomeModule(PairDETR):
         #tgt_ids is which encoding each caption has. 
         tgt_ids=torch.arange(classencodings.shape[0],device=self.device)       
         #tgt_bbox is all the concatenates bboxes
-        tgt_bbox=torch.stack([torch.min(objects[:,0],subjects[:,0]).values,
-                                    torch.min(objects[:,1],subjects[:,1]), # these find the top left corner
-                                torch.max(objects[:,2],subjects[:,2]), # find the bottom right corner with max of x ys and add the whs.  
-                            torch.max(objects[:,3],subjects[:,3])],dim=1)
+        stack=torch.stack([objects,subjects],dim=-1)
+        tgt_bbox=torch.stack([torch.min(stack[:,0],dim=-1).values,
+                                    torch.min(stack[:,1],dim=-1).values, # these find the top left corner
+                                torch.max(stack[:,2],dim=-1).values, # find the bottom right corner with max of x ys and add the whs.  
+                            torch.max(stack[:,3],dim=-1).values],dim=1)
         #tgt_sizes is the number of labels per image
         
-        tgt_sizes= torch.nn.funtional.one_hot(batch_idx,num_classes=img.shape[0]).sum(dim=0)
-        targets = [dict(zip(["labels","boxes","masks","boxes"],v)) for v in zip(tgt_ids,tgt_bbox,masks_per_caption,tgt_sizes)]
+        tgt_sizes= torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0]).sum(dim=0)
+        targets = [dict(zip(["labels","boxes","masks","boxes"],v)) for v in zip(tgt_ids,tgt_bbox,masks_per_caption.squeeze(),tgt_sizes)]
 
-        return img, targets , classencodings, masks_per_image, batch_idx, (tgt_ids,tgt_bbox,masks_per_caption,tgt_sizes)
+        return img, targets , dict(enumerate(classencodings)), masks_per_image.squeeze(1), batch_idx, (tgt_ids,tgt_bbox,masks_per_caption.squeeze(),tgt_sizes)
     def training_step(self,batch,batch_idx):
        
         return super().training_step(self.do_batch(batch),batch_idx)
