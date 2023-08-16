@@ -184,7 +184,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             object_box_ious=torchvision.ops.box_iou(obj,boxes)
             subject_box_ious=torchvision.ops.box_iou(subj,boxes)
             if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
-                # all_masks.append(torch.zeros((1,0,28,28),device=self.device))
+                all_masks.append(torch.zeros((1,max(obj.shape[0],subj.shape[0]),28,28),device=self.device))
                 spans.append(0)
                 #pass
             else:    
@@ -236,7 +236,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #print("maskb",maskb.shape)
 
         masks_per_caption,masks_per_image,detic_splits=self.detic_forward(**batch)
-        print("masks_per_caption",masks_per_caption.shape)
+        #print("masks_per_caption",masks_per_caption.shape)
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
         #print("masks_per_image",masks_per_image.shape)
         masks_per_image=torch.nn.functional.interpolate(masks_per_image,size=maskb.shape[-2:]).squeeze(1)
