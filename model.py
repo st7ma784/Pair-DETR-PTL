@@ -1367,11 +1367,11 @@ def sigmoid_focal_loss(inputs, targets, num_boxes, gamma: float = 2):
     Returns:
         Loss tensor
     """
-    print("sigmoid focal loss")
+    #print("sigmoid focal loss")
 
     prob = inputs.sigmoid()
     ce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction="none")
     p_t = prob * targets + (1 - prob) * (1 - targets)
     loss = ce_loss * ((1 - p_t) ** gamma)
-    print("sigloss",loss.shape)
+    #print("sigloss",loss.shape)
     return loss.mean().sum() / num_boxes
