@@ -184,8 +184,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             object_box_ious=torchvision.ops.box_iou(obj,boxes)
             subject_box_ious=torchvision.ops.box_iou(subj,boxes)
             if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
-                all_masks.append(torch.zeros((max(obj.shape[0],subj.shape[0]),28,28),device=self.device))
-                spans.append(0)
+                all_masks.append(torch.zeros((max(obj.shape[0],subj.shape[0]),1,28,28),device=self.device))
+                spans.append(max(obj.shape[0],subj.shape[0]))
                 #pass
             else:    
                 best_obj_boxes=torch.nn.functional.gumbel_softmax(object_box_ious, tau=1, hard=False, eps=1e-10, dim=0)
@@ -245,12 +245,12 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
 
         #i KNEW it was going to be DIFFERENT SHAPES!! 
 
-        print("maska",maska.shape)
-        print("maskb",maskb.shape)
-        print("masks_per_caption",masks_per_caption.shape)
-        print("masks_per_image",masks_per_image.shape)
+        # print("maska",maska.shape)
+        # print("maskb",maskb.shape)
+        # print("masks_per_caption",masks_per_caption.shape)
+        # print("masks_per_image",masks_per_image.shape)
         lossa=self.loss(maska,masks_per_caption)
-        lossb=self.loss(maskb,masks_per_image)/(224*224)
+        lossb=self.loss(maskb,masks_per_image)
         self.log("weight",self.w,prog_bar=True)
 
         self.log("caption_loss",lossa,prog_bar=True)
