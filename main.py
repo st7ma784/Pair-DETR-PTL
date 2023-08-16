@@ -411,7 +411,7 @@ class VisGenomeModule(PairDETR):
         subjects=batch["subjects"] # bbox in xyxy format
         batch_idx=batch["batch_idx"]
         captions=batch["relation"].squeeze()
-        masks_per_caption,masks_per_image=self.detic_forward(**batch)
+        masks_per_caption,masks_per_image,spans=self.detic_forward(**batch)
         classencodings=captions if captions.shape[-1] ==512 else self.clip.encode_text(captions)
         #targets are the coco format annotations  
         #tgt_ids is which encoding each caption has. 
@@ -469,7 +469,7 @@ if __name__ == '__main__':
     model=VisGenomeModule(**args)
     run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
 
-    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",experiment=run, save_dir=savepath,log_model=True)
+    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",experiment=run)#,log_model=True)
 
     
 
