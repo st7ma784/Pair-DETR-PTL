@@ -184,7 +184,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             object_box_ious=torchvision.ops.box_iou(obj,boxes)
             subject_box_ious=torchvision.ops.box_iou(subj,boxes)
             if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
-                all_masks.append(torch.zeros((1,max(obj.shape[0],subj.shape[0]),28,28),device=self.device))
+                all_masks.append(torch.zeros((max(obj.shape[0],subj.shape[0]),28,28),device=self.device))
                 spans.append(0)
                 #pass
             else:    
