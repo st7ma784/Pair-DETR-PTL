@@ -178,7 +178,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         splits=torch.bincount(batch_idx,minlength=img.shape[0]).tolist()
         per_img_objects=objects.split(splits)
         per_img_subjects=subjects.split(splits)
-        all_masks,spans=[],[]
+        all_masks,spans,index_arrays=[],[],[]
+
         for obj,subj,boxes,masks in zip(per_img_objects,per_img_subjects,found_boxes,found_masks):
             object_box_ious=torchvision.ops.box_iou(obj,boxes)
             subject_box_ious=torchvision.ops.box_iou(subj,boxes)
@@ -187,23 +188,39 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
                 spans.append(0)
                 #pass
             else:    
-                best_obj_boxes=torch.nn.functional.gumbel_softmax(object_box_ious, tau=1, hard=False, eps=1e-10, dim=- 1)
-                best_subj_boxes=torch.nn.functional.gumbel_softmax(subject_box_ious,tau=1, hard=False, eps=1e-10,dim=-1)
-                print("masks shapes",masks.shape)
-                print("best_obj_boxes",best_obj_boxes.shape)
-                print("best_subj_boxes",best_subj_boxes.shape)
-                
-                masks=torch.logical_or(masks[best_obj_boxes],masks[best_subj_boxes]).float()
+                best_obj_boxes=torch.nn.functional.gumbel_softmax(object_box_ious, tau=1, hard=False, eps=1e-10, dim=0)
+                best_subj_boxes=torch.nn.functional.gumbel_softmax(subject_box_ious,tau=1, hard=False, eps=1e-10,dim=0)
+                #these are one hot foundxB matrixes that represent the best found thing per annotated box
+
+                #print(masks.shape)# torch.Size([41, 1, 28, 28])
+                masks=masks.flatten(1)
+                #print(best_obj_boxes.shape)# torch.Size()
+                masks=torch.logical_or(best_obj_boxes@masks,best_subj_boxes@masks).float()
+                #combine the masks for the best obj and subj boxes
+                masks=masks.unflatten(1,(1, 28,28))
                 all_masks.append(masks)
                 spans.append(len(masks))
-                #print("all_masks",all_masks)
+                index_arrays.append(torch.logical_or(best_obj_boxes,best_subj_boxes))
+                #should result in a single #annotations x found boxes where every row in dim0 has 2 entries...
         
         masks_per_caption=torch.cat(all_masks,dim=0)
         #print("idx_masks_per_caption",idx_masks_per_caption.shape)
         masks_per_image=torch.stack([torch.sum(masks,dim=0).clamp(0,1) for masks in all_masks])
 
         assert masks_per_caption.shape[0]==sum(spans)
-        return masks_per_caption,masks_per_image,spans,cap_indexes 
+        #COMBINE INDEX ARRAYS :
+        #each index array represents the one hot of which pair of annotations goes to which output mask. 
+        #we need to combine them into a single index array that represents the one hot of which annotations have an output mask. 
+        #we can do this by summing the index arrays and then taking the index of non-zero rows
+        #the result should be a 1d tensor of size #num annotations filled with bool values to indicate if the annotation has a mask.
+        # for i in range(len(index_arrays)):
+        #     print("Ann Len",splits[i])
+        #     print("spans[{}]".format(i),spans[i])
+
+        #     print("index_arrays[{}]".format(i),index_arrays[i].shape)
+        # cap_indexes=torch.cat(index_arrays,dim=0).sum(dim=1).nonzero().squeeze(1)
+        # assert torch.sum(cap_indexes)==masks_per_caption.shape[0]
+        return masks_per_caption,masks_per_image,spans#,cap_indexes
 
 
     def training_step(self,batch, batch_idx):
@@ -218,7 +235,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         maskb=self.forward(encodingim)
         #print("maskb",maskb.shape)
 
-        masks_per_caption,masks_per_image,detic_splits,cap_indexes=self.detic_forward(**batch)
+        masks_per_caption,masks_per_image,detic_splits=self.detic_forward(**batch)
         print("masks_per_caption",masks_per_caption.shape)
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
         #print("masks_per_image",masks_per_image.shape)
@@ -232,7 +249,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         print("maskb",maskb.shape)
         print("masks_per_caption",masks_per_caption.shape)
         print("masks_per_image",masks_per_image.shape)
-        lossa=self.loss(maska[cap_indexes],masks_per_caption)
+        lossa=self.loss(maska,masks_per_caption)
         lossb=self.loss(maskb,masks_per_image)/(224*224)
         self.log("weight",self.w,prog_bar=True)
 
@@ -258,7 +275,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         maskb=self.forward(encodingim)
 
         masks_per_caption,masks_per_image, splits=self.detic_forward(**batch)
-
+        #
+        print("masks_per_caption",masks_per_caption.shape)
         masks_per_caption=torch.nn.functional.interpolate(masks_per_caption,size=maska.shape[-2:]).squeeze(1)
         #print("masks_per_image",masks_per_image.shape)
         masks_per_image=torch.nn.functional.interpolate(masks_per_image,size=maskb.shape[-2:]).squeeze(1)
