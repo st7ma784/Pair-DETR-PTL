@@ -14,6 +14,7 @@ from data.coco_eval import CocoEvaluator
 from functools import reduce
 # from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
 import torch
+import numbers
 # from torch.utils.data import DataLoader
 from util.misc import inverse_sigmoid
 import evaluate
@@ -110,13 +111,13 @@ class PairDETR(pl.LightningModule):
                             'loss_mask': 100*args['mask_loss_coef'], # 
                             'CELoss':1}
 
-        # self.criterion = SetCriterion( 
-        #                               weight_dict=self.weight_dict,
-        #                             focal_alpha=args['focal_alpha'],
-        #                              losses=['labels', 'boxes','masks'], # final cardinality
-        #                              logger=self.logger
-        #                             )
-        self.criterion= FastCriterion(weight_dict=self.weight_dict,logger=self.logger)
+        self.criterion = SetCriterion( 
+                                       weight_dict=self.weight_dict,
+                                     focal_alpha=args['focal_alpha'],
+                                      losses=['labels', 'boxes','masks'], # final cardinality
+                                      logger=self.logger
+                                     )
+        #self.criterion= FastCriterion(weight_dict=self.weight_dict,logger=self.logger)
         # TO DO : CREATE SECOND CRTIERION FOR THE SECOND HEAD
         
         
@@ -176,7 +177,7 @@ class PairDETR(pl.LightningModule):
         outputs_seg_masks = seg_masks.view(src.shape[0], -1, seg_masks.shape[-2], seg_masks.shape[-1])
         #print("seg_masks",outputs_seg_masks.shape) # B, NQ* N_classes, 200,200
         #print("outputs_seg_masks",outputs_seg_masks.shape) # B, NQ* N_classes, 200,200
-        #outputs_seg_masks=outputs_seg_masks[pred_to_keep_mask]
+        outputs_seg_masks=outputs_seg_masks[pred_to_keep_mask]
 
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}#,'pred_masks':masks}
         out2= {'pred_logits': outputs_class2[-1], 'pred_boxes': outputs_coord2[-1]}#,'pred_masks':masks}
@@ -214,26 +215,25 @@ class PairDETR(pl.LightningModule):
         tgt_masks=interpolate(tgt_masks.unsqueeze(1),outputs['pred_masks'].shape[-2:]).squeeze(1).to(outputs['pred_masks']) # BB,W,H
         masks=interpolate(masks.to(outputs['pred_masks']).unsqueeze(1),outputs['pred_masks'].shape[-2:]).squeeze(1) # B,W,H
         num_boxes = max(tgt_ids.shape[0], 1)
+        #print("num",num_boxes)
         #loss_dict, predictions= self.criterion(classencodings,outputs,num_boxes=num_boxes,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,class_lookup=class_to_tensor)
-  
-
-
-
-
-
-        loss_dict, predictions,boxes= self.criterion(classencodings=classencodings,targets=targets,num_boxes=num_boxes,outputs=outputs, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
+        #print(outputs['pred_masks'].shape,tgt_masks.shape) #should be the same
+        loss_dict, predictions,boxes= self.criterion(classencodings=classencodings,targets=targets,num_boxes=num_boxes,outputs=outputs, tgt_masks=tgt_masks,class_lookup=class_to_tensor,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
 #        losses=sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
-        loss_dict2,predictions2,boxes2 = self.criterion(classencodings=classencodings,targets=targets,num_boxes=num_boxes, outputs=outputs, tgt_masks=tgt_masks,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
+        loss_dict2,predictions2,boxes2 = self.criterion(classencodings=classencodings,targets=targets,num_boxes=num_boxes, outputs=outputs, tgt_masks=tgt_masks,class_lookup=class_to_tensor,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
         
 
 
         #log the images with boxes 
         if batch_idx2%100==0 and hasattr(self.logger,"log_image"):
             #images need unnormalized, to  be in 0-255, and in CHW
-            images=samples[0].detach().cpu().numpy()*255
+            images=samples.permute(0,2,3,1).detach().cpu().numpy()*255
             #then multiple boxes up by HW to get the right size
-            boxes=boxes.detach().cpu().numpy()*224
-            batch_ann_counts=torch.bincount(batch_idx,minlength=images.shape[0])
+            boxes=boxes.detach().cpu()*224
+            print("boxes",boxes.shape) # 4 * NQ,4
+            print("tgt_bbox",tgt_bbox.shape) #NQ,4
+            batch_ann_counts=torch.bincount(batch_idx,minlength=images.shape[0]).tolist()
+            print("batch_ann_counts",batch_ann_counts)
             self.logger.log_image(key="train samples",
                 images=[i for i in images],
                 # masks=[{
@@ -241,10 +241,19 @@ class PairDETR(pl.LightningModule):
                 #     "ground_truth": {"mask_data":torch.argmax(torch.cat([torch.full((1,*masks_per_caption.shape[1:]),0.2,device=masks_per_caption.device),masks_per_caption],dim=0),dim=0).cpu().numpy().astype(int),"class_labels": {i:str(i) for i in range(cb)}}
                 # } for maska,masks_per_caption,ca,cb in zip(maska.to(torch.int).split(batch_ann_counts),masks_per_caption.to(torch.int).split(splits),batch_ann_counts,splits)],
                 boxes=[{
-                    "ground_truth": {"box_data": tgt_bbox.tolist(),"class_labels": classencodings},
-                    "prediction": {"box_data": box.tolist(),"class_labels": classencodings},
-                        }
-                 for tgt_bbox,box,c in zip(tgt_bbox.split(batch_ann_counts),boxes.split(batch_ann_counts))],
+                    "ground_truth": {"box_data": [{
+                        "position": dict(list(zip(["minX","minY","maxX","maxY"],b))),
+                        "class_id": int(c),
+                        "domain": "pixel"
+                        } for b,c in zip(tgt_bbox.cpu().tolist(),e.tolist())]}
+                    ,
+                    "prediction": {"box_data": [{
+                        "position": dict(list(zip(["minX","minY","maxX","maxY"],b))),
+                        "class_id": int(c),
+                        "domain": "pixel"
+                        } for b,c in zip(box.cpu().tolist(),e.tolist())]}
+                } 
+                    for tgt_bbox,box,e in zip(tgt_bbox.split(batch_ann_counts),boxes.split(batch_ann_counts),embedding_indices.split(batch_ann_counts))]
             )
             #self.log( "train_images", [wandb.Image(Images=images, boxes=boxes[i]) for i in range(images.shape[0])],prog_bar=False,rank_zero_only=True)
 
@@ -253,10 +262,13 @@ class PairDETR(pl.LightningModule):
         # print("logits",logits.shape)
         # print("logits2",logits2.shape)
         CELoss=self.loss(logits@logits2.T,torch.arange(logits.shape[0],device=self.device))
-        
-        
+        normed_outputs=outputs['pred_logits']/torch.norm(outputs['pred_logits'],dim=-1,keepdim=True)
+        normed_outputs2=out2['pred_logits']/torch.norm(out2['pred_logits'],dim=-1,keepdim=True)
+        CELoss2=self.loss(normed_outputs.flatten(1)@normed_outputs2.flatten(1).T,torch.arange(outputs['pred_logits'].shape[0],device=self.device))
+        self.log("CELoss2 ",CELoss2,prog_bar=True,enable_graph=False,rank_zero_only=True)
         loss_dict['CELoss']=CELoss
         loss_dict2['CELoss']=CELoss
+
         #losses2 = sum(loss_dict2[k] * self.weight_dict[k] for k in loss_dict2.keys() if k in self.weight_dict)
         
         losses = reduce(torch.add, [loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict])
@@ -473,19 +485,19 @@ if __name__ == '__main__':
 
     # logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=savepath,log_model=True)
 
-    # #wandb_logger = WandbLogger(project='pairdetr',entity="st7ma784",log_model=True)
-    # from data.coco import COCODataModule
-    # data=COCODataModule(Cache_dir=args.coco_path,batch_size=4)
-    # #convert to dict
-    # model=PairDETR(**args)
+    #wandb_logger = WandbLogger(project='pairdetr',entity="st7ma784",log_model=True)
+    from data.coco import COCODataModule
+    data=COCODataModule(Cache_dir=savepath,batch_size=4)
+    #convert to dict
+    model=PairDETR(**args)
 
 
-    #or use VisGenomeForTraining....
-    from data.VisGenomeDataModule import VisGenomeDataModule
-    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=4)
-    data.prepare_data()
-    data.setup()
-    model=VisGenomeModule(**args)
+    # #or use VisGenomeForTraining....
+    # from data.VisGenomeDataModule import VisGenomeDataModule
+    # data =VisGenomeDataModule(Cache_dir=savepath,batch_size=4)
+    # data.prepare_data()
+    # data.setup()
+    # model=VisGenomeModule(**args)
     run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
 
     logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",experiment=run,log_model=False)
