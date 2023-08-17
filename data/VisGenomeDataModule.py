@@ -135,7 +135,7 @@ def Collate(batch):
     batch["batch_idx"]=torch.cat([torch.full((len(x),),i) for i,x in enumerate(batch["relation"])])
     #check batch[img] is none empty
     if len(batch["img"])==0:
-        print("oops")
+        #print("oops")
         return None
     batch["img"]=torch.stack(batch["img"])
     batch["relation"]=torch.cat(batch["relation"])
