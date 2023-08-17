@@ -225,7 +225,10 @@ class PairDETR(pl.LightningModule):
 
 
         #log the images with boxes 
-        if batch_idx2%100==0 and hasattr(self.logger,"log_image"):
+        if batch_idx2%100==0 and hasattr(self.logger,"log_image") and self.trainer.global_rank==0:
+            
+
+            #if the rank is 0, log the images
             #images need unnormalized, to  be in 0-255, and in CHW
             images=samples.permute(0,2,3,1).detach().cpu().numpy()*255
             #then multiple boxes up by HW to get the right size
