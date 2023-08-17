@@ -267,10 +267,11 @@ class PairDETR(pl.LightningModule):
         # print("logits",logits.shape)
         # print("logits2",logits2.shape)
         CELoss=self.loss(logits@logits2.T,torch.arange(logits.shape[0],device=self.device))
-        normed_outputs=outputs['pred_logits']/torch.norm(outputs['pred_logits'],dim=-1,keepdim=True)
-        normed_outputs2=out2['pred_logits']/torch.norm(out2['pred_logits'],dim=-1,keepdim=True)
-        CELoss2=self.loss(normed_outputs.flatten(1)@normed_outputs2.flatten(1).T,torch.arange(outputs['pred_logits'].shape[0],device=self.device))
-        self.log("CELoss2 ",CELoss2,prog_bar=True,enable_graph=False,rank_zero_only=True)
+        with torch.no_grad():
+            normed_outputs=outputs['pred_logits']/torch.norm(outputs['pred_logits'],dim=-1,keepdim=True)
+            normed_outputs2=out2['pred_logits']/torch.norm(out2['pred_logits'],dim=-1,keepdim=True)
+            CELoss2=self.loss(normed_outputs.flatten(1)@normed_outputs2.flatten(1).T,torch.arange(outputs['pred_logits'].shape[0],device=self.device))
+            self.log("CELoss2 ",CELoss2,prog_bar=True,enable_graph=False,rank_zero_only=True)
         loss_dict['CELoss']=CELoss
         loss_dict2['CELoss']=CELoss
 
@@ -405,21 +406,22 @@ class VisGenomeModule(PairDETR):
         outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier.detach().float(),None,None))  
         splits=torch.bincount(batch_idx,minlength=img.shape[0]).tolist()
         all_masks=[]
+        
         #index_arrays=[]
         for obj,subj,output in zip(objects.split(splits),
                                         subjects.split(splits),
                                         outputs):
             boxes=output.get('pred_boxes').tensor
-            masks=output.get('pred_masks')
+            masks=output.get('pred_masks').flatten(1)
             object_box_ious=torchvision.ops.box_iou(obj,boxes)
             subject_box_ious=torchvision.ops.box_iou(subj,boxes)
             if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
                 all_masks.append(torch.zeros((max(obj.shape[0],subj.shape[0]),1,28,28),device=self.device))
                 #spans.append(max(obj.shape[0],subj.shape[0]))
             else:    
-                best_obj_boxes=torch.nn.functional.gumbel_softmax(object_box_ious, tau=1, hard=False, eps=1e-10, dim=0)
-                best_subj_boxes=torch.nn.functional.gumbel_softmax(subject_box_ious,tau=1, hard=False, eps=1e-10,dim=0)
-                all_masks.append(torch.logical_or(best_obj_boxes@masks.flatten(1),best_subj_boxes@masks.flatten(1)).float().unflatten(1,(1, 28,28)))
+                #best_obj_boxes=torch.nn.functional.gumbel_softmax(object_box_ious, tau=1, hard=False, eps=1e-10, dim=0)
+                #best_subj_boxes=torch.nn.functional.gumbel_softmax(subject_box_ious,tau=1, hard=False, eps=1e-10,dim=0)
+                all_masks.append(torch.logical_or(masks[torch.argmax(object_box_ious,dim=1)],masks[torch.argmax(subject_box_ious,dim=1)]).float().unflatten(1,(1, 28,28)))
                 #spans.append(len(masks))
                 #index_arrays.append(torch.logical_or(best_obj_boxes,best_subj_boxes))
         
