@@ -232,7 +232,9 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         # cap_indexes=torch.cat(index_arrays,dim=0).sum(dim=1).nonzero().squeeze(1)
         # assert torch.sum(cap_indexes)==masks_per_caption.shape[0]
         return masks_per_caption,masks_per_image,spans#,cap_indexes
-
+    def on_validation_epoch_start(self):
+        #move the model to the device
+        self.detic.model.to(self.device)
     def on_train_epoch_start(self):
         #move the model to the device
         self.detic.model.to(self.device)
