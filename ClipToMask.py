@@ -348,12 +348,14 @@ if __name__ == "__main__":
 
     model=Exp3ClipToVisGenomeMask(layers=8,version=2)
     logger=pl.loggers.WandbLogger(project="ClipToMask",entity="st7ma784",name="Exp3ClipToVisGenomeMask")
-    trainer = pl.Trainer(gpus=1,
+    trainer = pl.Trainer(
                          precision=32,
                          max_epochs=2,
                          gradient_clip_val=0.25,
                          accumulate_grad_batches=4,
-                         fast_dev_run=False,
+                         accelerator='auto',
+                         fast_dev_run=False,  
+                         devices="auto",
                          logger=logger)
     trainer.fit(model, dm)
 
