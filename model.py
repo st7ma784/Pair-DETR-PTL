@@ -1330,7 +1330,7 @@ def _get_activation_fn(activation):
 
 
 
-def dice_loss(inputs, targets, num_boxes):
+def dice_loss(inputs, targets, num_boxes=1):
     """
     Compute the DICE loss, similar to generalized IOU for masks
     Args:
@@ -1353,7 +1353,7 @@ def dice_loss(inputs, targets, num_boxes):
     return loss.sum() / num_boxes
 
 
-def sigmoid_focal_loss(inputs, targets, num_boxes, gamma: float = 2):
+def sigmoid_focal_loss(inputs, targets, num_boxes=1, gamma: float = 2):
     """
     Loss used in RetinaNet for dense detection: https://arxiv.org/abs/1708.02002.
     Args:

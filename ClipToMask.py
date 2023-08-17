@@ -40,6 +40,7 @@ from detic.modeling.text.text_encoder import build_text_encoder
 import wget
 from typing import Optional,List
 import torchvision
+from model import dice_loss,sigmoid_focal_loss
 class Exp2CLIPtoCOCOMask(pl.LightningModule):
     def __init__(self,layers:int,version:int,outputsize=224):
         super().__init__()
@@ -251,15 +252,28 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #print("masks_per_image",masks_per_image.shape)
         masks_per_image=torch.nn.functional.interpolate(masks_per_image,size=maskb.shape[-2:]).squeeze(1)
        
-        
-        threshold=self.threshold.sigmoid()
-        maska=torch.gt(maska,threshold)
-        maskb=torch.gt(maskb,threshold)
         self.log("threshold",self.threshold,prog_bar=True)
-        lossa=self.loss(maska.float(),masks_per_caption)
-        lossb=self.loss(maskb.float(),masks_per_image)
-        self.log("weight",self.w,prog_bar=True)
+        caplossa=self.loss(maska.float(),masks_per_caption)
+        caplossb=dice_loss(maska.float(),masks_per_caption)
+        caplossc=sigmoid_focal_loss(maska.float(),masks_per_caption)        
+        
+        imlossa=self.loss(maskb.float(),masks_per_image)
+        imlossb=dice_loss(maskb.float(),masks_per_image)
+        imlossc=sigmoid_focal_loss(maskb.float(),masks_per_image)
 
+        self.log("caption_MSE",caplossa,prog_bar=True)
+        self.log("caption_dice",caplossb,prog_bar=True)
+        self.log("caption_focal",caplossc,prog_bar=True)
+
+        self.log("image_MSE",imlossa,prog_bar=True)
+        self.log("image_dice",imlossb,prog_bar=True)
+        self.log("image_focal",imlossc,prog_bar=True)
+
+        
+        
+        self.log("image - cap alpha weight",self.w,prog_bar=True)
+        lossa=caplossa+caplossb+caplossc
+        lossb=imlossa+imlossb+imlossc
         self.log("caption_loss",lossa,prog_bar=True)
         self.log("image_loss",lossb,prog_bar=True)
 
