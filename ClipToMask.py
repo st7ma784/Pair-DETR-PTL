@@ -344,13 +344,14 @@ if __name__ == "__main__":
     parser.add_argument('--stream', default=False, type=bool,help='stream data',)
     parser.add_argument("--COCO", default=False, type=bool,help="Use COCO style data")
     parser.add_argument("--layers", default=6, type=int,help="number fo layers in the MLP")
+    parser.add_argument("--version", default=1, type=int,help="version of the model to use")
     args=parser.parse_args()
     dir=os.path.join(args.Cache_dir,"data")
     dm =VisGenomeDataModule(Cache_dir=dir,batch_size=args.batch_size)
     dm.prepare_data()
     dm.setup()
 
-    model=Exp3ClipToVisGenomeMask(layers=8,version=2)
+    model=Exp3ClipToVisGenomeMask(layers=args.layers,version=args.version)
     logger=pl.loggers.WandbLogger(project="ClipToMask",entity="st7ma784",name="Exp3ClipToVisGenomeMask")
     trainer = pl.Trainer(
                          precision=32,
