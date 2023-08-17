@@ -235,10 +235,10 @@ class PairDETR(pl.LightningModule):
             images=samples.permute(0,2,3,1).detach().cpu().numpy()*255
             #then multiple boxes up by HW to get the right size
             boxes=boxes.detach().cpu()*224
-            print("boxes",boxes.shape) # 4 * NQ,4
-            print("tgt_bbox",tgt_bbox.shape) #NQ,4
+            # print("boxes",boxes.shape) # 4 * NQ,4
+            # print("tgt_bbox",tgt_bbox.shape) #NQ,4
             batch_ann_counts=torch.bincount(batch_idx,minlength=images.shape[0]).tolist()
-            print("batch_ann_counts",batch_ann_counts)
+            # print("batch_ann_counts",batch_ann_counts)
             self.logger.log_image(key="train samples",
                 images=[i for i in images],
                 # masks=[{
@@ -494,27 +494,26 @@ if __name__ == '__main__':
     args = vars(args)
 
 
-    # #make wandb logger
-    # run=wandb.init(project="SPARC",entity="st7ma784",name="VRE",config=args)
+    #make wandb logger
+    run=wandb.init(project="SPARC",entity="st7ma784",name="VRE",config=args)
 
-    # logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=savepath,log_model=True)
+    logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=savepath,log_model=False)
 
-    #wandb_logger = WandbLogger(project='pairdetr',entity="st7ma784",log_model=True)
-    # from data.coco import COCODataModule
-    # data=COCODataModule(Cache_dir=savepath,batch_size=4)
-    # #convert to dict
-    # model=PairDETR(**args)
+    from data.coco import COCODataModule
+    data=COCODataModule(Cache_dir=savepath,batch_size=4)
+    #convert to dict
+    model=PairDETR(**args)
 
 
-    #or use VisGenomeForTraining....
-    from data.VisGenomeDataModule import VisGenomeDataModule
-    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=5)
-    data.prepare_data()
-    data.setup()
-    model=VisGenomeModule(**args)
-    run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
+    # #or use VisGenomeForTraining....
+    # from data.VisGenomeDataModule import VisGenomeDataModule
+    # data =VisGenomeDataModule(Cache_dir=savepath,batch_size=5)
+    # data.prepare_data()
+    # data.setup()
+    # model=VisGenomeModule(**args)
+    # run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
 
-    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",experiment=run,log_model=False)
+    # logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",experiment=run,save_dir=savepath,log_model=True)
 
     
 
