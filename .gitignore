@@ -35,3 +35,6 @@ test2017.*
 wandb
 wandb/*
 ClipToMask/*
+wandb/debug.log
+wandb/debug-internal.log
+wandb/latest-run
