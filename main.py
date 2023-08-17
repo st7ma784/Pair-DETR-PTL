@@ -105,10 +105,10 @@ class PairDETR(pl.LightningModule):
                             'loss_gt_iou':0.5,
                             'class_loss':1,
                             "class_mask_loss":2,
-                            'loss_bbox_acc': 0.0001*args['bbox_loss_coef'],
-                            'loss_giou': 0.01*args['giou_loss_coef'],
-                            'loss_dice': 1000*args['dice_loss_coef'], #  last unc
-                            'loss_mask': 100*args['mask_loss_coef'], # 
+                            'loss_bbox_acc': args['bbox_loss_coef'],
+                            'loss_giou': args['giou_loss_coef'],
+                            'loss_dice': args['dice_loss_coef'], #  last unc
+                            'loss_mask': args['mask_loss_coef'], # 
                             'CELoss':1}
 
         self.criterion = SetCriterion( 
