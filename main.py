@@ -465,10 +465,10 @@ class VisGenomeModule(PairDETR):
         self.detic.model.to(self.device)
     def training_step(self,batch,batch_idx):
         #check that batch img is more than 2 images
-        torch.cuda.empty_cache()
         #I hate that I have to do this, but I'm running out of memory and I don't know why 
         if batch_idx%10 ==0:
             gc.collect()
+            torch.cuda.empty_cache()
 
         return super().training_step(self.do_batch(batch),batch_idx)
     def test_step(self,batch,batch_idx):
@@ -510,7 +510,7 @@ if __name__ == '__main__':
 
     #or use VisGenomeForTraining....
     from data.VisGenomeDataModule import VisGenomeDataModule
-    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=12)
+    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=8)
     data.prepare_data()
     data.setup()
     model=VisGenomeModule(**args)
