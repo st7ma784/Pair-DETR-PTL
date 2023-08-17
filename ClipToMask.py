@@ -324,9 +324,9 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.logger.log_image(key="validation samples",
             images=[i for i in images],
             masks=[{
-                "prediction": {"mask_data": torch.argmax(torch.cat([torch.full((1,*maska.shape[1:]),0.2,device=maska.device),maska],dim=0),dim=0).cpu().numpy().astype(int),"class_labels": {i:str(i) for i in range(ca)}},
-                "ground_truth": {"mask_data":torch.argmax(torch.cat([torch.full((1,*masks_per_caption.shape[1:]),0.2,device=masks_per_caption.device),masks_per_caption],dim=0),dim=0).cpu().numpy().astype(int),"class_labels": {i:str(i) for i in range(cb)}}
-            } for maska,masks_per_caption,ca,cb in zip(maska.to(torch.int).split(batch_ann_counts),masks_per_caption.to(torch.int).split(splits),batch_ann_counts,splits)],
+                "prediction": {"mask_data": torch.argmax(torch.cat([torch.full((1,*maska.shape[1:]),0.2),maska.cpu()],dim=0),dim=0).cpu().numpy().astype(int),"class_labels": {i:str(i) for i in range(ca)}},
+                "ground_truth": {"mask_data":torch.argmax(torch.cat([torch.full((1,*masks_per_caption.shape[1:]),0.2),masks_per_caption.cpu()],dim=0),dim=0).cpu().numpy().astype(int),"class_labels": {i:str(i) for i in range(cb)}}
+            } for maska,masks_per_caption,ca,cb in zip(maska.cpu().to(torch.int).split(batch_ann_counts),masks_per_caption.cpu().to(torch.int).split(splits),batch_ann_counts,splits)],
             # boxes=[{
             #     "ground_truth": {"box_data": tgt_bbox.tolist()},# "class_labels": c},
             # } for tgt_bbox,c in zip(tgt_bbox.split(batch_ann_counts),torch.arange(tgt_bbox.shape[0]).split(batch_ann_counts))],
