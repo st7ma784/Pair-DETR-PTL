@@ -339,15 +339,22 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=int, default=6, help='batch size')
     parser.add_argument('--stream', default=False, type=bool,help='stream data',)
     parser.add_argument("--COCO", default=False, type=bool,help="Use COCO style data")
+    parser.add_argument("--layers", default=6, type=int,help="number fo layers in the MLP")
     args=parser.parse_args()
     dir=os.path.join(args.Cache_dir,"data")
     dm =VisGenomeDataModule(Cache_dir=dir,batch_size=args.batch_size)
     dm.prepare_data()
     dm.setup()
 
-    model=Exp3ClipToVisGenomeMask(layers=2,version=2)
+    model=Exp3ClipToVisGenomeMask(layers=8,version=2)
     logger=pl.loggers.WandbLogger(project="ClipToMask",entity="st7ma784",name="Exp3ClipToVisGenomeMask")
-    trainer = pl.Trainer(gpus=1,precision=32,max_epochs=1,fast_dev_run=False,logger=logger)
+    trainer = pl.Trainer(gpus=1,
+                         precision=32,
+                         max_epochs=2,
+                         gradient_clip_val=0.25,
+                         accumulate_grad_batches=4,
+                         fast_dev_run=False,
+                         logger=logger)
     trainer.fit(model, dm)
 
     
