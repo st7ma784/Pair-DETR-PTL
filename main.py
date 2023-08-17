@@ -531,9 +531,9 @@ if __name__ == '__main__':
                          accumulate_grad_batches=1,
                          logger=logtool,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
-                         #accelerator='auto',
+                         accelerator='auto',
                          fast_dev_run=False,  
-                         gpus=1,
+                         devices="auto",
                             )
     trainer.fit(model,data)
     trainer.test(model,data)
