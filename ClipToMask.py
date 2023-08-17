@@ -111,13 +111,17 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
     
     def configure_optimizers(self) -> Any:
         if self.version==2:
-            optimizer = torch.optim.AdamW([p for p in self.mlp.parameters()]+[self.w], lr=1e-3)
+            optimizer = torch.optim.AdamW([p for p in self.mlp.parameters()]+
+                                          [self.w,self.threshold]
+                                          , lr=1e-3)
             return optimizer
         elif self.version==1:
             optimizer=torch.optim.AdamW([p for p in self.xmlp.parameters()]+
             [p for p in self.ymlp.parameters()]+
             [p for p in self.finalmlp.parameters()]+
             [p for p in self.finalcat.parameters()]+
+            [self.threshold]+
+            [p for p in self.finalcat2.parameters()]+
             [self.w],lr=1e-3)
             return optimizer
         else:
