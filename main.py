@@ -521,11 +521,11 @@ if __name__ == '__main__':
     
 
     trainer = pl.Trainer(
-                         precision=32,
+                         precision=16, #undo to fix scaling errors
                          max_epochs=20,#args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
-                         accumulate_grad_batches=4,
+                         accumulate_grad_batches=1,
                          logger=logtool,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
