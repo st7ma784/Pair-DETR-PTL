@@ -26,7 +26,7 @@ from model import MLP
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2.utils.visualizer import Visualizer
-from detectron2.modeling import build_model
+from detectron2.modeling import build_model 
 from detectron2.data import MetadataCatalog
 import torch
 import os ,sys 
@@ -41,6 +41,8 @@ import wget
 from typing import Optional,List
 import torchvision
 from model import dice_loss,sigmoid_focal_loss
+
+torch.autograd.set_detect_anomaly(True)
 class Exp2CLIPtoCOCOMask(pl.LightningModule):
     def __init__(self,layers:int,version:int,outputsize=224):
         super().__init__()
@@ -242,7 +244,7 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
         images=batch["img"]
         captions=batch["relation"].squeeze()
-        tgt_idx=batch["batch_idx"]
+        #tgt_idx=batch["batch_idx"]
         encodingcap=self.clip.encode_text(captions).float()
         encodingim=self.clip.encode_image(images).float()
               

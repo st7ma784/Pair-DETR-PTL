@@ -61,6 +61,8 @@ import torchvision
 
 #         out["pred_masks"] = outputs_seg_masks
 #         return out
+
+torch.autograd.set_detect_anomaly(True)
 class PairDETR(pl.LightningModule):
     def __init__(self,**args):
         super().__init__()
@@ -248,15 +250,15 @@ class PairDETR(pl.LightningModule):
                         "position": dict(list(zip(["minX","minY","maxX","maxY"],b))),
                         "class_id": int(c),
                         "domain": "pixel"
-                        } for b,c in zip(tgt_bbox.cpu().tolist(),e.tolist())]}
+                        } for b,c in zip(tgt_bbox.detach().cpu().tolist(),e.tolist())]}
                     ,
                     "prediction": {"box_data": [{
                         "position": dict(list(zip(["minX","minY","maxX","maxY"],b))),
                         "class_id": int(c),
                         "domain": "pixel"
-                        } for b,c in zip(box.cpu().tolist(),e.tolist())]}
+                        } for b,c in zip(box.detach().cpu().tolist(),e.tolist())]}
                 } 
-                    for tgt_bbox,box,e in zip(tgt_bbox.cpu().split(batch_ann_counts),boxes.cpu().split(batch_ann_counts),embedding_indices.cpu().split(batch_ann_counts))]
+                    for tgt_bbox,box,e in zip(tgt_bbox.detach().cpu().split(batch_ann_counts),boxes.cpu().split(batch_ann_counts),embedding_indices.detach().cpu().split(batch_ann_counts))]
             )
             #self.log( "train_images", [wandb.Image(Images=images, boxes=boxes[i]) for i in range(images.shape[0])],prog_bar=False,rank_zero_only=True)
 
@@ -396,54 +398,47 @@ class VisGenomeModule(PairDETR):
         obj_classes_encodings=self.clip.encode_text(obj_classes)
         subj_classes_encodings=self.clip.encode_text(subj_classes)
         classifier=torch.cat([obj_classes_encodings,subj_classes_encodings],dim=0)
-        featuresOUT = self.detic.model.backbone(img)
-        img.image_sizes=[(224,224)]*img.shape[0]
+        featuresOUT = self.detic.model.backbone(img.detach())
+        #img.image_sizes=[(224,224)]*img.shape[0]
         setattr(img,"image_sizes",[(224,224)]*img.shape[0])
         proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
-        outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier.clone().detach().float(),None,None))
-        found_masks=[outputs[i].get('pred_masks') for i in range(len(outputs))]
-        found_boxes=[outputs[i].get('pred_boxes').tensor for i in range(len(outputs))] #these are in xyxy format
+        outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier.detach().float(),None,None))  
         splits=torch.bincount(batch_idx,minlength=img.shape[0]).tolist()
-        per_img_objects=objects.split(splits)
-        per_img_subjects=subjects.split(splits)
-        all_masks,spans,index_arrays=[],[],[]
-        for obj,subj,boxes,masks in zip(per_img_objects,per_img_subjects,found_boxes,found_masks):
+        all_masks=[]
+        #index_arrays=[]
+        for obj,subj,output in zip(objects.split(splits),
+                                        subjects.split(splits),
+                                        outputs):
+            boxes=output.get('pred_boxes').tensor
+            masks=output.get('pred_masks')
             object_box_ious=torchvision.ops.box_iou(obj,boxes)
             subject_box_ious=torchvision.ops.box_iou(subj,boxes)
             if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
                 all_masks.append(torch.zeros((max(obj.shape[0],subj.shape[0]),1,28,28),device=self.device))
-                spans.append(max(obj.shape[0],subj.shape[0]))
+                #spans.append(max(obj.shape[0],subj.shape[0]))
             else:    
                 best_obj_boxes=torch.nn.functional.gumbel_softmax(object_box_ious, tau=1, hard=False, eps=1e-10, dim=0)
                 best_subj_boxes=torch.nn.functional.gumbel_softmax(subject_box_ious,tau=1, hard=False, eps=1e-10,dim=0)
-                masks=masks.flatten(1)
-                masks=torch.logical_or(best_obj_boxes@masks,best_subj_boxes@masks).float()
-                masks=masks.unflatten(1,(1, 28,28))
-                all_masks.append(masks)
-                spans.append(len(masks))
-                index_arrays.append(torch.logical_or(best_obj_boxes,best_subj_boxes))
-               
-        masks_per_caption=torch.cat(all_masks,dim=0)
-        masks_per_image=torch.stack([torch.sum(masks,dim=0).clamp(0,1) for masks in all_masks])
-        assert masks_per_caption.shape[0]==sum(spans)
-        return masks_per_caption,masks_per_image,spans
+                all_masks.append(torch.logical_or(best_obj_boxes@masks.flatten(1),best_subj_boxes@masks.flatten(1)).float().unflatten(1,(1, 28,28)))
+                #spans.append(len(masks))
+                #index_arrays.append(torch.logical_or(best_obj_boxes,best_subj_boxes))
+        
+
+
+        return torch.cat(all_masks,dim=0).detach(),torch.stack([torch.sum(masks,dim=0).clamp(0,1) for masks in all_masks]).detach()
 
     def do_batch(self,batch):
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
-        img=batch["img"]
-        obj_classes=batch["obj_classes"].squeeze()
-        subj_classes=batch["subj_classes"].squeeze()
-        objects=batch["objects"] # bbox in xyxy format
-        subjects=batch["subjects"] # bbox in xyxy format
+        if batch is None:
+            return None
+
         batch_idx=batch["batch_idx"]
         captions=batch["relation"].squeeze()
-        masks_per_caption,masks_per_image,spans=self.detic_forward(**batch)
+        masks_per_caption,masks_per_image=self.detic_forward(**batch)
         classencodings=captions if captions.shape[-1] ==512 else self.clip.encode_text(captions)
-        #targets are the coco format annotations  
-        #tgt_ids is which encoding each caption has. 
         tgt_ids=torch.arange(classencodings.shape[0],device=self.device)       
         #tgt_bbox is all the concatenates bboxes
-        stack=torch.stack([objects,subjects],dim=-1)
+        stack=torch.stack([batch["objects"],batch["subjects"]],dim=-1)
         tgt_bbox=torch.stack([torch.min(stack[:,0],dim=-1).values,
                                     torch.min(stack[:,1],dim=-1).values, # these find the top left corner
                                 torch.max(stack[:,2],dim=-1).values, # find the bottom right corner with max of x ys and add the whs.  
@@ -451,7 +446,7 @@ class VisGenomeModule(PairDETR):
         #tgt_sizes is the number of labels per image
         #print("tgt_bbox",tgt_bbox.shape)
         #print("tgt_ids",tgt_ids.shape)
-        tgt_sizes= torch.nn.functional.one_hot(batch_idx,num_classes=img.shape[0]).sum(dim=0)
+        tgt_sizes= torch.nn.functional.one_hot(batch["batch_idx"],num_classes=batch["img"].shape[0]).sum(dim=0)
         targets = [dict(list(zip(['labels','boxes','masks'],v))) for v in zip(tgt_ids,tgt_bbox,masks_per_caption.squeeze())]
         # print(targets)
         #targets is a set of all annotations smooshed together- we need to undo this with the tgt_sizes
@@ -461,7 +456,7 @@ class VisGenomeModule(PairDETR):
         targetsets=[targets[i:j] for i,j in zip(steps,steps[1:])]
         batched=[{k : torch.stack([t[k] for t in ts],dim=0) for k in ts[0].keys()} for ts in targetsets ]
         
-        return img, batched , dict(enumerate(classencodings)), masks_per_image.squeeze(1), batch_idx, (tgt_ids,tgt_bbox,masks_per_caption.squeeze(),tgt_sizes)
+        return batch["img"], batched , dict(enumerate(classencodings)), masks_per_image.squeeze(1), batch_idx, (tgt_ids,tgt_bbox,masks_per_caption.squeeze(),tgt_sizes)
     def validation_epoch_start(self):
         #move the model to the device
         self.detic.model.to(self.device)
@@ -470,8 +465,6 @@ class VisGenomeModule(PairDETR):
         self.detic.model.to(self.device)
     def training_step(self,batch,batch_idx):
         #check that batch img is more than 2 images
-        if batch["img"].shape[0]<2:
-            return None
         return super().training_step(self.do_batch(batch),batch_idx)
     def test_step(self,batch,batch_idx):
         return super().test_step(self.do_batch(batch),batch_idx)
