@@ -459,6 +459,12 @@ class VisGenomeModule(PairDETR):
         batched=[{k : torch.stack([t[k] for t in ts],dim=0) for k in ts[0].keys()} for ts in targetsets ]
         
         return img, batched , dict(enumerate(classencodings)), masks_per_image.squeeze(1), batch_idx, (tgt_ids,tgt_bbox,masks_per_caption.squeeze(),tgt_sizes)
+    def on_validation_epoch_start(self):
+        #move the model to the device
+        self.detic.model.to(self.device)
+    def on_train_epoch_start(self):
+        #move the model to the device
+        self.detic.model.to(self.device)
     def training_step(self,batch,batch_idx):
         #check that batch img is more than 2 images
         if batch["img"].shape[0]<2:
