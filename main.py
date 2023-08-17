@@ -396,14 +396,12 @@ class VisGenomeModule(PairDETR):
         objects=batch["objects"]
         subjects=batch["subjects"]
         batch_idx=batch["batch_idx"]
-        obj_classes_encodings=self.clip.encode_text(obj_classes)
-        subj_classes_encodings=self.clip.encode_text(subj_classes)
-        classifier=torch.cat([obj_classes_encodings,subj_classes_encodings],dim=0)
+        classifier=torch.cat([self.clip.encode_text(obj_classes).detach().float(),self.clip.encode_text(subj_classes).detach().float()],dim=0)
         featuresOUT = self.detic.model.backbone(img.detach())
         #img.image_sizes=[(224,224)]*img.shape[0]
         setattr(img,"image_sizes",[(224,224)]*img.shape[0])
         proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
-        outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier.detach().float(),None,None))  
+        outputs, _ = self.detic.model.roi_heads(None, featuresOUT, proposals,classifier_info=(classifier,None,None))  
         splits=torch.bincount(batch_idx,minlength=img.shape[0]).tolist()
         all_masks=[]
         
@@ -411,8 +409,8 @@ class VisGenomeModule(PairDETR):
         for obj,subj,output in zip(objects.split(splits),
                                         subjects.split(splits),
                                         outputs):
-            boxes=output.get('pred_boxes').tensor
-            masks=output.get('pred_masks').flatten(1)
+            boxes=output.get('pred_boxes').tensor.detach()
+            masks=output.get('pred_masks').flatten(1).detach()
             object_box_ious=torchvision.ops.box_iou(obj,boxes)
             subject_box_ious=torchvision.ops.box_iou(subj,boxes)
             if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
@@ -428,7 +426,7 @@ class VisGenomeModule(PairDETR):
 
 
         return torch.cat(all_masks,dim=0).detach(),torch.stack([torch.sum(masks,dim=0).clamp(0,1) for masks in all_masks]).detach()
-
+    @torch.no_grad()
     def do_batch(self,batch):
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
         if batch is None:
@@ -495,25 +493,25 @@ if __name__ == '__main__':
 
 
     #make wandb logger
-    run=wandb.init(project="SPARC",entity="st7ma784",name="VRE",config=args)
+    # run=wandb.init(project="SPARC",entity="st7ma784",name="VRE",config=args)
 
-    logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=savepath,log_model=False)
+    # logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=savepath,log_model=False)
 
-    from data.coco import COCODataModule
-    data=COCODataModule(Cache_dir=savepath,batch_size=4)
-    #convert to dict
-    model=PairDETR(**args)
+    # from data.coco import COCODataModule
+    # data=COCODataModule(Cache_dir=savepath,batch_size=4)
+    # #convert to dict
+    # model=PairDETR(**args)
 
 
-    # #or use VisGenomeForTraining....
-    # from data.VisGenomeDataModule import VisGenomeDataModule
-    # data =VisGenomeDataModule(Cache_dir=savepath,batch_size=5)
-    # data.prepare_data()
-    # data.setup()
-    # model=VisGenomeModule(**args)
-    # run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
+    #or use VisGenomeForTraining....
+    from data.VisGenomeDataModule import VisGenomeDataModule
+    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=5)
+    data.prepare_data()
+    data.setup()
+    model=VisGenomeModule(**args)
+    run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
 
-    # logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",experiment=run,save_dir=savepath,log_model=True)
+    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",experiment=run,save_dir=savepath,log_model=True)
 
     
 
