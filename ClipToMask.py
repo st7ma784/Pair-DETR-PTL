@@ -54,6 +54,7 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
         #this will give us a mask of the same size as the input. 
         self.version=version
         self.w=torch.nn.Parameter(torch.tensor(0.5))
+        self.threshold=torch.nn.Parameter(torch.tensor(0.5))
         if version==1:
             self.xmlp=MLP(input_dim=512,hidden_dim=512,output_dim=512,num_layers=layers)
             self.ymlp=MLP(input_dim=512,hidden_dim=512,output_dim=512,num_layers=layers)
@@ -92,8 +93,13 @@ class Exp2CLIPtoCOCOMask(pl.LightningModule):
         encoding=self.clip.encode_image(image) #B,512
         mask_im=self(encoding) #B,224,224
         maskcap=self(classencodings[tgt_ids]) #B,512
-        lossa= self.loss(maskcap,tgt_masks)
-        lossb= self.loss(mask_im,masks)
+
+        threshold=self.threshold.sigmoid()
+        mask_im=mask_im>threshold
+        maskcap=maskcap>threshold
+
+        lossa= self.loss(maskcap.float(),tgt_masks)
+        lossb= self.loss(mask_im.float(),masks)
         #weight will be a leant param between 0 and 1
 
         weight=self.w
@@ -242,15 +248,12 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         masks_per_image=torch.nn.functional.interpolate(masks_per_image,size=maskb.shape[-2:]).squeeze(1)
        
         
+        threshold=self.threshold.sigmoid()
+        maska=maska>threshold
+        maskb=maskb>threshold
 
-        #i KNEW it was going to be DIFFERENT SHAPES!! 
-
-        # print("maska",maska.shape)
-        # print("maskb",maskb.shape)
-        # print("masks_per_caption",masks_per_caption.shape)
-        # print("masks_per_image",masks_per_image.shape)
-        lossa=self.loss(maska,masks_per_caption)
-        lossb=self.loss(maskb,masks_per_image)
+        lossa=self.loss(maska.float(),masks_per_caption)
+        lossb=self.loss(maskb.float(),masks_per_image)
         self.log("weight",self.w,prog_bar=True)
 
         self.log("caption_loss",lossa,prog_bar=True)
