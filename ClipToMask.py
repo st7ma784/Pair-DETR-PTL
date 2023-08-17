@@ -18,6 +18,7 @@ Experiment 3: using the masks from VisGenome, can CLIP predict them?
 
 from typing import Any
 import torch
+import gc
 import torch.nn as nn
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader
@@ -242,6 +243,11 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         self.detic.model.to(self.device)
     def training_step(self,batch, batch_idx):
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
+        torch.cuda.empty_cache()
+        #I hate that I have to do this, but I'm running out of memory and I don't know why 
+        if batch_idx%10 ==0:
+            gc.collect()
+        
         images=batch["img"]
         captions=batch["relation"].squeeze()
         #tgt_idx=batch["batch_idx"]
