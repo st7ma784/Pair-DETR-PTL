@@ -340,7 +340,7 @@ if __name__ == "__main__":
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument('--Cache_dir', type=str, default='.', help='path to download and cache data')
-    parser.add_argument('--batch_size', type=int, default=6, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=12, help='batch size')
     parser.add_argument('--stream', default=False, type=bool,help='stream data',)
     parser.add_argument("--COCO", default=False, type=bool,help="Use COCO style data")
     parser.add_argument("--layers", default=6, type=int,help="number fo layers in the MLP")
