@@ -253,8 +253,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
        
         
         threshold=self.threshold.sigmoid()
-        maska=maska>threshold
-        maskb=maskb>threshold
+        maska=torch.gt(maska,threshold)
+        maskb=torch.gt(maskb,threshold)
         self.log("threshold",self.threshold,prog_bar=True)
         lossa=self.loss(maska.float(),masks_per_caption)
         lossb=self.loss(maskb.float(),masks_per_image)
