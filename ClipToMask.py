@@ -252,13 +252,15 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         #print("masks_per_image",masks_per_image.shape)
         masks_per_image=torch.nn.functional.interpolate(masks_per_image,size=maskb.shape[-2:]).squeeze(1)
        
-        self.log("threshold",self.threshold,prog_bar=True)
+        #self.log("threshold",self.threshold,prog_bar=True)
+        print("maska",maska.shape)
+        print("masks_per_caption",masks_per_caption.shape)
         caplossa=self.loss(maska.float(),masks_per_caption)
-        caplossb=dice_loss(maska.float(),masks_per_caption)
+        caplossb=dice_loss(maska.float(),masks_per_caption.flatten(1))
         caplossc=sigmoid_focal_loss(maska.float(),masks_per_caption)        
         
         imlossa=self.loss(maskb.float(),masks_per_image)
-        imlossb=dice_loss(maskb.float(),masks_per_image)
+        imlossb=dice_loss(maskb.float(),masks_per_image.flatten(1))
         imlossc=sigmoid_focal_loss(maskb.float(),masks_per_image)
 
         self.log("caption_MSE",caplossa,prog_bar=True)
