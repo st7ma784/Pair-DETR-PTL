@@ -354,7 +354,7 @@ if __name__ == "__main__":
     logger=pl.loggers.WandbLogger(project="ClipToMask",entity="st7ma784",name="Exp3ClipToVisGenomeMask")
     trainer = pl.Trainer(
                          precision=32,
-                         max_epochs=2,
+                         max_epochs=20,
                          gradient_clip_val=0.25,
                          accumulate_grad_batches=4,
                          accelerator='auto',
