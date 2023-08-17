@@ -129,7 +129,8 @@ def Collate(batch):
     #remove None 
     batch=[x for x in batch if x is not None]
     
-
+    if len(batch)==0:
+        return None
     #convert to batch from list of dicts to dict of lists
     batch={k:[x[k] for x in batch] for k in batch[0].keys()}
     batch["batch_idx"]=torch.cat([torch.full((len(x),),i) for i,x in enumerate(batch["relation"])])
