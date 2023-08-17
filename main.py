@@ -510,7 +510,7 @@ if __name__ == '__main__':
 
     #or use VisGenomeForTraining....
     from data.VisGenomeDataModule import VisGenomeDataModule
-    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=3)
+    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=5)
     data.prepare_data()
     data.setup()
     model=VisGenomeModule(**args)
@@ -521,7 +521,7 @@ if __name__ == '__main__':
     
 
     trainer = pl.Trainer(
-                         precision=16,
+                         precision=32,
                          max_epochs=20,#args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
