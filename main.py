@@ -14,7 +14,7 @@ from data.coco_eval import CocoEvaluator
 from functools import reduce
 # from pytorch_lightning.utilities.types import TRAIN_DATALOADERS
 import torch
-import numbers
+import gc
 # from torch.utils.data import DataLoader
 from util.misc import inverse_sigmoid
 import evaluate
@@ -465,6 +465,11 @@ class VisGenomeModule(PairDETR):
         self.detic.model.to(self.device)
     def training_step(self,batch,batch_idx):
         #check that batch img is more than 2 images
+        torch.cuda.empty_cache()
+        #I hate that I have to do this, but I'm running out of memory and I don't know why 
+        if batch_idx%10 ==0:
+            gc.collect()
+
         return super().training_step(self.do_batch(batch),batch_idx)
     def test_step(self,batch,batch_idx):
         return super().test_step(self.do_batch(batch),batch_idx)
@@ -505,7 +510,7 @@ if __name__ == '__main__':
 
     #or use VisGenomeForTraining....
     from data.VisGenomeDataModule import VisGenomeDataModule
-    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=5)
+    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=12)
     data.prepare_data()
     data.setup()
     model=VisGenomeModule(**args)
@@ -520,7 +525,7 @@ if __name__ == '__main__':
                          max_epochs=20,#args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
-                         accumulate_grad_batches=1,
+                         accumulate_grad_batches=4,
                          logger=logtool,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
