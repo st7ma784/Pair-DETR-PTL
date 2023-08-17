@@ -256,7 +256,7 @@ class PairDETR(pl.LightningModule):
                         "domain": "pixel"
                         } for b,c in zip(box.cpu().tolist(),e.tolist())]}
                 } 
-                    for tgt_bbox,box,e in zip(tgt_bbox.split(batch_ann_counts),boxes.split(batch_ann_counts),embedding_indices.split(batch_ann_counts))]
+                    for tgt_bbox,box,e in zip(tgt_bbox.cpu().split(batch_ann_counts),boxes.cpu().split(batch_ann_counts),embedding_indices.cpu().split(batch_ann_counts))]
             )
             #self.log( "train_images", [wandb.Image(Images=images, boxes=boxes[i]) for i in range(images.shape[0])],prog_bar=False,rank_zero_only=True)
 
