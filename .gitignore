@@ -38,3 +38,6 @@ ClipToMask/*
 wandb/debug.log
 wandb/debug-internal.log
 wandb/latest-run
+wandb/debug-internal.log
+wandb/debug.log
+wandb/latest-run
