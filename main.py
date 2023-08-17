@@ -502,7 +502,7 @@ if __name__ == '__main__':
 
     #or use VisGenomeForTraining....
     from data.VisGenomeDataModule import VisGenomeDataModule
-    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=4)
+    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=3)
     data.prepare_data()
     data.setup()
     model=VisGenomeModule(**args)
