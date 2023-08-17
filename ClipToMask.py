@@ -233,7 +233,9 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
         # assert torch.sum(cap_indexes)==masks_per_caption.shape[0]
         return masks_per_caption,masks_per_image,spans#,cap_indexes
 
-
+    def on_train_epoch_start(self):
+        #move the model to the device
+        self.detic.model.to(self.device)
     def training_step(self,batch, batch_idx):
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
         images=batch["img"]
