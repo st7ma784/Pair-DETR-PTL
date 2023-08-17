@@ -89,7 +89,7 @@ class VisGenomeDataset(Dataset):
         subj_classes=[]
         img,boxes=None,None
         if len(item["relationships"])==0:
-            print("oops")
+            #print("oops")
             return None
         for r in item["relationships"]:
             obj_classes.append(" ".join(["a", r["object"]["names"][0]]))
