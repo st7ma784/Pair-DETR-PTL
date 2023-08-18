@@ -603,9 +603,9 @@ class SetCriterion(nn.Module):
             losses.update(self.loss_map[loss](encodings[class_lookup[idx]],outputs, targets, indices, num_boxes))
         
         src_idx= (indices[0], indices[1]) #0,1 was the original version, 
-        print("src idx max values ",torch.max(src_idx[0]),torch.max(src_idx[1]))
-        print("array size",outputs['pred_logits'].shape)
-        print("Boxes size",outputs['pred_boxes'].shape)
+        # print("src idx max values ",torch.max(src_idx[0]),torch.max(src_idx[1]))
+        # print("array size",outputs['pred_logits'].shape)
+        # print("Boxes size",outputs['pred_boxes'].shape)
         return losses, outputs['pred_logits'][src_idx], outputs['pred_boxes'][(indices[0], indices[1])]
 
 
