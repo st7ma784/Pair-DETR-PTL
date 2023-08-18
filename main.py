@@ -294,7 +294,7 @@ class PairDETR(pl.LightningModule):
 
     def test_step(self,batch,batch_idx):
 
-        samples, targets ,classencodings,masks = batch
+        samples, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
         class_to_tensor=torch.zeros(max(list(classencodings.keys()))+1,device=self.device,dtype=torch.long) # find what the biggest index of classes is then make that many zeros. 
         for i,c in enumerate(classencodings.keys()):
             class_to_tensor[c]=i
@@ -380,7 +380,7 @@ class VisGenomeModule(PairDETR):
                 filename = wget.download(url)
                 print("fetched to {}".format(filename))
         self.cfg.MODEL.WEIGHTS = filename
-        self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.6  # set threshold for this model
+        self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.8  # set threshold for this model
         self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
         self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
         self.cfg.MODEL.DEVICE='cuda'
@@ -431,7 +431,7 @@ class VisGenomeModule(PairDETR):
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
         if batch is None:
             return None
-
+        orig_sizes=batch["orig_sizes"]
         batch_idx=batch["batch_idx"]
         captions=batch["relation"].squeeze()
         masks_per_caption,masks_per_image=self.detic_forward(**batch)
@@ -455,7 +455,8 @@ class VisGenomeModule(PairDETR):
         
         targetsets=[targets[i:j] for i,j in zip(steps,steps[1:])]
         batched=[{k : torch.stack([t[k] for t in ts],dim=0) for k in ts[0].keys()} for ts in targetsets ]
-        
+        for b,size in zip(batched,orig_sizes):
+            b["orig_size"]=size
         return batch["img"], batched , dict(enumerate(classencodings)), masks_per_image.squeeze(1), batch_idx, (tgt_ids,tgt_bbox,masks_per_caption.squeeze(),tgt_sizes)
     def validation_epoch_start(self):
         #move the model to the device
@@ -466,9 +467,8 @@ class VisGenomeModule(PairDETR):
     def training_step(self,batch,batch_idx):
         #check that batch img is more than 2 images
         #I hate that I have to do this, but I'm running out of memory and I don't know why 
-        if batch_idx%10 ==0:
-            gc.collect()
-            torch.cuda.empty_cache()
+        gc.collect()
+        torch.cuda.empty_cache()
 
         return super().training_step(self.do_batch(batch),batch_idx)
     def test_step(self,batch,batch_idx):
@@ -529,7 +529,7 @@ if __name__ == '__main__':
                          logger=logtool,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
-                         fast_dev_run=False,  
+                         fast_dev_run=True,  
                          devices="auto",
                             )
     trainer.fit(model,data)
