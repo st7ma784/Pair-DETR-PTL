@@ -175,7 +175,13 @@ class PairDETR(pl.LightningModule):
         bbox_mask = self.bbox_attention(outputs_class[-1], classencodings, mask=mask)
         #it feels like this should have references and not class encodings, but I'm not sure how to get them
         feats=feats[::-1]
-        seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
+        try:
+            seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
+        except torch.cuda.OutOfMemoryError:
+            print("OOM")
+            gc.collect()
+            torch.cuda.empty_cache()
+            seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
         outputs_seg_masks = seg_masks.view(src.shape[0], -1, seg_masks.shape[-2], seg_masks.shape[-1])
         #print("seg_masks",outputs_seg_masks.shape) # B, NQ* N_classes, 200,200
         #print("outputs_seg_masks",outputs_seg_masks.shape) # B, NQ* N_classes, 200,200
