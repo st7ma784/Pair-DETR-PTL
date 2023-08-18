@@ -27,6 +27,7 @@ dependencies:
       - numpy==1.23.3
       - openpyxl
       - pytorch-lightning
+      - pysmartdl
       - scikit-learn==1.2.1
       - scipy==1.9.3
       - setuptools==59.5.0

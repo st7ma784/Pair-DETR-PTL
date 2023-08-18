@@ -128,7 +128,7 @@ class MaskHeadSmallConv(nn.Module):
         cur_fpn = self.adapter1(fpns[0])
         # if cur_fpn.size(0) != x.size(0):
         cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
-        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
+        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="bilinear", align_corners=False)
         x = self.lay3(x)
         x = self.gn3(x)
         x = F.relu(x)
@@ -136,7 +136,7 @@ class MaskHeadSmallConv(nn.Module):
         cur_fpn = self.adapter2(fpns[1])
         # if cur_fpn.size(0) != x.size(0):
         cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
-        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
+        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="bilinear",align_corners=False)
         x = self.lay4(x)
         x = self.gn4(x)
         x = F.relu(x)
@@ -144,7 +144,7 @@ class MaskHeadSmallConv(nn.Module):
         cur_fpn = self.adapter3(fpns[2])
         # if cur_fpn.size(0) != x.size(0):
         cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
-        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
+        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="bilinear",align_corners=False)
         x = self.lay5(x)
         x = self.gn5(x)
         x = F.relu(x)
@@ -335,7 +335,7 @@ class PostProcessPanoptic(nn.Module):
             cur_scores = cur_scores[keep]
             cur_classes = cur_classes[keep]
             cur_masks = cur_masks[keep]
-            cur_masks = interpolate(cur_masks[:, None], to_tuple(size), mode="bilinear").squeeze(1)
+            cur_masks = interpolate(cur_masks[:, None], to_tuple(size), ,mode="bilinear",align_corners=False).squeeze(1)
             cur_boxes = box_ops.box_cxcywh_to_xyxy(cur_boxes[keep])
 
             h, w = cur_masks.shape[-2:]

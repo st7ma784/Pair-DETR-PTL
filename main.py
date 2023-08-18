@@ -157,7 +157,7 @@ class PairDETR(pl.LightningModule):
         # print(masks.shape) #B,800,800
         # print(src.shape) 
     
-        mask=F.interpolate(masks[None].float(),size=src.shape[-2:]).bool()[-1]        
+        mask=F.interpolate(masks[None].float(),size=src.shape[-2:],mode="bilinear", align_corners=False).bool()[-1]        
 
         classencodings=self.clip_projection(classencoding)
         classencodings=classencodings.repeat(1,self.num_queries,1).flatten(0,1)
@@ -214,8 +214,8 @@ class PairDETR(pl.LightningModule):
 
         tgt_embs= classencodings[embedding_indices] 
         tgt_embs=tgt_embs/torch.norm(tgt_embs,dim=-1,keepdim=True)
-        tgt_masks=interpolate(tgt_masks.unsqueeze(1),outputs['pred_masks'].shape[-2:]).squeeze(1).to(outputs['pred_masks']) # BB,W,H
-        masks=interpolate(masks.to(outputs['pred_masks']).unsqueeze(1),outputs['pred_masks'].shape[-2:]).squeeze(1) # B,W,H
+        tgt_masks=interpolate(tgt_masks.unsqueeze(1),outputs['pred_masks'].shape[-2:],mode="bilinear",align_corners=False).squeeze(1).to(outputs['pred_masks']) # BB,W,H
+        masks=interpolate(masks.to(outputs['pred_masks']).unsqueeze(1),outputs['pred_masks'].shape[-2:],mode="bilinear",align_corners=False).squeeze(1) # B,W,H
         num_boxes = max(tgt_ids.shape[0], 1)
         #print("num",num_boxes)
         #loss_dict, predictions= self.criterion(classencodings,outputs,num_boxes=num_boxes,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,class_lookup=class_to_tensor)
@@ -398,8 +398,8 @@ class VisGenomeModule(PairDETR):
         objects=batch["objects"]
         subjects=batch["subjects"]
         batch_idx=batch["batch_idx"]
-        classifier=torch.cat([self.clip.encode_text(obj_classes).detach().float(),self.clip.encode_text(subj_classes).detach().float()],dim=0)
-        featuresOUT = self.detic.model.backbone(img.detach())
+        classifier=torch.cat([self.clip.encode_text(obj_classes).float(),self.clip.encode_text(subj_classes).float()],dim=0)
+        featuresOUT = self.detic.model.backbone(img)
         #img.image_sizes=[(224,224)]*img.shape[0]
         setattr(img,"image_sizes",[(224,224)]*img.shape[0])
         proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
@@ -411,8 +411,8 @@ class VisGenomeModule(PairDETR):
         for obj,subj,output in zip(objects.split(splits),
                                         subjects.split(splits),
                                         outputs):
-            boxes=output.get('pred_boxes').tensor.detach()
-            masks=output.get('pred_masks').flatten(1).detach()
+            boxes=output.get('pred_boxes').tensor
+            masks=output.get('pred_masks').flatten(1)
             object_box_ious=torchvision.ops.box_iou(obj,boxes)
             subject_box_ious=torchvision.ops.box_iou(subj,boxes)
             if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
@@ -536,7 +536,7 @@ if __name__ == '__main__':
                          max_epochs=20,#args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
-                         accumulate_grad_batches=4,
+                         accumulate_grad_batches=1,
                          logger=logtool,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
