@@ -192,7 +192,7 @@ class PairDETR(pl.LightningModule):
         
         return out,out2
 
-    def training_epoch_start(self, *args, **kwargs):
+    def on_training_epoch_start(self, *args, **kwargs):
         for k,v in self.weight_dict.items():
             #convert v to tensor and put it on the device
             self.weight_dict[k]=torch.as_tensor(v,device=self.device)
@@ -286,13 +286,15 @@ class PairDETR(pl.LightningModule):
         self.log("loss",losses,enable_graph=False,rank_zero_only=True)
         return losses +losses2
    
-    def test_epoch_start(self,*args):
+    def on_test_epoch_start(self,*args):
+        #print(self.trainer.datamodule.test.__dir__())
         self.cocoann=self.trainer.datamodule.test.coco
+
         #model = AutoModelForObjectDetection.from_pretrained("MariaK/detr-resnet-50_finetuned_cppe5")
         self.evalmodule = evaluate.load("ybelkada/cocoevaluate", coco=self.coco_ann)
     
 
-    def test_step(self,batch,batch_idx):
+    def on_test_step(self,batch,batch_idx):
 
         samples, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
         class_to_tensor=torch.zeros(max(list(classencodings.keys()))+1,device=self.device,dtype=torch.long) # find what the biggest index of classes is then make that many zeros. 
@@ -431,7 +433,7 @@ class VisGenomeModule(PairDETR):
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
         if batch is None:
             return None
-        orig_sizes=batch["orig_sizes"]
+        orig_sizes=batch["orig_size"]
         batch_idx=batch["batch_idx"]
         captions=batch["relation"].squeeze()
         masks_per_caption,masks_per_image=self.detic_forward(**batch)
@@ -471,8 +473,17 @@ class VisGenomeModule(PairDETR):
         torch.cuda.empty_cache()
 
         return super().training_step(self.do_batch(batch),batch_idx)
+    
+    def on_test_epoch_start(self,*args):
+        #print(self.trainer.datamodule.test.__dir__())
+        pass
+
     def test_step(self,batch,batch_idx):
-        return super().test_step(self.do_batch(batch),batch_idx)
+        pass
+        # return outputs
+    def test_epoch_end(self,outputs):
+        pass
+     
     def validation_step(self,batch,batch_idx):
         return super().validation_step(self.do_batch(batch),batch_idx)
     
@@ -529,7 +540,8 @@ if __name__ == '__main__':
                          logger=logtool,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
-                         fast_dev_run=True,  
+                         profiler='advanced',
+                         fast_dev_run=False,  
                          devices="auto",
                             )
     trainer.fit(model,data)
