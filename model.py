@@ -779,7 +779,7 @@ class FastCriterion(nn.Module):
             #
             "class_loss": class_loss,
             "class_mask_loss": dice_loss,
-            "loss_mask": immask_loss/ output_bbox.shape[0], #(src_masks, masks),
+            #"loss_mask": immask_loss/ output_bbox.shape[0], #(src_masks, masks),
              "loss_dice": overall_mask_loss/ output_bbox.shape[0], #(src_masks, masks, ),
             'loss_gt_iou': gt_ious_total.sum()/output_bbox.shape[0], # rename these later
             # 'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later
