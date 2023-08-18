@@ -35,6 +35,7 @@ dependencies:
       - tensorboard-data-server==0.6.1
       - tensorboard-plugin-wit==1.8.1
       - test_tube
+      - timm
       - transformers
       - torch-cka
       - wget 
