@@ -359,6 +359,8 @@ if __name__ == "__main__":
     dm =VisGenomeDataModule(Cache_dir=dir,batch_size=args.batch_size)
     dm.prepare_data()
     dm.setup()
+    import wandb
+    wandb.login(key='9cf7e97e2460c18a89429deed624ec1cbfb537bc')
 
     model=Exp3ClipToVisGenomeMask(layers=args.layers,version=args.version)
     logger=pl.loggers.WandbLogger(project="ClipToMask",entity="st7ma784",name="Exp3ClipToVisGenomeMask")

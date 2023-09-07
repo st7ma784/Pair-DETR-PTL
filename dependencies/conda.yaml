@@ -38,4 +38,7 @@ dependencies:
       - timm
       - transformers
       - torch-cka
+      - wandb
       - wget 
+variables:
+  WANDB_API_KEY : 9cf7e97e2460c18a89429deed624ec1cbfb537bc

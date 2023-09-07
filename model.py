@@ -414,6 +414,32 @@ class PostProcessPanoptic(nn.Module):
         return preds
 
 
+@torch.jit.script_if_tracing
+def MyLinearSumAssignment(TruthTensor, maximize=True,lookahead=2):
+    '''
+    If Maximize is False, I'm trying to minimize the costs. 
+    This means that the mask must instead make all the weights far above all the others - 'inf' kind of thing. 
+    '''
+    #assert truthtensor is 2d and nonzero
+    assert len(TruthTensor.shape)==2
+    assert TruthTensor.shape[0]>0 and TruthTensor.shape[1]>0
+    assert lookahead>0
+    assert torch.sum(TruthTensor==0)==0
+
+    mask=torch.ones(TruthTensor.shape,device=TruthTensor.device)
+    results=torch.zeros(TruthTensor.shape,device=TruthTensor.device)
+
+    finder=torch.argmax if maximize else torch.argmin
+    replaceval=0 if maximize else float(1e9)
+
+    for i in range(min(TruthTensor.shape[-2:])): # number of rows
+        deltas=torch.diff(torch.topk(torch.clamp(TruthTensor*mask,max=100),lookahead,dim=0,largest=maximize).values,n=lookahead-1,dim=0)
+        col_index=torch.argmax(torch.abs(deltas)) # this is the column to grab,  Note this measures step so its not important to do argmin...
+        row_index=finder(TruthTensor[:,col_index])
+        mask[:,col_index]=replaceval #mask out the column
+        mask[row_index]=replaceval
+        results[row_index,col_index]=1
+    return results.nonzero(as_tuple=True) 
 class HungarianMatcher(nn.Module):
     """This class computes an assignment between the targets and the predictions of the network
     For efficiency reasons, the targets don't include the no_object. Because of this, in general,
@@ -472,12 +498,14 @@ class HungarianMatcher(nn.Module):
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
         C = C.view(bs, num_queries, -1).sigmoid().cpu()
 
-
+        
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(tgt_sizes.tolist(), -1))]
         # GT_class_indexes=torch.stack([i for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
         # target_classes_o=encodings[class_lookup[GT_class_indexes]]
         # print(torch.allclose(target_classes_o/torch.norm(target_classes_o,dim=-1,keepdim=True),tgt_embs))
         x,y=zip(*indices) #x is output idx, y is tgt idx
+        
+        x,y = [MyLinearSumAssignment(c[i]) for i,c in enumerate(C.split(tgt_sizes.tolist(), -1))]
         src=torch.cat([torch.as_tensor(x) for x in x])
         tgt=torch.cat([torch.as_tensor(y) for y in y])
         indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]), src,tgt])

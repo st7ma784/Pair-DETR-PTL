@@ -527,10 +527,13 @@ if __name__ == '__main__':
 
     #or use VisGenomeForTraining....
     from data.VisGenomeDataModule import VisGenomeDataModule
+    import wandb
     data =VisGenomeDataModule(Cache_dir=savepath,batch_size=8)
     data.prepare_data()
     data.setup()
     model=VisGenomeModule(**args)
+    #check for os key WANDA_API_KEY
+    wandb.login(key='9cf7e97e2460c18a89429deed624ec1cbfb537bc')
     run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
 
     logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",experiment=run,save_dir=savepath,log_model=True)
