@@ -503,9 +503,11 @@ class HungarianMatcher(nn.Module):
         # GT_class_indexes=torch.stack([i for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
         # target_classes_o=encodings[class_lookup[GT_class_indexes]]
         # print(torch.allclose(target_classes_o/torch.norm(target_classes_o,dim=-1,keepdim=True),tgt_embs))
+       
+        #indices = [MyLinearSumAssignment(c[i]) for i,c in enumerate(C.split(tgt_sizes.tolist(), -1))]
+
         x,y=zip(*indices) #x is output idx, y is tgt idx
         
-        x,y = [MyLinearSumAssignment(c[i]) for i,c in enumerate(C.split(tgt_sizes.tolist(), -1))]
         src=torch.cat([torch.as_tensor(x) for x in x])
         tgt=torch.cat([torch.as_tensor(y) for y in y])
         indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]), src,tgt])
