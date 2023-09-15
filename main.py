@@ -528,7 +528,7 @@ if __name__ == '__main__':
     #or use VisGenomeForTraining....
     from data.VisGenomeDataModule import VisGenomeDataModule
     import wandb
-    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=8)
+    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=4)
     data.prepare_data()
     data.setup()
     model=VisGenomeModule(**args)
