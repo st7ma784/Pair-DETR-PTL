@@ -459,7 +459,22 @@ class HungarianMatcher(nn.Module):
         self.cost_bbox = cost_bbox
         self.cost_giou = cost_giou
         assert cost_class != 0 or cost_bbox != 0 or cost_giou != 0, "all costs cant be 0"
+    def generateIndices(self,C,tgt_sizes):
 
+        C=C.sigmoid().cpu()
+        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(tgt_sizes.tolist(), -1))]
+        # GT_class_indexes=torch.stack([i for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
+        # target_classes_o=encodings[class_lookup[GT_class_indexes]]
+        # print(torch.allclose(target_classes_o/torch.norm(target_classes_o,dim=-1,keepdim=True),tgt_embs))
+       
+        #indices = [MyLinearSumAssignment(c[i]) for i,c in enumerate(C.split(tgt_sizes.tolist(), -1))]
+
+        x,y=zip(*indices) #x is output idx, y is tgt idx
+        
+        src=torch.cat([torch.as_tensor(x) for x in x])
+        tgt=torch.cat([torch.as_tensor(y) for y in y])
+        indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]), src,tgt])
+        return indices#, target_classes_o
     @torch.no_grad()
     def forward(self, outputs, tgt_sizes,tgt_embs,tgt_bbox):
         """ Performs the matching
@@ -486,9 +501,6 @@ class HungarianMatcher(nn.Module):
         out_prob = outputs["pred_logits"].flatten(0, 1)  # [batch_size * num_queries, F]
         out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]#  this is nan somewhere ?!?!?!
 
-        #print("out prob, out box",out_prob.shape, out_bbox.shape)#1600,F   1600,4
-        # Also concat the target labels and boxes
-  
         out_prob=out_prob/torch.norm(out_prob,dim=-1,keepdim=True) #can get away with no grad...
         cost_class=F.relu(out_prob@tgt_embs.T)
         cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
@@ -496,25 +508,38 @@ class HungarianMatcher(nn.Module):
         cost_giou = -generalized_box_iou(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
        
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
-        C = C.view(bs, num_queries, -1).sigmoid().cpu()
+        C = C.view(bs, num_queries, -1)
+        return self.generateIndices(C,tgt_sizes)
+    def BatchedForward(self, outputs, tgt_sizes,tgt_embs,tgt_bbox):
+        ### does the linear sum assignment before splitting by annotations.     
+        #do generate indices( C[b], size) for b,size in zip (batch,tgt_sizes)
+        # then take the slices of the indices according to the tgt_sizes
+        # then stack them back together
+        # 
+        pass 
+class TrialHungarianMatcherGumbel_softmax(HungarianMatcher):
+    def generateIndices(self,C,tgt_sizes):
 
-        
+        C=C.sigmoid().cpu()
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(tgt_sizes.tolist(), -1))]
-        # GT_class_indexes=torch.stack([i for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
-        # target_classes_o=encodings[class_lookup[GT_class_indexes]]
-        # print(torch.allclose(target_classes_o/torch.norm(target_classes_o,dim=-1,keepdim=True),tgt_embs))
-       
-        #indices = [MyLinearSumAssignment(c[i]) for i,c in enumerate(C.split(tgt_sizes.tolist(), -1))]
-
         x,y=zip(*indices) #x is output idx, y is tgt idx
-        
         src=torch.cat([torch.as_tensor(x) for x in x])
         tgt=torch.cat([torch.as_tensor(y) for y in y])
         indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]), src,tgt])
         return indices#, target_classes_o
+    
+class TrialHungarianMatcherSortVersion(HungarianMatcher):
+    def generateIndices(self, C, tgt_sizes):
+        return super().generateIndices(C, tgt_sizes)
+    
+class TrialHungarianMatcherStepVersopm(HungarianMatcher):
+    def generateIndices(self, C, tgt_sizes):
+        return super().generateIndices(C, tgt_sizes)
+    
 
 
 class SetCriterion(nn.Module):
+
     """ This class computes the loss for Conditional DETR.
     The process happens in two steps:
         1) we compute hungarian assignment between ground truth boxes and the outputs of the model
