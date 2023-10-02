@@ -115,7 +115,8 @@ class VisGenomeDataset(Dataset):
                   "objects":boxes["boxes"][:(len(boxes["boxes"])//2)],
                   "subjects":boxes["boxes"][(len(boxes["boxes"])//2):],
                     "obj_classes":obj_classes,
-                    "subj_classes":subj_classes}
+                    "subj_classes":subj_classes,
+                    "orig_size":torch.tensor([item["width"],item["height"]])}
         return outputs
     def __len__(self):
         return len(self.data)
@@ -144,7 +145,7 @@ def Collate(batch):
     batch["subj_classes"]=torch.cat(batch["subj_classes"])
     batch["objects"]=torch.cat(batch["objects"])
     batch["subjects"]=torch.cat(batch["subjects"])
-    
+    batch["orig_size"]=torch.stack(batch["orig_size"])
     #batch_idx=torch.cat([torch.full((len(x),),i) for i,x in enumerate(batch[0])])
 
     return batch

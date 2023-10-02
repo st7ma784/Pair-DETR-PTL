@@ -249,7 +249,8 @@ class Exp3ClipToVisGenomeMask(Exp2CLIPtoCOCOMask):
             gc.collect()
         
         images=batch["img"]
-        captions=batch["relation"].squeeze()
+        captions=batch["relation"]
+        
         #tgt_idx=batch["batch_idx"]
         encodingcap=self.clip.encode_text(captions)@self.clip.text_projection
         encodingcap=encodingcap.float()
@@ -359,6 +360,8 @@ if __name__ == "__main__":
     dm =VisGenomeDataModule(Cache_dir=dir,batch_size=args.batch_size)
     dm.prepare_data()
     dm.setup()
+    import wandb
+    wandb.login(key='9cf7e97e2460c18a89429deed624ec1cbfb537bc')
 
     model=Exp3ClipToVisGenomeMask(layers=args.layers,version=args.version)
     logger=pl.loggers.WandbLogger(project="ClipToMask",entity="st7ma784",name="Exp3ClipToVisGenomeMask")

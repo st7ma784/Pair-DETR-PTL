@@ -128,7 +128,7 @@ class MaskHeadSmallConv(nn.Module):
         cur_fpn = self.adapter1(fpns[0])
         # if cur_fpn.size(0) != x.size(0):
         cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
-        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
+        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="bilinear", align_corners=False)
         x = self.lay3(x)
         x = self.gn3(x)
         x = F.relu(x)
@@ -136,7 +136,7 @@ class MaskHeadSmallConv(nn.Module):
         cur_fpn = self.adapter2(fpns[1])
         # if cur_fpn.size(0) != x.size(0):
         cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
-        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
+        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="bilinear",align_corners=False)
         x = self.lay4(x)
         x = self.gn4(x)
         x = F.relu(x)
@@ -144,7 +144,7 @@ class MaskHeadSmallConv(nn.Module):
         cur_fpn = self.adapter3(fpns[2])
         # if cur_fpn.size(0) != x.size(0):
         cur_fpn = _expand(cur_fpn, x.size(0) // cur_fpn.size(0))
-        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="nearest")
+        x = cur_fpn + F.interpolate(x, size=cur_fpn.shape[-2:], mode="bilinear",align_corners=False)
         x = self.lay5(x)
         x = self.gn5(x)
         x = F.relu(x)
@@ -335,7 +335,7 @@ class PostProcessPanoptic(nn.Module):
             cur_scores = cur_scores[keep]
             cur_classes = cur_classes[keep]
             cur_masks = cur_masks[keep]
-            cur_masks = interpolate(cur_masks[:, None], to_tuple(size), mode="bilinear").squeeze(1)
+            cur_masks = interpolate(cur_masks[:, None], to_tuple(size), mode="bilinear",align_corners=False).squeeze(1)
             cur_boxes = box_ops.box_cxcywh_to_xyxy(cur_boxes[keep])
 
             h, w = cur_masks.shape[-2:]
@@ -414,6 +414,32 @@ class PostProcessPanoptic(nn.Module):
         return preds
 
 
+@torch.jit.script_if_tracing
+def MyLinearSumAssignment(TruthTensor, maximize=True,lookahead=2):
+    '''
+    If Maximize is False, I'm trying to minimize the costs. 
+    This means that the mask must instead make all the weights far above all the others - 'inf' kind of thing. 
+    '''
+    #assert truthtensor is 2d and nonzero
+    assert len(TruthTensor.shape)==2
+    assert TruthTensor.shape[0]>0 and TruthTensor.shape[1]>0
+    assert lookahead>0
+    assert torch.sum(TruthTensor==0)==0
+
+    mask=torch.ones(TruthTensor.shape,device=TruthTensor.device)
+    results=torch.zeros(TruthTensor.shape,device=TruthTensor.device)
+
+    finder=torch.argmax if maximize else torch.argmin
+    replaceval=0 if maximize else float(1e9)
+
+    for i in range(min(TruthTensor.shape[-2:])): # number of rows
+        deltas=torch.diff(torch.topk(torch.clamp(TruthTensor*mask,max=100),lookahead,dim=0,largest=maximize).values,n=lookahead-1,dim=0)
+        col_index=torch.argmax(torch.abs(deltas)) # this is the column to grab,  Note this measures step so its not important to do argmin...
+        row_index=finder(TruthTensor[:,col_index])
+        mask[:,col_index]=replaceval #mask out the column
+        mask[row_index]=replaceval
+        results[row_index,col_index]=1
+    return results.nonzero(as_tuple=True) 
 class HungarianMatcher(nn.Module):
     """This class computes an assignment between the targets and the predictions of the network
     For efficiency reasons, the targets don't include the no_object. Because of this, in general,
@@ -433,7 +459,22 @@ class HungarianMatcher(nn.Module):
         self.cost_bbox = cost_bbox
         self.cost_giou = cost_giou
         assert cost_class != 0 or cost_bbox != 0 or cost_giou != 0, "all costs cant be 0"
+    def generateIndices(self,C,tgt_sizes):
 
+        C=C.sigmoid().cpu()
+        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(tgt_sizes.tolist(), -1))]
+        # GT_class_indexes=torch.stack([i for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
+        # target_classes_o=encodings[class_lookup[GT_class_indexes]]
+        # print(torch.allclose(target_classes_o/torch.norm(target_classes_o,dim=-1,keepdim=True),tgt_embs))
+       
+        #indices = [MyLinearSumAssignment(c[i]) for i,c in enumerate(C.split(tgt_sizes.tolist(), -1))]
+
+        x,y=zip(*indices) #x is output idx, y is tgt idx
+        
+        src=torch.cat([torch.as_tensor(x) for x in x])
+        tgt=torch.cat([torch.as_tensor(y) for y in y])
+        indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]), src,tgt])
+        return indices#, target_classes_o
     @torch.no_grad()
     def forward(self, outputs, tgt_sizes,tgt_embs,tgt_bbox):
         """ Performs the matching
@@ -460,9 +501,6 @@ class HungarianMatcher(nn.Module):
         out_prob = outputs["pred_logits"].flatten(0, 1)  # [batch_size * num_queries, F]
         out_bbox = outputs["pred_boxes"].flatten(0, 1)  # [batch_size * num_queries, 4]#  this is nan somewhere ?!?!?!
 
-        #print("out prob, out box",out_prob.shape, out_bbox.shape)#1600,F   1600,4
-        # Also concat the target labels and boxes
-  
         out_prob=out_prob/torch.norm(out_prob,dim=-1,keepdim=True) #can get away with no grad...
         cost_class=F.relu(out_prob@tgt_embs.T)
         cost_bbox = torch.cdist(out_bbox, tgt_bbox, p=1)
@@ -470,21 +508,38 @@ class HungarianMatcher(nn.Module):
         cost_giou = -generalized_box_iou(box_cxcywh_to_xyxy(out_bbox), box_cxcywh_to_xyxy(tgt_bbox))
        
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
-        C = C.view(bs, num_queries, -1).sigmoid().cpu()
+        C = C.view(bs, num_queries, -1)
+        return self.generateIndices(C,tgt_sizes)
+    def BatchedForward(self, outputs, tgt_sizes,tgt_embs,tgt_bbox):
+        ### does the linear sum assignment before splitting by annotations.     
+        #do generate indices( C[b], size) for b,size in zip (batch,tgt_sizes)
+        # then take the slices of the indices according to the tgt_sizes
+        # then stack them back together
+        # 
+        pass 
+class TrialHungarianMatcherGumbel_softmax(HungarianMatcher):
+    def generateIndices(self,C,tgt_sizes):
 
-
+        C=C.sigmoid().cpu()
         indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(tgt_sizes.tolist(), -1))]
-        # GT_class_indexes=torch.stack([i for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
-        # target_classes_o=encodings[class_lookup[GT_class_indexes]]
-        # print(torch.allclose(target_classes_o/torch.norm(target_classes_o,dim=-1,keepdim=True),tgt_embs))
         x,y=zip(*indices) #x is output idx, y is tgt idx
         src=torch.cat([torch.as_tensor(x) for x in x])
         tgt=torch.cat([torch.as_tensor(y) for y in y])
         indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]), src,tgt])
         return indices#, target_classes_o
+    
+class TrialHungarianMatcherSortVersion(HungarianMatcher):
+    def generateIndices(self, C, tgt_sizes):
+        return super().generateIndices(C, tgt_sizes)
+    
+class TrialHungarianMatcherStepVersopm(HungarianMatcher):
+    def generateIndices(self, C, tgt_sizes):
+        return super().generateIndices(C, tgt_sizes)
+    
 
 
 class SetCriterion(nn.Module):
+
     """ This class computes the loss for Conditional DETR.
     The process happens in two steps:
         1) we compute hungarian assignment between ground truth boxes and the outputs of the model
@@ -603,9 +658,9 @@ class SetCriterion(nn.Module):
             losses.update(self.loss_map[loss](encodings[class_lookup[idx]],outputs, targets, indices, num_boxes))
         
         src_idx= (indices[0], indices[1]) #0,1 was the original version, 
-        print("src idx max values ",torch.max(src_idx[0]),torch.max(src_idx[1]))
-        print("array size",outputs['pred_logits'].shape)
-        print("Boxes size",outputs['pred_boxes'].shape)
+        # print("src idx max values ",torch.max(src_idx[0]),torch.max(src_idx[1]))
+        # print("array size",outputs['pred_logits'].shape)
+        # print("Boxes size",outputs['pred_boxes'].shape)
         return losses, outputs['pred_logits'][src_idx], outputs['pred_boxes'][(indices[0], indices[1])]
 
 
@@ -779,7 +834,7 @@ class FastCriterion(nn.Module):
             #
             "class_loss": class_loss,
             "class_mask_loss": dice_loss,
-            "loss_mask": immask_loss/ output_bbox.shape[0], #(src_masks, masks),
+            #"loss_mask": immask_loss/ output_bbox.shape[0], #(src_masks, masks),
              "loss_dice": overall_mask_loss/ output_bbox.shape[0], #(src_masks, masks, ),
             'loss_gt_iou': gt_ious_total.sum()/output_bbox.shape[0], # rename these later
             # 'loss_out_iou': out_iou_total.sum()/output_bbox.shape[0], # rename these later

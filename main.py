@@ -157,7 +157,7 @@ class PairDETR(pl.LightningModule):
         # print(masks.shape) #B,800,800
         # print(src.shape) 
     
-        mask=F.interpolate(masks[None].float(),size=src.shape[-2:]).bool()[-1]        
+        mask=F.interpolate(masks[None].float(),size=src.shape[-2:],mode="bilinear", align_corners=False).bool()[-1]        
 
         classencodings=self.clip_projection(classencoding)
         classencodings=classencodings.repeat(1,self.num_queries,1).flatten(0,1)
@@ -175,7 +175,13 @@ class PairDETR(pl.LightningModule):
         bbox_mask = self.bbox_attention(outputs_class[-1], classencodings, mask=mask)
         #it feels like this should have references and not class encodings, but I'm not sure how to get them
         feats=feats[::-1]
-        seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
+        try:
+            seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
+        except torch.cuda.OutOfMemoryError:
+            print("OOM")
+            gc.collect()
+            torch.cuda.empty_cache()
+            seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
         outputs_seg_masks = seg_masks.view(src.shape[0], -1, seg_masks.shape[-2], seg_masks.shape[-1])
         #print("seg_masks",outputs_seg_masks.shape) # B, NQ* N_classes, 200,200
         #print("outputs_seg_masks",outputs_seg_masks.shape) # B, NQ* N_classes, 200,200
@@ -192,7 +198,7 @@ class PairDETR(pl.LightningModule):
         
         return out,out2
 
-    def training_epoch_start(self, *args, **kwargs):
+    def on_training_epoch_start(self, *args, **kwargs):
         for k,v in self.weight_dict.items():
             #convert v to tensor and put it on the device
             self.weight_dict[k]=torch.as_tensor(v,device=self.device)
@@ -214,8 +220,8 @@ class PairDETR(pl.LightningModule):
 
         tgt_embs= classencodings[embedding_indices] 
         tgt_embs=tgt_embs/torch.norm(tgt_embs,dim=-1,keepdim=True)
-        tgt_masks=interpolate(tgt_masks.unsqueeze(1),outputs['pred_masks'].shape[-2:]).squeeze(1).to(outputs['pred_masks']) # BB,W,H
-        masks=interpolate(masks.to(outputs['pred_masks']).unsqueeze(1),outputs['pred_masks'].shape[-2:]).squeeze(1) # B,W,H
+        tgt_masks=interpolate(tgt_masks.unsqueeze(1),outputs['pred_masks'].shape[-2:],mode="bilinear",align_corners=False).squeeze(1).to(outputs['pred_masks']) # BB,W,H
+        masks=interpolate(masks.to(outputs['pred_masks']).unsqueeze(1),outputs['pred_masks'].shape[-2:],mode="bilinear",align_corners=False).squeeze(1) # B,W,H
         num_boxes = max(tgt_ids.shape[0], 1)
         #print("num",num_boxes)
         #loss_dict, predictions= self.criterion(classencodings,outputs,num_boxes=num_boxes,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,class_lookup=class_to_tensor)
@@ -286,15 +292,17 @@ class PairDETR(pl.LightningModule):
         self.log("loss",losses,enable_graph=False,rank_zero_only=True)
         return losses +losses2
    
-    def test_epoch_start(self,*args):
+    def on_test_epoch_start(self,*args):
+        #print(self.trainer.datamodule.test.__dir__())
         self.cocoann=self.trainer.datamodule.test.coco
+
         #model = AutoModelForObjectDetection.from_pretrained("MariaK/detr-resnet-50_finetuned_cppe5")
         self.evalmodule = evaluate.load("ybelkada/cocoevaluate", coco=self.coco_ann)
     
 
-    def test_step(self,batch,batch_idx):
+    def on_test_step(self,batch,batch_idx):
 
-        samples, targets ,classencodings,masks = batch
+        samples, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
         class_to_tensor=torch.zeros(max(list(classencodings.keys()))+1,device=self.device,dtype=torch.long) # find what the biggest index of classes is then make that many zeros. 
         for i,c in enumerate(classencodings.keys()):
             class_to_tensor[c]=i
@@ -380,7 +388,7 @@ class VisGenomeModule(PairDETR):
                 filename = wget.download(url)
                 print("fetched to {}".format(filename))
         self.cfg.MODEL.WEIGHTS = filename
-        self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.6  # set threshold for this model
+        self.cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.8  # set threshold for this model
         self.cfg.MODEL.ROI_BOX_HEAD.ZEROSHOT_WEIGHT_PATH = 'rand'
         self.cfg.MODEL.ROI_HEADS.ONE_CLASS_PER_PROPOSAL = True
         self.cfg.MODEL.DEVICE='cuda'
@@ -396,8 +404,8 @@ class VisGenomeModule(PairDETR):
         objects=batch["objects"]
         subjects=batch["subjects"]
         batch_idx=batch["batch_idx"]
-        classifier=torch.cat([self.clip.encode_text(obj_classes).detach().float(),self.clip.encode_text(subj_classes).detach().float()],dim=0)
-        featuresOUT = self.detic.model.backbone(img.detach())
+        classifier=torch.cat([self.clip.encode_text(obj_classes).float(),self.clip.encode_text(subj_classes).float()],dim=0)
+        featuresOUT = self.detic.model.backbone(img)
         #img.image_sizes=[(224,224)]*img.shape[0]
         setattr(img,"image_sizes",[(224,224)]*img.shape[0])
         proposals, _ = self.detic.model.proposal_generator(img, featuresOUT,None)
@@ -409,8 +417,8 @@ class VisGenomeModule(PairDETR):
         for obj,subj,output in zip(objects.split(splits),
                                         subjects.split(splits),
                                         outputs):
-            boxes=output.get('pred_boxes').tensor.detach()
-            masks=output.get('pred_masks').flatten(1).detach()
+            boxes=output.get('pred_boxes').tensor
+            masks=output.get('pred_masks').flatten(1)
             object_box_ious=torchvision.ops.box_iou(obj,boxes)
             subject_box_ious=torchvision.ops.box_iou(subj,boxes)
             if object_box_ious.shape[0]==0 or subject_box_ious.shape[0]==0 or boxes.shape[0]==0:
@@ -431,7 +439,7 @@ class VisGenomeModule(PairDETR):
         #in visual genome, we have a set of relations for an image. Boxes are provided for sub and obj but still pin to each relationship. 
         if batch is None:
             return None
-
+        orig_sizes=batch["orig_size"]
         batch_idx=batch["batch_idx"]
         captions=batch["relation"].squeeze()
         masks_per_caption,masks_per_image=self.detic_forward(**batch)
@@ -455,7 +463,8 @@ class VisGenomeModule(PairDETR):
         
         targetsets=[targets[i:j] for i,j in zip(steps,steps[1:])]
         batched=[{k : torch.stack([t[k] for t in ts],dim=0) for k in ts[0].keys()} for ts in targetsets ]
-        
+        for b,size in zip(batched,orig_sizes):
+            b["orig_size"]=size
         return batch["img"], batched , dict(enumerate(classencodings)), masks_per_image.squeeze(1), batch_idx, (tgt_ids,tgt_bbox,masks_per_caption.squeeze(),tgt_sizes)
     def validation_epoch_start(self):
         #move the model to the device
@@ -466,13 +475,21 @@ class VisGenomeModule(PairDETR):
     def training_step(self,batch,batch_idx):
         #check that batch img is more than 2 images
         #I hate that I have to do this, but I'm running out of memory and I don't know why 
-        if batch_idx%10 ==0:
-            gc.collect()
-            torch.cuda.empty_cache()
+        gc.collect()
+        torch.cuda.empty_cache()
 
         return super().training_step(self.do_batch(batch),batch_idx)
+    
+    def on_test_epoch_start(self,*args):
+        #print(self.trainer.datamodule.test.__dir__())
+        pass
+
     def test_step(self,batch,batch_idx):
-        return super().test_step(self.do_batch(batch),batch_idx)
+        pass
+        # return outputs
+    def test_epoch_end(self,outputs):
+        pass
+     
     def validation_step(self,batch,batch_idx):
         return super().validation_step(self.do_batch(batch),batch_idx)
     
@@ -510,10 +527,13 @@ if __name__ == '__main__':
 
     #or use VisGenomeForTraining....
     from data.VisGenomeDataModule import VisGenomeDataModule
-    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=8)
+    import wandb
+    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=4)
     data.prepare_data()
     data.setup()
     model=VisGenomeModule(**args)
+    #check for os key WANDA_API_KEY
+    wandb.login(key='9cf7e97e2460c18a89429deed624ec1cbfb537bc')
     run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
 
     logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",experiment=run,save_dir=savepath,log_model=True)
@@ -525,10 +545,11 @@ if __name__ == '__main__':
                          max_epochs=20,#args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,
-                         accumulate_grad_batches=4,
+                         accumulate_grad_batches=1,
                          logger=logtool,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
+                         profiler='advanced',
                          fast_dev_run=False,  
                          devices="auto",
                             )
