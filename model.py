@@ -449,7 +449,7 @@ class HungarianMatcher(nn.Module):
     while the others are un-matched (and thus treated as non-objects).
     """
 
-    def __init__(self, cost_class: float = 1, cost_bbox: float = 1, cost_giou: float = 1,logger=None,batched=False,assignment=None):
+    def __init__(self, cost_class: float = 1, cost_bbox: float = 1, cost_giou: float = 1,logger=None,batched=False,assignment=None,BatchApprox=False):
         """Creates the matcher
         Params:
             cost_class: This is the relative weight of the classification error in the matching cost
@@ -457,7 +457,12 @@ class HungarianMatcher(nn.Module):
             cost_giou: This is the relative weight of the giou loss of the bounding box in the matching cost
         """
         super().__init__()
-        self.generate= self.generateIndices if not batched else self.BatchedgenerateIndices
+        self.generate= self.generateIndices #
+
+        if BatchApprox:
+            self.generate= self.BatchedgenerateIndices
+        elif batched:
+            self.generate= self.BatchedgenerateIndices
         self.assignment= linear_sum_assignment if assignment is None else assignment        
         self.logger=logger
         self.cost_class = cost_class
@@ -477,6 +482,12 @@ class HungarianMatcher(nn.Module):
         tgt=torch.cat([torch.as_tensor(y) for y in y])
         indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]), src,tgt])
         return indices#, target_classes_o
+    def BatchedgenerateIndices(self, C,tgt_sizes):
+        #C=C.sigmoid().cpu()
+        src,tgt= self.assignment(C,tgt_sizes)
+        B=torch.repeat_interleave(torch.arange(len(tgt_sizes)),tgt_sizes)
+        return torch.stack([B, src,tgt])
+
     @torch.no_grad()
     def forward(self, outputs, tgt_sizes,tgt_embs,tgt_bbox):
         """ Performs the matching
@@ -512,7 +523,7 @@ class HungarianMatcher(nn.Module):
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
         C = C.view(bs, num_queries, -1)
         return self.generate(C,tgt_sizes)
-    def BatchedgenerateIndices(self, C,tgt_sizes):
+    def BatchApproxgenerateIndices(self, C,tgt_sizes):
         ### does the linear sum assignment before splitting by annotations.     
         #do generate indices( C[b], size) for b,size in zip (batch,tgt_sizes)
         # then take the slices of the indices according to the tgt_sizes

@@ -112,13 +112,9 @@ class PairDETR(pl.LightningModule):
                             'loss_dice': args['dice_loss_coef'], #  last unc
                             'loss_mask': args['mask_loss_coef'], # 
                             'CELoss':1}
-        self.matcher=HungarianMatcher(1,1,1,self)
-        #Other matchers to try:
-        #self.matcher=TrialHungarianMatcherGumbel_softmax(1,1,1,self)
-        #self.matcher=TrialHungarianMatcherSortVersion(1,1,1,self)
-        #self.matcher=TrialHungarianMatcherStepVersopm(1,1,1,self)
-        #
-
+        self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+                                      assignment=None)
+       
         self.criterion = SetCriterion( 
                                     weight_dict=self.weight_dict,
                                     focal_alpha=args['focal_alpha'],
