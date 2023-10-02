@@ -440,6 +440,8 @@ def MyLinearSumAssignment(TruthTensor, maximize=True,lookahead=2):
         mask[row_index]=replaceval
         results[row_index,col_index]=1
     return results.nonzero(as_tuple=True) 
+
+
 class HungarianMatcher(nn.Module):
     """This class computes an assignment between the targets and the predictions of the network
     For efficiency reasons, the targets don't include the no_object. Because of this, in general,
@@ -447,7 +449,7 @@ class HungarianMatcher(nn.Module):
     while the others are un-matched (and thus treated as non-objects).
     """
 
-    def __init__(self, cost_class: float = 1, cost_bbox: float = 1, cost_giou: float = 1):
+    def __init__(self, cost_class: float = 1, cost_bbox: float = 1, cost_giou: float = 1,logger=None,batched=False,assignment=None):
         """Creates the matcher
         Params:
             cost_class: This is the relative weight of the classification error in the matching cost
@@ -455,6 +457,9 @@ class HungarianMatcher(nn.Module):
             cost_giou: This is the relative weight of the giou loss of the bounding box in the matching cost
         """
         super().__init__()
+        self.generate= self.generateIndices if not batched else self.BatchedgenerateIndices
+        self.assignment= linear_sum_assignment if assignment is None else assignment        
+        self.logger=logger
         self.cost_class = cost_class
         self.cost_bbox = cost_bbox
         self.cost_giou = cost_giou
@@ -462,15 +467,12 @@ class HungarianMatcher(nn.Module):
     def generateIndices(self,C,tgt_sizes):
 
         C=C.sigmoid().cpu()
-        indices = [linear_sum_assignment(c[i]) for i, c in enumerate(C.split(tgt_sizes.tolist(), -1))]
+        indices = [self.assignment(c[i]) for i, c in enumerate(C.split(tgt_sizes.tolist(), -1))]
         # GT_class_indexes=torch.stack([i for t, (_, J) in zip(targets, indices) for i in t["labels"][J]])
         # target_classes_o=encodings[class_lookup[GT_class_indexes]]
         # print(torch.allclose(target_classes_o/torch.norm(target_classes_o,dim=-1,keepdim=True),tgt_embs))
-       
         #indices = [MyLinearSumAssignment(c[i]) for i,c in enumerate(C.split(tgt_sizes.tolist(), -1))]
-
         x,y=zip(*indices) #x is output idx, y is tgt idx
-        
         src=torch.cat([torch.as_tensor(x) for x in x])
         tgt=torch.cat([torch.as_tensor(y) for y in y])
         indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]), src,tgt])
@@ -509,14 +511,31 @@ class HungarianMatcher(nn.Module):
        
         C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou
         C = C.view(bs, num_queries, -1)
-        return self.generateIndices(C,tgt_sizes)
-    def BatchedForward(self, outputs, tgt_sizes,tgt_embs,tgt_bbox):
+        return self.generate(C,tgt_sizes)
+    def BatchedgenerateIndices(self, C,tgt_sizes):
         ### does the linear sum assignment before splitting by annotations.     
         #do generate indices( C[b], size) for b,size in zip (batch,tgt_sizes)
         # then take the slices of the indices according to the tgt_sizes
         # then stack them back together
         # 
-        pass 
+        C=C.sigmoid().cpu()
+        indices = [self.assignment(c) for c in C]
+        #indices is a list of tuples of x and y assignments, where x and y are lists of indices
+        x,y=zip(*indices) #x is output idx, y is tgt idx
+        # to find out which slices to take... 
+        mask= torch.diag_embed(torch.ones_like(tgt_sizes))
+        mask=torch.repeat_interleave(mask,tgt_sizes,dim=0)
+        #mask is a 2d tensor of 1s and 0s, where the 1s are the slices to take
+        #take the slices of the indices according to the mask
+        b=torch.repeat_interleave(torch.arange(len(tgt_sizes)),tgt_sizes)
+        x=torch.stack([torch.as_tensor(x) for x in x])
+        y=torch.stack([torch.as_tensor(y) for y in y])
+        src=x[mask]
+        tgt=y[mask]
+
+        indices = torch.stack([b, src,tgt])
+        return indices#, target_classes_o
+         
 class TrialHungarianMatcherGumbel_softmax(HungarianMatcher):
     def generateIndices(self,C,tgt_sizes):
 
@@ -528,15 +547,6 @@ class TrialHungarianMatcherGumbel_softmax(HungarianMatcher):
         indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]), src,tgt])
         return indices#, target_classes_o
     
-class TrialHungarianMatcherSortVersion(HungarianMatcher):
-    def generateIndices(self, C, tgt_sizes):
-        return super().generateIndices(C, tgt_sizes)
-    
-class TrialHungarianMatcherStepVersopm(HungarianMatcher):
-    def generateIndices(self, C, tgt_sizes):
-        return super().generateIndices(C, tgt_sizes)
-    
-
 
 class SetCriterion(nn.Module):
 

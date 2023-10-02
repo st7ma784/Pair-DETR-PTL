@@ -112,12 +112,19 @@ class PairDETR(pl.LightningModule):
                             'loss_dice': args['dice_loss_coef'], #  last unc
                             'loss_mask': args['mask_loss_coef'], # 
                             'CELoss':1}
+        self.matcher=HungarianMatcher(1,1,1,self)
+        #Other matchers to try:
+        #self.matcher=TrialHungarianMatcherGumbel_softmax(1,1,1,self)
+        #self.matcher=TrialHungarianMatcherSortVersion(1,1,1,self)
+        #self.matcher=TrialHungarianMatcherStepVersopm(1,1,1,self)
+        #
 
         self.criterion = SetCriterion( 
-                                       weight_dict=self.weight_dict,
-                                     focal_alpha=args['focal_alpha'],
-                                      losses=['labels', 'boxes','masks'], # final cardinality
-                                      logger=self.logger
+                                    weight_dict=self.weight_dict,
+                                    focal_alpha=args['focal_alpha'],
+                                    losses=['labels', 'boxes','masks'], # final cardinality
+                                    logger=self.logger,
+                                    matcher=self.matcher
                                      )
         #self.criterion= FastCriterion(weight_dict=self.weight_dict,logger=self.logger)
         # TO DO : CREATE SECOND CRTIERION FOR THE SECOND HEAD
