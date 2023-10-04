@@ -112,9 +112,12 @@ class PairDETR(pl.LightningModule):
                             'loss_dice': args['dice_loss_coef'], #  last unc
                             'loss_mask': args['mask_loss_coef'], # 
                             'CELoss':1}
+        
+        #if methods behave identically to linearsum assignment then use: 
         self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
                                       assignment=None)
-       
+        #if the methods behave differently, then use:
+        #self.matcher=BatchHungarianMatcher(1,1,1,logger=self,assignment=None) 
         self.criterion = SetCriterion( 
                                     weight_dict=self.weight_dict,
                                     focal_alpha=args['focal_alpha'],
@@ -522,8 +525,8 @@ if __name__ == '__main__':
 
     # logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=savepath,log_model=False)
 
-    # from data.coco import COCODataModule
-    # data=COCODataModule(Cache_dir=savepath,batch_size=4)
+    from data.coco import COCODataModule
+    data=COCODataModule(Cache_dir=savepath,batch_size=4)
     # #convert to dict
     # model=PairDETR(**args)
 
@@ -531,7 +534,7 @@ if __name__ == '__main__':
     #or use VisGenomeForTraining....
     from data.VisGenomeDataModule import VisGenomeDataModule
     import wandb
-    data =VisGenomeDataModule(Cache_dir=savepath,batch_size=4)
+    #data =VisGenomeDataModule(Cache_dir=savepath,batch_size=4)
     data.prepare_data()
     data.setup()
     model=VisGenomeModule(**args)
