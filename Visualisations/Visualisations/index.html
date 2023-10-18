@@ -83,8 +83,10 @@
                 }
                 data.push(row);
             }
+            // convert data to byte array
+            data = JSON.stringify(data);
             // return a dict of the data {"values"  : data}
-            return {"values" : data};
+            return data
     }
     function addRows(){
        //add a row to the table
@@ -148,7 +150,7 @@
     }
 
     function doUpdate(){
-        let dataJSON = JSON.stringify(getdata());
+        let dataJSON = getdata();
         let request = new XMLHttpRequest();
         request.onreadystatechange = function(){
             if (request.readyState === 4) {
@@ -219,7 +221,7 @@
         //const endpoint = "http://"+window.location.hostname+":5000/data";
 
         request.open(action, endpoint);
-        request.setRequestHeader("Content-Type", "application/json");
+        request.setRequestHeader("Content-Type", "application/data");
 
         request.send(dataJSON);
         }

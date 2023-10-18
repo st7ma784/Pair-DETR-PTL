@@ -55,6 +55,10 @@ if __name__ == "__main__":
     @app.route('/lsa/data', methods=['GET','POST'])
     async def getplots():
         data=request.get_json()
+        #data is a made from var JSON.stringify(data[]); in index.html
+        #we need to convert it to a tensor
+        print(data)
+        
         x=torch.tensor(data['values'])
         out={}
         outputs={name:func(x) for name,func in functions.items()}
