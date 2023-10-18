@@ -1,5 +1,8 @@
 import torch
 from flask import Flask, render_template, request, jsonify, send_file, make_response
+import sys
+sys.path.append(".")
+sys.path.append("..")
 from lsafunctions import get_all_LSA_fns
 from loss import loss
 from functools import reduce
