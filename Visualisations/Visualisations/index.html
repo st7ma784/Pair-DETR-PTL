@@ -51,7 +51,7 @@
             table.deleteRow(-1);
             // should also remove associated cells
         }
-        
+        doUpdate();
     }
     function addColumns(){
         //add columns to the table
@@ -61,6 +61,7 @@
             cell.innerHTML = "0";
             cell.setAttribute("contenteditable", "true");
         }
+
     }
     function removeColumns(){
         //remove columns from the table
@@ -70,6 +71,7 @@
                 table.rows[i].deleteCell(-1);
             }
         }
+        doUpdate();
     }
 
     function fillRandom(){
@@ -84,6 +86,7 @@
                 cells[j].innerHTML = value;
             }
         }
+        doUpdate();
     }
 
     function doUpdate(){
@@ -129,7 +132,8 @@
                 for (var i = 0; i < images.length; i++) {
                     var div = document.createElement('div');
                     div.innerHTML = names[i];
-                    div.appendChild(images[i]);
+                    // open byte stream as image
+                    div.innerHTML += "<img src='data:image/png;base64,"+images[i]+"' />";
                     divs.push(div);
                 } 
 
