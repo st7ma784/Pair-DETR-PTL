@@ -3,6 +3,7 @@ import torch
 
 def loss(x,one_hot):
     xi,indices=torch.nonzero(one_hot,as_tuple=True)
+    print(indices)
     index=indices.clone()
     counts=torch.zeros_like(indices)
     foundself=torch.zeros_like(indices)
