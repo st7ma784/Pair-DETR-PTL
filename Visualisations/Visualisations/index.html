@@ -151,22 +151,13 @@
                 //the reply is a jsonified dict of name and images of a graph.
                 var imgs = JSON.parse(request.response);
                 
-                // find loss key and value
-                if (imgs["loss"] == undefined){
-                    alert("No loss value returned");
-                }
-                else if (imgs["loss"] == "NaN"){
-                    alert("Loss is NaN");
-                }
-                else {
                 var loss = imgs["loss"];
                 // remove loss from imgs
-                delete imgs["loss"];
+                // delete imgs["loss"];
                 // append losses to S
                 var S = document.getElementById("S");
                 S.innerHTML = "Loss: " + loss;
-                }
-
+                
                 //create list of strings from key:value pairs
                 var names = [];
                 for (var key in imgs) {
@@ -187,7 +178,10 @@
                     var div = document.createElement('div');
                     div.innerHTML = names[i];
                     // open byte stream as image
-                    div.innerHTML += "<img src='data:image/png;base64,"+images[i]+"' />";
+                    image=new Image();
+                    image.src="data:image/png;base64,"+images[i];
+                    // add image to div
+                    div.appendChild(image);
                     divs.push(div);
                 
                 } 
