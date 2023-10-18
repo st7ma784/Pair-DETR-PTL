@@ -5,21 +5,61 @@
 <body>
 <!-- use css -->
 <style>
-/* set table cells as  having a fixed size*/
-td {
-    width: 50px;
-    height: 50px;
-    text-align: center;
-    border: 1px solid black;
-}
-/* set table cells as  having a fixed size*/
-th {
-    width: 50px;
-    height: 50px;
-    text-align: center;
-    border: 1px solid black;
-}
+    /* set table cells as  having a fixed size*/
+    td {
+        width: 50px;
+        height: 50px;
+        text-align: center;
+        border: 1px solid black;
+    }
+    /* set table cells as  having a fixed size*/
+    th {
+        width: 50px;
+        height: 50px;
+        text-align: center;
+        border: 1px solid black;
+    }
+    /* Tooltip container */
+    .tooltip {
+    position: relative;
+    display: inline-block;
+    border-bottom: 1px dotted black; /* If you want dots under the hoverable text */
+    }
 
+    /* Tooltip text */
+    .tooltip .tooltiptext {
+    visibility: hidden;
+    width: 240px;
+    background-color: black;
+    color: #fff;
+    text-align: center;
+    padding: 5px 0;
+    border-radius: 6px;
+    
+    /* Position the tooltip text - see examples below! */
+    position: absolute;
+    z-index: 1;
+    }
+    /* buttons bigger */
+    .b {
+        font-size: 20px;
+        padding: 15px 32px;
+        text-align: center;
+        display: inline-block;
+        margin: 4px 2px;
+        cursor: pointer;
+        border-radius: 12px;
+    }
+    /* Show the tooltip text when you mouse over the tooltip container */
+    .tooltip:hover .tooltiptext {
+    visibility: visible;
+    }
+    /* Align controls to top right */
+    #Controls {
+        position: absolute;
+        top: 0;
+        right: 0;
+    }
 </style>
 
 <script src="https://cdn.jsdelivr.net/gh/interactiveJS/interactiveJS@v2.0.1/src/individuals/draggable.min.js"></script>
