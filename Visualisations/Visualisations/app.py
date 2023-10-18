@@ -63,11 +63,12 @@ if __name__ == "__main__":
     @app.route('/lsa/data', methods=['GET','POST'])
     async def getplots():
         data=request.get_json()
-        #data is a made from var JSON.stringify(data[]); in index.html
-        #we need to convert it to a tensor
-        #print(data)
+        #convert from list of list of strings to list of list of floats to a tensor 
+        #any nan values are converted to 0
+
+        x=torch.tensor([[float(i) for i in j] for j in data["values"]])
+
         
-        x=torch.tensor(data["values"].float())
         out={}
         outputs={name:attempt(func,x) for name,func in functions.items()}
         #x is a array to do LSA to. 
