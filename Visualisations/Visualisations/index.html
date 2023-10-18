@@ -32,7 +32,7 @@
     }
     function addRows(){
        //add a row to the table
-        var table = document.getElementById("out");
+        var table = document.getElementById("table");
         var row = table.insertRow(-1);
         // add cells to the row based on the number of columns
         for (var i = 0; i < table.rows[0].cells.length; i++) {
@@ -192,7 +192,7 @@
     <!-- insert interactive table of size x, y -->
     <!-- each cell is editable -->
     <!-- on click, trigger do update -->
-    <table id= "out"> 
+    <table id= "table"> 
         <!-- each row in data -->
         <tr>
             <!-- cells like each col -->
