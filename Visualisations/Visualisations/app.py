@@ -63,7 +63,7 @@ if __name__ == "__main__":
     @app.route('/lsa/data', methods=['GET','POST'])
     async def getplots():
 
-        print("request",request.get_data())
+        # print("request",request.get_data())
         data=request.get_json()
         #convert from list of list of strings to list of list of floats to a tensor 
         #any nan values are converted to 0
