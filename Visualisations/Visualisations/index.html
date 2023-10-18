@@ -116,6 +116,8 @@
             var cell = table.rows[i].insertCell(-1);
             cell.innerHTML = "0";
             cell.setAttribute("contenteditable", "true");
+            cell.setAttribute("oninput", "doUpdate()");
+
         }
 
     }
