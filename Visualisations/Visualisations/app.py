@@ -43,13 +43,13 @@ if __name__ == "__main__":
     app = Flask(__name__,template_folder='.')
     
     
-    @app.route("/demo") 
+    @app.route("/lsa") 
     def index():
         return render_template("./index.html")
     
     
     @torch.no_grad()
-    @app.route('/demo/data', methods=['GET','POST'])
+    @app.route('/lsa/data', methods=['GET','POST'])
     async def getplots():
         data=request.get_json()
         x=torch.tensor(data['values'])
