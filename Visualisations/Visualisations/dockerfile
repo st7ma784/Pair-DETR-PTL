@@ -5,7 +5,8 @@ WORKDIR /app
 # COPY . /app needs to follow symlinks too
 COPY . /app
 
-
+# show the files in the container
+RUN ls -la /app
 EXPOSE 5000/tcp
 
 ENTRYPOINT ["python", "app.py"]
