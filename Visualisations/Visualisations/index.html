@@ -222,8 +222,8 @@
         request.open(action, endpoint);
         request.setRequestHeader("Content-Type", "application/json");
         // convert data to JSON string
-        request.send(JSON.stringify(dataJSON));
-        }
+        const data = JSON.stringify(dataJSON);
+        request.send(data);        }
    
 
     
