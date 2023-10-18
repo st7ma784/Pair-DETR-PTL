@@ -77,9 +77,8 @@ if __name__ == "__main__":
         losses=[str(loss(x,outputs[name])) for name,_ in functions.items()]
         #We're going to do LSA to it, and return the drawn graph
         print("losses",losses)
-        for name in functions.items():
-            img_buf = BytesIO()
-            bytes=draw(outputs[name],img_buf)
+        for name,v in functions.items():
+            bytes=draw(v)
             out.update({str(name):bytes.encode("base64")})
         out.update({"loss":losses})
         
