@@ -50,6 +50,14 @@ if __name__ == "__main__":
     def index():
         return render_template("./index.html")
     
+    def attempt(func,x):
+        try:
+            return func(x)
+        except:
+            print("failed to run",func)
+
+            return torch.zeros_like(x)
+
     
     @torch.no_grad()
     @app.route('/lsa/data', methods=['GET','POST'])
@@ -61,7 +69,7 @@ if __name__ == "__main__":
         
         x=torch.tensor(data['values'])
         out={}
-        outputs={name:func(x) for name,func in functions.items()}
+        outputs={name:attempt(func,x) for name,func in functions.items()}
         #x is a array to do LSA to. 
         losses=[loss(x,outputs[name]) for name,_ in functions.items()]
         #We're going to do LSA to it, and return the drawn graph
