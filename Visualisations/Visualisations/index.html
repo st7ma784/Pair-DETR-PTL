@@ -32,13 +32,16 @@
     }
     function addRows(){
        //add a row to the table
-        var table = document.getElementById("table");
+        var table = document.getElementById("out");
         var row = table.insertRow(-1);
         // add cells to the row based on the number of columns
         for (var i = 0; i < table.rows[0].cells.length; i++) {
             var cell = row.insertCell(-1);
             cell.innerHTML = "0";
             cell.setAttribute("contenteditable", "true");
+            // on new value, call do update 
+
+            cell.setAttribute("oninput", "doUpdate()");
         }
     }
     function removeRows(){
@@ -187,9 +190,16 @@
 </div>
 <div class="container" id="table">
     <!-- insert interactive table of size x, y -->
-    <!-- Table values should be edited on click -->
-    <!-- Table values should be draggable -->
+    <!-- each cell is editable -->
+    <!-- on click, trigger do update -->
+    <table, id= "out"> 
+        <tr>
+            <th > </th>
+            <th> </th>
+            <th> </th>
+        </tr>
 
+    </table>
 </div> 
 <!-- add horizontal break -->
 
