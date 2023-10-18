@@ -25,7 +25,7 @@ if __name__ == "__main__":
         plt.figure(figsize=(logits.shape[0],logits.shape[1]))
         plt.imshow(logits)
         #do not display the graph, but save it to a buffer
-        plt.savefig(img_buf, format='jpeg')
+        plt.savefig(img_buf, format='png')
         
         return img_buf.getvalue()
 
@@ -79,6 +79,7 @@ if __name__ == "__main__":
             draw(outputs[name],img_buf)
             out.update({str(name):img_buf.getvalue()})
         out.update({"loss":losses})
+        
         #out.update({str(name):(torch.nan_to_num(func(*xys))).tolist() for name,func in normedfunctions.items()})
         return jsonify(out)
 
