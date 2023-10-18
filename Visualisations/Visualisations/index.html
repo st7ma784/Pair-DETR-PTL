@@ -135,6 +135,7 @@
                     // open byte stream as image
                     div.innerHTML += "<img src='data:image/png;base64,"+images[i]+"' />";
                     divs.push(div);
+                
                 } 
 
                 // add the divs to the graph
@@ -147,6 +148,8 @@
                 for (var i = 0; i < divs.length; i++) {
                     graph.appendChild(divs[i]);
                 }
+                // add debug info
+                graph.innerHTML += "<p>Debug: "+request.response+"</p>";
 
             }
         };
