@@ -71,13 +71,13 @@ if __name__ == "__main__":
         out={}
         outputs={name:attempt(func,x) for name,func in functions.items()}
         #x is a array to do LSA to. 
-        losses=[loss(x,outputs[name]) for name,_ in functions.items()]
+        losses=[str(loss(x,outputs[name])) for name,_ in functions.items()]
         #We're going to do LSA to it, and return the drawn graph
         print("losses",losses)
         for name in functions.items():
             img_buf = BytesIO()
             bytes=draw(outputs[name],img_buf)
-            out.update({str(name):bytes})
+            out.update({str(name):bytes.encode("base64")})
         out.update({"loss":losses})
         
         #out.update({str(name):(torch.nan_to_num(func(*xys))).tolist() for name,func in normedfunctions.items()})
