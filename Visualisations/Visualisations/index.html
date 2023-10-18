@@ -179,7 +179,9 @@
                     div.innerHTML = names[i];
                     // open byte stream as image
                     image=new Image();
-                    image.src="data:image/png;base64,"+images[i];
+                    // images[i] is a byte[] of the image
+                    image.src = 'data:image/png;base64,' + images[i];
+                    
                     // add image to div
                     div.appendChild(image);
                     divs.push(div);
