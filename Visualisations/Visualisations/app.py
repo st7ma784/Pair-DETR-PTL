@@ -65,7 +65,7 @@ if __name__ == "__main__":
         data=request.get_json()
         #data is a made from var JSON.stringify(data[]); in index.html
         #we need to convert it to a tensor
-        print(data)
+        #print(data)
         
         x=torch.tensor(data["values"].float())
         out={}
@@ -73,7 +73,7 @@ if __name__ == "__main__":
         #x is a array to do LSA to. 
         losses=[str(loss(x,outputs[name])) for name,_ in functions.items()]
         #We're going to do LSA to it, and return the drawn graph
-        print("losses",losses)
+        #print("losses",losses)
         for name in functions.items():
             img_buf = BytesIO()
             bytes=draw(outputs[name],img_buf)
@@ -81,6 +81,8 @@ if __name__ == "__main__":
         out.update({"loss":losses})
         
         #out.update({str(name):(torch.nan_to_num(func(*xys))).tolist() for name,func in normedfunctions.items()})
+        
+        out={"test":"hello"}
         return jsonify(out)
 
     app.run(host="0.0.0.0", port=5000, debug=True )
