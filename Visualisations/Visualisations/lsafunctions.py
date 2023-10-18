@@ -36,10 +36,10 @@ def get_all_LSA_fns():
         #outputconversion(no_for_loop_v2_triu_MyLinearSumAssignment),
         #outputconversion(no_for_loop_v3_MyLinearSumAssignment),
         #outputconversion(no_for_loop_v3_triu_MyLinearSumAssignment),
-        outputconversion(recursiveLinearSumAssignment),
-        outputconversion(recursiveLinearSumAssignment_v2),
+        #outputconversion(recursiveLinearSumAssignment),
+        #outputconversion(recursiveLinearSumAssignment_v2),
         outputconversion(recursiveLinearSumAssignment_v3),
-        outputconversion(recursiveLinearSumAssignment_v4),
+        #outputconversion(recursiveLinearSumAssignment_v4),
         outputconversion(linear_sum_assignment),
 
     ]
