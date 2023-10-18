@@ -6,6 +6,7 @@ def loss(x,one_hot):
     #so we pad to the biggest square matrix
     #and then take the loss
     shape=x.shape
+    assert x.shape==one_hot.shape
     maxdim=max(shape)
     padded=torch.zeros((maxdim,maxdim),device=x.device)
     padded2=torch.zeros((maxdim,maxdim),device=x.device)
@@ -14,7 +15,6 @@ def loss(x,one_hot):
     padded2[:shape[0],:shape[1]]=one_hot
     one_hot=padded2
     xi,indices=torch.nonzero(one_hot,as_tuple=True)
-    print(indices)
     index=indices.clone()
     counts=torch.zeros_like(indices)
     foundself=torch.zeros_like(indices)
