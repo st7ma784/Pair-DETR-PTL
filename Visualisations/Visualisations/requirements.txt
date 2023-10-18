@@ -1,3 +1,4 @@
 flask[async]
 numpy
 matplotlib
+scipy
