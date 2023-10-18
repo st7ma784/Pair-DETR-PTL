@@ -30,12 +30,12 @@ def get_all_LSA_fns():
     #returns list of all other fns in this file that take a tensor as input.
     functions=[
         MyLinearSumAssignment,
-        outputconversion(no_for_loop_MyLinearSumAssignment),
-        outputconversion(no_for_loop_triu_MyLinearSumAssignment),
-        outputconversion(no_for_loop_v2_MyLinearSumAssignment),
-        outputconversion(no_for_loop_v2_triu_MyLinearSumAssignment),
-        outputconversion(no_for_loop_v3_MyLinearSumAssignment),
-        outputconversion(no_for_loop_v3_triu_MyLinearSumAssignment),
+        #outputconversion(no_for_loop_MyLinearSumAssignment),
+        #outputconversion(no_for_loop_triu_MyLinearSumAssignment),
+        #outputconversion(no_for_loop_v2_MyLinearSumAssignment),
+        #outputconversion(no_for_loop_v2_triu_MyLinearSumAssignment),
+        #outputconversion(no_for_loop_v3_MyLinearSumAssignment),
+        #outputconversion(no_for_loop_v3_triu_MyLinearSumAssignment),
         outputconversion(recursiveLinearSumAssignment),
         outputconversion(recursiveLinearSumAssignment_v2),
         outputconversion(recursiveLinearSumAssignment_v3),
