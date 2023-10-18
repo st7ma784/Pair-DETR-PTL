@@ -83,7 +83,10 @@ if __name__ == "__main__":
         #out.update({str(name):(torch.nan_to_num(func(*xys))).tolist() for name,func in normedfunctions.items()})
         
         out={"test":"hello"}
-        return out
+        response= make_response(jsonify(out))
+        response.headers['Access-Control-Allow-Origin'] = '*'
+
+        return response
 
     app.run(host="0.0.0.0", port=5000, debug=True )
   
