@@ -120,23 +120,23 @@ class PairDETR(pl.LightningModule):
             self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
                                       assignment=None)
         elif self.method == 'v2':
-            from LSAfunctions import recursiveLinearSumAssignment as func
+            from Visualisations.Visualisations.LSAfunctions import recursiveLinearSumAssignment as func
             self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
                                         assignment=func)
         elif self.method == 'v3':
-            from LSAfunctions import recursiveLinearSumAssignment_v2 as func
+            from Visualisations.Visualisations.LSAfunctions import recursiveLinearSumAssignment_v2 as func
             self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
                                         assignment=func)
         elif self.method == 'v4':
-            from LSAfunctions import recursiveLinearSumAssignment_v3 as func
+            from Visualisations.Visualisations.LSAfunctions import recursiveLinearSumAssignment_v3 as func
             self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
                                         assignment=func)
         elif self.method == 'v5':
-            from LSAfunctions import recursiveLinearSumAssignment_v4 as func
+            from Visualisations.Visualisations.LSAfunctions import recursiveLinearSumAssignment_v4 as func
             self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
                                         assignment=func)
         elif self.method == 'v6':
-            from LSAfunctions import MyLinearSumAssignment as func
+            from Visualisations.Visualisations.LSAfunctions import MyLinearSumAssignment as func
             self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
                                         assignment=func)
         if self.method=='fastcriterion':

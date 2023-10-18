@@ -1,6 +1,6 @@
 import torch
 from flask import Flask, render_template, request, jsonify, send_file, make_response
-from LSAfunctions import get_all_LSA_fns
+from Visualisations.Visualisations.LSAfunctions import get_all_LSA_fns
 from loss import loss
 from functools import reduce
 from io import BytesIO
