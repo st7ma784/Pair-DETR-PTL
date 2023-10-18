@@ -114,17 +114,44 @@ class PairDETR(pl.LightningModule):
                             'CELoss':1}
         
         #if methods behave identically to linearsum assignment then use: 
-        self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+
+        self.method = args['method']
+        if self.method == 'linear_sum':
+            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
                                       assignment=None)
+        elif self.method == 'v2':
+            from LSAfunctions import recursiveLinearSumAssignment as func
+            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+                                        assignment=func)
+        elif self.method == 'v3':
+            from LSAfunctions import recursiveLinearSumAssignment_v2 as func
+            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+                                        assignment=func)
+        elif self.method == 'v4':
+            from LSAfunctions import recursiveLinearSumAssignment_v3 as func
+            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+                                        assignment=func)
+        elif self.method == 'v5':
+            from LSAfunctions import recursiveLinearSumAssignment_v4 as func
+            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+                                        assignment=func)
+        elif self.method == 'v6':
+            from LSAfunctions import MyLinearSumAssignment as func
+            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+                                        assignment=func)
+        if self.method=='fastcriterion':
+            self.criterion=FastCriterion(1,1,1,logger=self,assignment=None)
+        else:
+            self.criterion = SetCriterion( 
+                weight_dict=self.weight_dict,
+                focal_alpha=args['focal_alpha'],
+                losses=['labels', 'boxes','masks'], # final cardinality
+                logger=self.logger,
+                matcher=self.matcher
+                                     )
         #if the methods behave differently, then use:
         #self.matcher=BatchHungarianMatcher(1,1,1,logger=self,assignment=None) 
-        self.criterion = SetCriterion( 
-                                    weight_dict=self.weight_dict,
-                                    focal_alpha=args['focal_alpha'],
-                                    losses=['labels', 'boxes','masks'], # final cardinality
-                                    logger=self.logger,
-                                    matcher=self.matcher
-                                     )
+
         #self.criterion= FastCriterion(weight_dict=self.weight_dict,logger=self.logger)
         # TO DO : CREATE SECOND CRTIERION FOR THE SECOND HEAD
         
@@ -306,7 +333,7 @@ class PairDETR(pl.LightningModule):
         #self.coco_evaluator.update(outputs)
         self.evalmodule.add(prediction=results, reference=targets)
 
-    def test_epoch_end(self,outputs):
+    def on_test_epoch_end(self,outputs):
         results = self.evalmodule.compute()
         self.log("mAP",results["mAP"], on_epoch=True, prog_bar=True, logger=True)
         #         iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
@@ -433,7 +460,7 @@ class VisGenomeModule(PairDETR):
         for b,size in zip(batched,orig_sizes):
             b["orig_size"]=size
         return batch["img"], batched , dict(enumerate(classencodings)), masks_per_image.squeeze(1), batch_idx, (tgt_ids,tgt_bbox,masks_per_caption.squeeze(),tgt_sizes)
-    def validation_epoch_start(self):
+    def on_validation_epoch_start(self):
         #move the model to the device
         self.detic.model.to(self.device)
     def train_epoch_start(self):
@@ -488,17 +515,17 @@ if __name__ == '__main__':
     #data =VisGenomeDataModule(Cache_dir=savepath,batch_size=4)
     data.prepare_data()
     data.setup()
-    model=VisGenomeModule(**args)
+    model=PairDETR(**args)
     #check for os key WANDA_API_KEY
     wandb.login(key='9cf7e97e2460c18a89429deed624ec1cbfb537bc')
-    run=wandb.init(project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",config=args)
+    run=wandb.init(project="SPARC-COCO-Sweep",entity="st7ma784",name="VRE-Vis",config=args)
 
     logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",experiment=run,save_dir=savepath,log_model=True)
 
     
 
     trainer = pl.Trainer(
-                         precision=16, #undo to fix scaling errors
+                         precision=32, #undo to fix scaling errors
                          max_epochs=20,#args['epochs'], 
                          num_sanity_val_steps=0,
                          gradient_clip_val=0.25,

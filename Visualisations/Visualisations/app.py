@@ -1,6 +1,7 @@
 import torch
 from flask import Flask, render_template, request, jsonify, send_file, make_response
 from LSAfunctions import get_all_LSA_fns
+from loss import loss
 from functools import reduce
 from io import BytesIO
 import zipfile
@@ -55,7 +56,7 @@ if __name__ == "__main__":
         out={}
         outputs={name:func(x) for name,func in functions.items()}
         #x is a array to do LSA to. 
-        losses=[]
+        losses=[loss(x,outputs[name]) for name,_ in functions.items()]
         #We're going to do LSA to it, and return the drawn graph
         for name in functions.items():
             img_buf = BytesIO()
