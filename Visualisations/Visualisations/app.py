@@ -65,6 +65,7 @@ if __name__ == "__main__":
         #x is a array to do LSA to. 
         losses=[loss(x,outputs[name]) for name,_ in functions.items()]
         #We're going to do LSA to it, and return the drawn graph
+        print("losses",losses)
         for name in functions.items():
             img_buf = BytesIO()
             draw(outputs[name],img_buf)
