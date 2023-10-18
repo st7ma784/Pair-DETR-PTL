@@ -152,34 +152,17 @@ class PairDETR(pl.LightningModule):
         return [optimizer]
 
     def forward(self, samples,classencoding,masks=None):
-
-        # if isinstance(samples, (list, torch.Tensor)):
-        #     samples = nested_tensor_from_tensor_list(samples)
-        #     print("damn here! ")
-        #features, pos = self.backbone(samples) this called Joiner which is a wrapper for the backbone:
-
         src = self.backbone(samples)
         src,feats=src[-1],src[:-1]
-        # print(masks.shape) #B,800,800
-        # print(src.shape) 
-    
         mask=F.interpolate(masks[None].float(),size=src.shape[-2:],mode="bilinear", align_corners=False).bool()[-1]        
-
         classencodings=self.clip_projection(classencoding)
         classencodings=classencodings.repeat(1,self.num_queries,1).flatten(0,1)
-
-
         outputs_coord, outputs_class ,outputs_coord2, outputs_class2= self.transformer( self.input_proj(src) , classencodings, self.positional_embedding(src,mask), mask)
-        #filter these outputs by the cosine similarity of the class encodings, we want to find the most similar class encoding to each of the outputs, and ensure that its above a threshold
-
+       
         similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
-        #use this as a mask to filter the outputs
         pred_to_keep_mask=torch.max(similarities,dim=-1).values>self.threshold
-        # print("filter",pred_to_keep_mask.shape)  #B, NQ* N_classes
-        # print("outputs",outputs_class[-1].shape) #B, NQ*N_classes, 512
-        # print("mask",mask.shape) #B,25,25
+       
         bbox_mask = self.bbox_attention(outputs_class[-1], classencodings, mask=mask)
-        #it feels like this should have references and not class encodings, but I'm not sure how to get them
         feats=feats[::-1]
         try:
             seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
@@ -189,8 +172,6 @@ class PairDETR(pl.LightningModule):
             torch.cuda.empty_cache()
             seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
         outputs_seg_masks = seg_masks.view(src.shape[0], -1, seg_masks.shape[-2], seg_masks.shape[-1])
-        #print("seg_masks",outputs_seg_masks.shape) # B, NQ* N_classes, 200,200
-        #print("outputs_seg_masks",outputs_seg_masks.shape) # B, NQ* N_classes, 200,200
         outputs_seg_masks=outputs_seg_masks[pred_to_keep_mask]
 
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}#,'pred_masks':masks}
@@ -211,17 +192,13 @@ class PairDETR(pl.LightningModule):
 
     def training_step(self, batch, batch_idx2):
         samples, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
-        #targets = [{k: v.to(self.device,non_blocking=True) for k, v in t.items()} for t in targets]
-        #print("classencodings",classencodings.keys())
         class_to_tensor=torch.zeros(max(list(classencodings.keys()))+1,device=self.device,dtype=torch.long) # find what the biggest index of classes is then make that many zeros. 
         for i,c in enumerate(classencodings.keys()):
             class_to_tensor[c]=i
-            #we have to make this because it's not a given that the dictionary of classes has every key, nor that they're the same size
-        # tensor_index_to_class=torch.as_tensor(list(classencodings.keys()),device=self.device)
+         
         classencodings = torch.stack([v.squeeze() for v in classencodings.values()]).to(self.device,non_blocking=True)
         outputs,out2 = self(samples,classencodings,masks)
 
-        # num_boxes = max(tgt_ids.shape[0], 1)
         embedding_indices=class_to_tensor[tgt_ids]
 
         tgt_embs= classencodings[embedding_indices] 
@@ -229,16 +206,9 @@ class PairDETR(pl.LightningModule):
         tgt_masks=interpolate(tgt_masks.unsqueeze(1),outputs['pred_masks'].shape[-2:],mode="bilinear",align_corners=False).squeeze(1).to(outputs['pred_masks']) # BB,W,H
         masks=interpolate(masks.to(outputs['pred_masks']).unsqueeze(1),outputs['pred_masks'].shape[-2:],mode="bilinear",align_corners=False).squeeze(1) # B,W,H
         num_boxes = max(tgt_ids.shape[0], 1)
-        #print("num",num_boxes)
-        #loss_dict, predictions= self.criterion(classencodings,outputs,num_boxes=num_boxes,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,class_lookup=class_to_tensor)
-        #print(outputs['pred_masks'].shape,tgt_masks.shape) #should be the same
         loss_dict, predictions,boxes= self.criterion(classencodings=classencodings,targets=targets,num_boxes=num_boxes,outputs=outputs, tgt_masks=tgt_masks,class_lookup=class_to_tensor,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
-#        losses=sum(loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict)
         loss_dict2,predictions2,boxes2 = self.criterion(classencodings=classencodings,targets=targets,num_boxes=num_boxes, outputs=outputs, tgt_masks=tgt_masks,class_lookup=class_to_tensor,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
         
-
-
-        #log the images with boxes 
         if batch_idx2%100==0 and hasattr(self.logger,"log_image") and self.trainer.global_rank==0:
             
 
@@ -276,8 +246,7 @@ class PairDETR(pl.LightningModule):
 
         logits=predictions/torch.norm(predictions,dim=-1,keepdim=True)
         logits2=predictions2/torch.norm(predictions2,dim=-1,keepdim=True)
-        # print("logits",logits.shape)
-        # print("logits2",logits2.shape)
+
         CELoss=self.loss(logits@logits2.T,torch.arange(logits.shape[0],device=self.device))
         with torch.no_grad():
             normed_outputs=outputs['pred_logits']/torch.norm(outputs['pred_logits'],dim=-1,keepdim=True)
@@ -287,8 +256,6 @@ class PairDETR(pl.LightningModule):
         loss_dict['CELoss']=CELoss
         loss_dict2['CELoss']=CELoss
 
-        #losses2 = sum(loss_dict2[k] * self.weight_dict[k] for k in loss_dict2.keys() if k in self.weight_dict)
-        
         losses = reduce(torch.add, [loss_dict[k] * self.weight_dict[k] for k in loss_dict.keys() if k in self.weight_dict])
         losses2= reduce(torch.add, [loss_dict2[k] * self.weight_dict[k] for k in loss_dict2.keys() if k in self.weight_dict])
         for k, v in loss_dict.items():
@@ -299,13 +266,9 @@ class PairDETR(pl.LightningModule):
         return losses +losses2
    
     def on_test_epoch_start(self,*args):
-        #print(self.trainer.datamodule.test.__dir__())
         self.cocoann=self.trainer.datamodule.test.coco
-
-        #model = AutoModelForObjectDetection.from_pretrained("MariaK/detr-resnet-50_finetuned_cppe5")
         self.evalmodule = evaluate.load("ybelkada/cocoevaluate", coco=self.coco_ann)
     
-
     def on_test_step(self,batch,batch_idx):
 
         samples, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
@@ -342,12 +305,10 @@ class PairDETR(pl.LightningModule):
         # outputs={target['image_id']: output for target, output in zip(targets, results)}
         #self.coco_evaluator.update(outputs)
         self.evalmodule.add(prediction=results, reference=targets)
-        # return outputs
+
     def test_epoch_end(self,outputs):
-        #self.coco_evaluator.synchronize_between_processes()
         results = self.evalmodule.compute()
         self.log("mAP",results["mAP"], on_epoch=True, prog_bar=True, logger=True)
-        self.print(results)
         #         iou_types = tuple(k for k in ('segm', 'bbox') if k in self.postprocessors.keys())
         #         #print(self.trainer.datamodule.__dir__())
         #         #point the coco eval at the underlying dataset
@@ -519,19 +480,9 @@ if __name__ == '__main__':
     savepath=args.coco_path
     args = vars(args)
 
-
-    #make wandb logger
-    # run=wandb.init(project="SPARC",entity="st7ma784",name="VRE",config=args)
-
-    # logtool= pl.loggers.WandbLogger( project="SPARC",entity="st7ma784",experiment=run, save_dir=savepath,log_model=False)
-
     from data.coco import COCODataModule
     data=COCODataModule(Cache_dir=savepath,batch_size=4)
-    # #convert to dict
-    # model=PairDETR(**args)
 
-
-    #or use VisGenomeForTraining....
     from data.VisGenomeDataModule import VisGenomeDataModule
     import wandb
     #data =VisGenomeDataModule(Cache_dir=savepath,batch_size=4)

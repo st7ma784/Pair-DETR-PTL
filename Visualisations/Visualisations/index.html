@@ -1,0 +1,206 @@
+<html>
+<head>
+    <title>Similarities</title>
+</head>
+<body>
+<!-- use css -->
+<style>
+
+</style>
+
+<script src="https://cdn.jsdelivr.net/gh/interactiveJS/interactiveJS@v2.0.1/src/individuals/draggable.min.js"></script>
+<script>
+    function getdata(){
+       // find the values in the interactive table and return as list of lists
+         // this will be a list of lists of strings
+            var data = [];
+            var table = document.getElementById("table");
+            var rows = table.getElementsByTagName("tr");
+            for (var i = 0; i < rows.length; i++) {
+                var currentRow = table.rows[i];
+                var cells = currentRow.getElementsByTagName("td");
+                var row = [];
+                for (var j = 0; j < cells.length; j++) {
+                    // convert to float if possible
+                    value=parseFloat(cells[j].innerHTML);
+                    row.push(value);
+                }
+                data.push(row);
+            }
+            // return a dict of the data {"values"  : data}
+            return {"values" : data};
+    }
+    function addRows(){
+       //add a row to the table
+        var table = document.getElementById("table");
+        var row = table.insertRow(-1);
+        // add cells to the row based on the number of columns
+        for (var i = 0; i < table.rows[0].cells.length; i++) {
+            var cell = row.insertCell(-1);
+            cell.innerHTML = "0";
+            cell.setAttribute("contenteditable", "true");
+        }
+    }
+    function removeRows(){
+        //remove rows from the table
+        var table = document.getElementById("table");
+        if (table.rows.length > 1) {
+            table.deleteRow(-1);
+            // should also remove associated cells
+        }
+        
+    }
+    function addColumns(){
+        //add columns to the table
+        var table = document.getElementById("table");
+        for (var i = 0; i < table.rows.length; i++) {
+            var cell = table.rows[i].insertCell(-1);
+            cell.innerHTML = "0";
+            cell.setAttribute("contenteditable", "true");
+        }
+    }
+    function removeColumns(){
+        //remove columns from the table
+        var table = document.getElementById("table");
+        if (table.rows[0].cells.length > 1) {
+            for (var i = 0; i < table.rows.length; i++) {
+                table.rows[i].deleteCell(-1);
+            }
+        }
+    }
+
+    function fillRandom(){
+        //fill the table with random values
+        var table = document.getElementById("table");
+        for (var i = 0; i < table.rows.length; i++) {
+            var currentRow = table.rows[i];
+            var cells = currentRow.getElementsByTagName("td");
+            for (var j = 0; j < cells.length; j++) {
+                // generate random number between 0 and 1
+                var value = Math.random();
+                cells[j].innerHTML = value;
+            }
+        }
+    }
+
+    function doUpdate(){
+        let dataJSON = JSON.stringify(getdata());
+        let request = new XMLHttpRequest();
+        request.onreadystatechange = function(){
+            if (request.readyState === 4) {
+                //the reply is a jsonified dict of name and images of a graph.
+                var imgs = JSON.parse(request.response);
+                
+                // find loss key and value
+                if (imgs["loss"] == undefined){
+                    alert("No loss value returned");
+                }
+                else if (imgs["loss"] == "NaN"){
+                    alert("Loss is NaN");
+                }
+                else {
+                var loss = imgs["loss"];
+                // remove loss from imgs
+                delete imgs["loss"];
+                // append losses to S
+                var S = document.getElementById("S");
+                S.innerHTML = "Loss: " + loss;
+                }
+
+                //create list of strings from key:value pairs
+                var names = [];
+                for (var key in imgs) {
+                    if (imgs.hasOwnProperty(key)) {
+                        names.push(key);
+                    }
+                }
+                // create a list of images from the values
+                var images = [];
+                for (var key in imgs) {
+                    if (imgs.hasOwnProperty(key)) {
+                        images.push(imgs[key]);
+                    }
+                }
+                // create a list of divs from the images
+                var divs = [];
+                for (var i = 0; i < images.length; i++) {
+                    var div = document.createElement('div');
+                    div.innerHTML = names[i];
+                    div.appendChild(images[i]);
+                    divs.push(div);
+                } 
+
+                // add the divs to the graph
+                var graph = document.getElementById("graph");
+                // remove all children of the graph
+                while (graph.firstChild) {
+                    graph.removeChild(graph.firstChild);
+                }
+                // add the divs to the graph
+                for (var i = 0; i < divs.length; i++) {
+                    graph.appendChild(divs[i]);
+                }
+
+            }
+        };
+        const action = "POST";
+        // get endpoint from the server host environment
+        // const endpoint = "http://"+window.location.hostname+":5000/demo/data";
+
+
+        const endpoint = "http://scc-lanfotech.lancs.ac.uk:80/LinearSum/data";
+        //const endpoint = "http://localhost:5000/demo/data";
+        //get endpoint from the server
+        // this may vary depending on the server
+        //const endpoint = "http://"+window.location.hostname+":5000/data";
+
+        request.open(action, endpoint);
+        request.setRequestHeader("Content-Type", "application/json");
+
+        request.send(dataJSON);
+        }
+   
+
+    
+</script>
+<h1>Similarities Visualization</h1>
+<div id="Controls">
+
+<button type="button" class="b" id="add_rows" onclick="addRows()">Add Rows</button>
+<button type="button" class="b" id="remove_rows" onclick="removeRows()">Remove Rows</button>
+<button type="button" class="b" id="add_columns" onclick="addColumns()">Add Columns</button>
+<button type="button" class="b" id="remove_columns" onclick="removeColumns()">Remove Columns</button>
+
+<!-- fill with random -->
+<button type="button" class="b" id="fill_rand" onclick="fillRandom()">Fill with Random</button>
+<div class="tooltip">How To use...
+    <span class="tooltiptext">Build the table with rows and columns and 
+        watch how different LSA approximations perform<br>  
+      </span>
+  </div>
+<!-- checkbox for using normed or not... when changed do update -->
+</div>
+
+<div class="tooltip">How To use...
+  <span class="tooltiptext">This app shows the way different LSA approximations behave. Again, this trials different methods as described in Stephen Mander's Thesis. <br>
+    </span>
+</div>
+<div class="container" id="table">
+    <!-- insert interactive table of size x, y -->
+    <!-- Table values should be edited on click -->
+    <!-- Table values should be draggable -->
+
+</div> 
+<!-- add horizontal break -->
+
+<div id="graph">
+    <!-- insert graph here -->
+    <!-- graph should be updated on click -->
+    <!-- graph should be organised neatly as name : image in a grid -->
+
+
+</div>
+
+
+<p id="S"></p>
+</html>
