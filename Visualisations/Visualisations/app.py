@@ -69,14 +69,12 @@ if __name__ == "__main__":
         #any nan values are converted to 0
 
         x=torch.tensor([[float(i) for i in j] for j in data["values"]])
-        print("x",x)
         
         out={}
         outputs={name:attempt(func,x) for name,func in functions.items()}
         #x is a array to do LSA to. 
         losses=[str(loss(x,outputs[name])) for name,_ in functions.items()]
         #We're going to do LSA to it, and return the drawn graph
-        print("losses",losses)
         for name,v in functions.items():
             bytes=draw(v)
             out.update({str(name):bytes.encode("base64")})
