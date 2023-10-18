@@ -69,14 +69,14 @@ if __name__ == "__main__":
         #any nan values are converted to 0
 
         x=torch.tensor([[float(i) for i in j] for j in data["values"]])
-
+        print("x",x)
         
         out={}
         outputs={name:attempt(func,x) for name,func in functions.items()}
         #x is a array to do LSA to. 
         losses=[str(loss(x,outputs[name])) for name,_ in functions.items()]
         #We're going to do LSA to it, and return the drawn graph
-        #print("losses",losses)
+        print("losses",losses)
         for name in functions.items():
             img_buf = BytesIO()
             bytes=draw(outputs[name],img_buf)
@@ -84,8 +84,8 @@ if __name__ == "__main__":
         out.update({"loss":losses})
         
         #out.update({str(name):(torch.nan_to_num(func(*xys))).tolist() for name,func in normedfunctions.items()})
-        
-        out={"test":"hello"}
+        print("out",out)
+        # out={"test":"hello"}
         response= make_response(jsonify(out))
         response.headers['Access-Control-Allow-Origin'] = '*'
 
