@@ -76,8 +76,8 @@ if __name__ == "__main__":
         print("losses",losses)
         for name in functions.items():
             img_buf = BytesIO()
-            draw(outputs[name],img_buf)
-            out.update({str(name):img_buf.getvalue()})
+            bytes=draw(outputs[name],img_buf)
+            out.update({str(name):bytes})
         out.update({"loss":losses})
         
         #out.update({str(name):(torch.nan_to_num(func(*xys))).tolist() for name,func in normedfunctions.items()})
