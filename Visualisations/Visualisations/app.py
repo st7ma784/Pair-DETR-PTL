@@ -67,7 +67,7 @@ if __name__ == "__main__":
         #we need to convert it to a tensor
         print(data)
         
-        x=torch.tensor(data)
+        x=torch.tensor(data["values"].float())
         out={}
         outputs={name:attempt(func,x) for name,func in functions.items()}
         #x is a array to do LSA to. 

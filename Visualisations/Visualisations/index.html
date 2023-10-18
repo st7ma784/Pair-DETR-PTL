@@ -84,9 +84,8 @@
                 data.push(row);
             }
             // convert data to byte array
-            data = JSON.stringify(data);
-            // return a dict of the data {"values"  : data}
-            return data
+            // return a dict of the data 
+            return {"values"  : data}
     }
     function addRows(){
        //add a row to the table
@@ -222,8 +221,8 @@
 
         request.open(action, endpoint);
         request.setRequestHeader("Content-Type", "application/json");
-
-        request.send(dataJSON);
+        // convert data to JSON string
+        request.send(JSON.stringify(dataJSON));
         }
    
 
