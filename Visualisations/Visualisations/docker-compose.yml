@@ -1,6 +1,6 @@
 version: "3"
 services:
-  vis:
+  lsavis:
     image: st7ma784/lsavis:latest
     container_name: lsavis
     network-mode: host
@@ -13,7 +13,7 @@ services:
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 10 vis
+    command: --interval 10 vis lsavis
     environment:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_LABEL_ENABLE=true
