@@ -61,7 +61,7 @@ if __name__ == "__main__":
     
     @torch.no_grad()
     @app.route('/lsa/data', methods=['GET','POST'])
-    async def getplots(request):
+    async def getplots():
 
         print("request",request.get_data())
         data=request.get_json()
