@@ -61,7 +61,9 @@ if __name__ == "__main__":
     
     @torch.no_grad()
     @app.route('/lsa/data', methods=['GET','POST'])
-    async def getplots():
+    async def getplots(request):
+
+        print("request",request.get_data())
         data=request.get_json()
         #convert from list of list of strings to list of list of floats to a tensor 
         #any nan values are converted to 0
