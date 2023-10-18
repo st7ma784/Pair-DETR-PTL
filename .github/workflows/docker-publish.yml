@@ -12,7 +12,7 @@ name: Publish Docker image
 on:
   push:
     paths:
-      - Visualisations/*
+      - Visualisations/Visualisations/*
       - .github/workflows/docker-publish.yml
   #release:
   #  types: [published]
@@ -42,8 +42,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
         with:
-          context: Visualisations
-          file: Visualisations/dockerfile
+          context: Visualisations/Visualisations/
+          file: Visualisations/Visualisations/dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
