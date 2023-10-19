@@ -16,14 +16,15 @@ modified to return 1-hot tensors * input so we get a sense of values returned.
 from scipy.optimize import linear_sum_assignment
 
 
-
+from functools import partial
 def outputconversion(func):
-    def wrapper(x):
+    def wrapper(x,func=func):
         x1,y1=func(x)
         output=torch.zeros_like(x)
         output[x1,y1]=1
         return output*x
-    return wrapper
+    
+    return partial(wrapper,func=func)
 
 
 def get_all_LSA_fns():
