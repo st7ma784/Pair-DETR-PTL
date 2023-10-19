@@ -65,7 +65,7 @@ def MyLinearSumAssignment(TruthTensor, maximize=False,lookahead=2):
     results=torch.zeros(TruthTensor.shape,device=TruthTensor.device)
 
     finder=torch.argmax if maximize else torch.argmin
-    replaceval=float("-inf") if maximize else float("inf")
+    replaceval=float(0) if maximize else float(1e9)
     #subtract the min from all values, so that the min is 0
     TruthTensor=TruthTensor-torch.min(torch.min(TruthTensor,dim=-1).values,dim=-1).values
 
