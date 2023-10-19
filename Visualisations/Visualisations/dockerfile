@@ -3,6 +3,7 @@ COPY requirements.txt /tmp/
 RUN pip install --requirement /tmp/requirements.txt
 RUN pip install --upgrade pip
 RUN pip install scipy
+RUN pip install gunicorn
 WORKDIR /app
 # COPY . /app needs to follow symlinks too
 COPY . /app
@@ -11,4 +12,6 @@ COPY . /app
 RUN ls -la /app
 EXPOSE 5000/tcp
 
-ENTRYPOINT ["python", "app.py"]
+# run the app with gunicorn.sh
+CMD ["bash", "gunicorn.sh"]
+
