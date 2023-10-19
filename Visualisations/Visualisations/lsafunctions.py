@@ -65,10 +65,10 @@ def MyLinearSumAssignment(TruthTensor, maximize=False,lookahead=2):
     results=torch.zeros(TruthTensor.shape,device=TruthTensor.device)
 
     finder=torch.argmax if maximize else torch.argmin
-    replaceval=0 if maximize else float(1e9)
+    replaceval=float("-inf") if maximize else float("inf")
 
     for i in range(min(TruthTensor.shape[-2:])): # number of rows
-        deltas=torch.diff(torch.topk(torch.clamp(TruthTensor*mask,max=100),lookahead,dim=0,largest=maximize).values,n=lookahead-1,dim=0)
+        deltas=torch.diff(torch.topk(torch.clamp(TruthTensor*mask,max=100,min=-100),lookahead,dim=0,largest=maximize).values,n=lookahead-1,dim=0)
         col_index=torch.argmax(torch.abs(deltas)) # this is the column to grab,  Note this measures step so its not important to do argmin...
         row_index=finder(TruthTensor[:,col_index])
         mask[:,col_index]=replaceval #mask out the column
