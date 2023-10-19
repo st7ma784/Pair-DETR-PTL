@@ -91,9 +91,9 @@ if __name__ == "__main__":
         # check if x is square i.e shape[0]==shape[1]
         outputs={name:attempt(func,x) for name,func in functions.items()}
 
-        if x.shape[0]==x.shape[1]:
-            losses=[(loss(outputs[name])*x[outputs[name].nonzero(as_tuple=True)]).tolist() for name,_ in functions.items()]
-            out.update({"loss":losses})
+        #if x.shape[0]==x.shape[1]:
+        losses=[(loss(outputs[name])*x[outputs[name].nonzero(as_tuple=True)]).tolist() for name,_ in functions.items()]
+        out.update({"loss":losses})
 
 
         #x is a array to do LSA to. 
