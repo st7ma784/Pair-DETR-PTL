@@ -81,7 +81,7 @@ if __name__ == "__main__":
         #any nan values are converted to 0 and remove non-numeric values
 
         values=np.array([[float(i) if i.isnumeric() else 0 for i in j] for j in data["values"]])
-
+        app.logger.info("values"+str(values))
         x=torch.as_tensor(values,dtype=torch.float32)
         #log size of x to console 
         #print("x",x.shape)
