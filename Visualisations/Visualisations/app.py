@@ -21,7 +21,7 @@ from PIL import Image
 from flask import jsonify
 #make a dictionary of all the functions we want to use
 
-functions=dict(enumerate(get_all_LSA_fns()))
+functions=get_all_LSA_fns()
 #normedfunctions={i:get_lsa_fn(i) for i in range(1,17)}
 app = Flask(__name__,template_folder='.')
 

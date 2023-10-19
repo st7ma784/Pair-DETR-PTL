@@ -35,21 +35,21 @@ def forcehigh(func):
     return partial(wrapper,func=func)
 def get_all_LSA_fns():
     #returns list of all other fns in this file that take a tensor as input.
-    functions=[
-        MyLinearSumAssignment,
+    functions={
+        "my function": MyLinearSumAssignment,
         #outputconversion(no_for_loop_MyLinearSumAssignment),
         #outputconversion(no_for_loop_triu_MyLinearSumAssignment),
         #outputconversion(no_for_loop_v2_MyLinearSumAssignment),
         #outputconversion(no_for_loop_v2_triu_MyLinearSumAssignment),
         #outputconversion(no_for_loop_v3_MyLinearSumAssignment),
         #outputconversion(no_for_loop_v3_triu_MyLinearSumAssignment),
-        outputconversion(recursiveLinearSumAssignment),
-        outputconversion(recursiveLinearSumAssignment_v2),
+        "recursive fn":outputconversion(recursiveLinearSumAssignment),
+        "recursive fn2 ":outputconversion(recursiveLinearSumAssignment_v2),
         #outputconversion(recursiveLinearSumAssignment_v3),
         #outputconversion(recursiveLinearSumAssignment_v4),
-        outputconversion(linear_sum_assignment),
+        "stock":outputconversion(linear_sum_assignment),
 
-    ]
+    }
 
     return functions
 
