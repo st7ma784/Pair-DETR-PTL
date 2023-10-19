@@ -15,7 +15,13 @@ import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
 
+import io
+from base64 import encodebytes
+from PIL import Image
+from flask import jsonify
 
+
+   
 if __name__ == "__main__":
 
 
@@ -26,8 +32,9 @@ if __name__ == "__main__":
         plt.imshow(logits)
         #do not display the graph, but save it to a buffer
         plt.savefig(img_buf, format='png')
-        
-        return img_buf.getvalue()
+        encoded_img = encodebytes(img_buf.getvalue()).decode('ascii') # encode as base64
+
+        return encoded_img
 
     
     def draw(logits,buffer=BytesIO()):
@@ -74,23 +81,29 @@ if __name__ == "__main__":
         app.logger.info("x"+str(x.shape))
 
         out={}
+        # check if x is square i.e shape[0]==shape[1]
+        if x.shape[0]==x.shape[1]:
+            losses=[str(attempt(loss,outputs[name])*x[outputs.nonzero(as_tuple=True)]) for name,_ in functions.items()]
+            out.update({"loss":losses})
+
         outputs={name:attempt(func,x) for name,func in functions.items()}
+
         #x is a array to do LSA to. 
-        losses=[str(attempt(loss,outputs[name])*x[outputs.nonzero(as_tuple=True)]) for name,_ in functions.items()]
         #We're going to do LSA to it, and return the drawn graph
         out.update({str(name):draw(func(x)) for name,func in functions.items()})
         for name,v in functions.items():
-            bytes=draw(v)
+            bytes=draw(v) # is a BytesIO object
+            bytes.seek(0)
+            #we need to convert this to a json freindly format 
+            #we can do this by encoding it in base64
+
             out.update({str(name):bytes.encode("base64")})
-        out.update({"loss":losses})
         
         #out.update({str(name):(torch.nan_to_num(func(*xys))).tolist() for name,func in normedfunctions.items()})
         app.logger.info("out"+str(out))
         # out={"test":"hello"}
-        response= make_response(jsonify(out))
-        response.headers['Access-Control-Allow-Origin'] = '*'
-
-        return response
+        return jsonify(out)
+       
 
     app.run(host="0.0.0.0", port=5000, debug=True )
   
