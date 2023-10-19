@@ -71,7 +71,8 @@ if __name__ == "__main__":
         x=torch.tensor([[float(i) for i in j] for j in data["values"]])
         #log size of x to console 
         print("x",x.shape)
-        console.log("x",x.shape)
+        app.logger.info("x"+str(x.shape))
+
         out={}
         outputs={name:attempt(func,x) for name,func in functions.items()}
         #x is a array to do LSA to. 
@@ -83,7 +84,7 @@ if __name__ == "__main__":
         out.update({"loss":losses})
         
         #out.update({str(name):(torch.nan_to_num(func(*xys))).tolist() for name,func in normedfunctions.items()})
-        print("out",out)
+        app.logger.info("out"+str(out))
         # out={"test":"hello"}
         response= make_response(jsonify(out))
         response.headers['Access-Control-Allow-Origin'] = '*'
