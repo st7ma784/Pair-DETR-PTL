@@ -153,8 +153,9 @@
         request.onreadystatechange = function(){
             if (request.readyState === 4) {
                 //the reply is a jsonified dict of name and images of a graph.
-                var imgs = JSON.parse(request.json);
                 S.innerHTML=request.response;
+                var imgs = JSON.parse(request.response);
+
                 var loss = imgs["loss"];
                 // remove loss from imgs
                 // delete imgs["loss"];
@@ -225,7 +226,7 @@
         var data = JSON.stringify(getdata());
         request.send(data);
     }
-    
+
     
 </script>
 <h1> Visualization for LSA </h1>
