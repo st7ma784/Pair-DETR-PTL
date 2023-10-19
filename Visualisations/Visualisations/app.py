@@ -85,7 +85,7 @@ if __name__ == "__main__":
         outputs={name:attempt(func,x) for name,func in functions.items()}
 
         if x.shape[0]==x.shape[1]:
-            losses=[str(attempt(loss,outputs[name])*x[outputs.nonzero(as_tuple=True)]) for name,_ in functions.items()]
+            losses=[str(attempt(loss,outputs[name])*x[outputs[name].nonzero(as_tuple=True)]) for name,_ in functions.items()]
             out.update({"loss":losses})
 
 
