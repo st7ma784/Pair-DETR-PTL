@@ -93,11 +93,10 @@ if __name__ == "__main__":
         out.update({str(name):draw(func(x)) for name,func in functions.items()})
         for name,v in functions.items():
             bytes=draw(v) # is a BytesIO object
-            bytes.seek(0)
             #we need to convert this to a json freindly format 
             #we can do this by encoding it in base64
 
-            out.update({str(name):bytes.encode("base64")})
+            out.update({str(name):bytes})
         
         #out.update({str(name):(torch.nan_to_num(func(*xys))).tolist() for name,func in normedfunctions.items()})
         app.logger.info("out"+str(out))
