@@ -154,7 +154,8 @@
             if (request.readyState === 4) {
                 //the reply is a jsonified dict of name and images of a graph.
                 let S = document.getElementById("S");
-                S.innerHTML=request.response;
+                // use S as a debug area
+                S.innerHTML = request.response;
                 var imgs = JSON.parse(request.response);
 
                 var loss = imgs["loss"];
@@ -272,5 +273,5 @@
 </div>
 
 
-<p id="S"></p>
+<div id="S"></div>
 </html>
