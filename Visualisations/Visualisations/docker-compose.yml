@@ -3,7 +3,7 @@ services:
   lsavis:
     image: st7ma784/lsavis:latest
     container_name: lsavis
-    network-mode: host
+    # network-mode: host
     # map to 5000
     ports:
       - 5000:5000
