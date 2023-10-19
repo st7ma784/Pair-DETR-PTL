@@ -153,6 +153,7 @@
         request.onreadystatechange = function(){
             if (request.readyState === 4) {
                 //the reply is a jsonified dict of name and images of a graph.
+                let S = document.getElementById("S");
                 S.innerHTML=request.response;
                 var imgs = JSON.parse(request.response);
 
