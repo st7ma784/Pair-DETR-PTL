@@ -3,13 +3,8 @@ import torch
 
 def loss(one_hot):
     #this only works for 2d SQUARE matrices
-    #so we pad to the biggest square matrix
-    #and then take the loss
-    shape=one_hot.shape
-    maxdim=max(shape)
-    padded=torch.zeros((maxdim,maxdim),device=one_hot.device)
-    padded[:shape[0],:shape[1]]=one_hot
-    one_hot=padded
+    #so we remove rows and columns that are all zeros
+    one_hot=one_hot[torch.any(one_hot,dim=1),torch.any(one_hot,dim=0)]
     xi,indices=torch.nonzero(one_hot,as_tuple=True) # not sure why this doesnt work, and seems to require LSA  for maths to worrk! 
     index=indices.clone()
     counts=torch.zeros_like(indices)
