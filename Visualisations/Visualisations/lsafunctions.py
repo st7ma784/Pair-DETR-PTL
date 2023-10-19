@@ -36,7 +36,7 @@ def forcehigh(func):
 def get_all_LSA_fns():
     #returns list of all other fns in this file that take a tensor as input.
     functions=[
-        outputconversion(forcehigh(MyLinearSumAssignment)),
+        MyLinearSumAssignment,
         #outputconversion(no_for_loop_MyLinearSumAssignment),
         #outputconversion(no_for_loop_triu_MyLinearSumAssignment),
         #outputconversion(no_for_loop_v2_MyLinearSumAssignment),
@@ -74,9 +74,9 @@ def MyLinearSumAssignment(TruthTensor, maximize=True,lookahead=2):
         mask[:,col_index]=replaceval #mask out the column
         mask[row_index]=replaceval
         results[row_index,col_index]=1
-    return results*TruthTensor
+    return results
 
-def no_for_loop_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False):
+def no_for_loop_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True):
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize]
     remove=torch.ones_like(rewards,dtype=torch.bool).triu().unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
     weights=rewards.unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape)+[rewards.shape[-1]]))
@@ -86,7 +86,7 @@ def no_for_loop_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False):
     col_index=final_fn(Locations,dim=1)
     return torch.arange(Locations.shape[0],device=Locations.device),col_index
 
-def no_for_loop_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=False):
+def no_for_loop_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True,tril=False):
 
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize]
     remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
@@ -99,7 +99,7 @@ def no_for_loop_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=F
     col_index=final_fn(Locations,dim=1)
 
     return torch.arange(Locations.shape[0],device=Locations.device),col_index
-def no_for_loop_v2_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=False):
+def no_for_loop_v2_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True,tril=False):
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize] 
     remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
     weights=rewards.unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape)+[rewards.shape[-1]]))
@@ -115,7 +115,7 @@ def no_for_loop_v2_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tri
 
     return torch.arange(Locations.shape[0],device=Locations.device),col_index
 
-def no_for_loop_v2_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=False):
+def no_for_loop_v2_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True,tril=False):
 
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize]
    
@@ -129,7 +129,7 @@ def no_for_loop_v2_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=Fals
     Locations=rewards - Cost_total/2
     col_index=final_fn(Locations,dim=1)
     return torch.arange(Locations.shape[0],device=Locations.device),col_index
-def no_for_loop_v3_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=False):
+def no_for_loop_v3_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True,tril=False):
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize] 
     remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
     weights=rewards.unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape)+[rewards.shape[-1]]))
@@ -145,7 +145,7 @@ def no_for_loop_v3_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tri
 
     return torch.arange(Locations.shape[0],device=Locations.device),col_index
 
-def no_for_loop_v3_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=False):
+def no_for_loop_v3_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True,tril=False):
 
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize]
    
@@ -192,7 +192,7 @@ def reduceLinearSumAssignment_vm(rewards:torch.Tensor,cost_neg:torch.Tensor,next
     Cost_total= torch.add(Costs,Costs2)
     
     return Cost_total
-def reduceLinearSumAssignment_v2(rewards:torch.Tensor,maximize=False):
+def reduceLinearSumAssignment_v2(rewards:torch.Tensor,maximize=True):
     Topv,topi=rewards.topk(k=2,dim=1,largest=maximize)
     costs=Topv[:,0].unsqueeze(1).repeat(1,rewards.shape[-1])
     #print(costs.shape)
@@ -211,7 +211,7 @@ def reduceLinearSumAssignment_v2(rewards:torch.Tensor,maximize=False):
     return Cost_total
 
 
-def reduceLinearSumAssignment_v3(rewards:torch.Tensor,maximize=False):
+def reduceLinearSumAssignment_v3(rewards:torch.Tensor,maximize=True):
 
     #30,32
     TotalCosts= torch.max(rewards,dim=1,keepdim=True).values + torch.max(rewards,dim=0,keepdim=True).values
@@ -233,7 +233,7 @@ def reduceLinearSumAssignment_v3(rewards:torch.Tensor,maximize=False):
     return totalCosts
 
 
-def reduceLinearSumAssignment_v4(rewards:torch.Tensor,maximize=False):
+def reduceLinearSumAssignment_v4(rewards:torch.Tensor,maximize=True):
 
     #30,32
     TotalCosts= torch.max(rewards,dim=1,keepdim=True).values + torch.max(rewards,dim=0,keepdim=True).values
@@ -254,7 +254,7 @@ def reduceLinearSumAssignment_v4(rewards:torch.Tensor,maximize=False):
     totalCosts=TotalCosts+one_hot2#deltas
     return totalCosts
 
-def recursiveLinearSumAssignment(rewards:torch.Tensor,maximize=False,factor=1):
+def recursiveLinearSumAssignment(rewards:torch.Tensor,maximize=True,factor=1):
     cost_neg,next_highest_fn,comb_fn,final_fn=((torch.tensor(float('inf')),torch.min,torch.add,torch.argmin),(torch.tensor(float('-inf')),torch.max,torch.sub,torch.argmax))[maximize] 
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     #we need to make a mask that holds the diagonal of a H x H matrix repeated B times, and then one with the diagonal of a BxB matrix repeated H times
@@ -271,7 +271,7 @@ def recursiveLinearSumAssignment(rewards:torch.Tensor,maximize=False,factor=1):
         #x,y=torch.arange(rewards.shape[0],device=rewards.device),col_index    
     return torch.arange(rewards.shape[0],device=rewards.device),col_index
 
-def recursiveLinearSumAssignment_v2(rewards:torch.Tensor,maximize=False,factor=1):
+def recursiveLinearSumAssignment_v2(rewards:torch.Tensor,maximize=True,factor=1):
     cost_neg,next_highest_fn,comb_fn,final_fn=((torch.tensor(float('inf')),torch.min,torch.add,torch.argmin),(torch.tensor(float('-inf')),torch.max,torch.sub,torch.argmax))[maximize] 
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     # remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
@@ -285,7 +285,7 @@ def recursiveLinearSumAssignment_v2(rewards:torch.Tensor,maximize=False,factor=1
     
     return torch.arange(rewards.shape[0],device=rewards.device),col_index
 
-def recursiveLinearSumAssignment_v3(rewards:torch.Tensor,maximize=False,factor=1):
+def recursiveLinearSumAssignment_v3(rewards:torch.Tensor,maximize=True,factor=1):
     final_fn=torch.argmax if maximize else torch.argmin
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     #remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
@@ -301,7 +301,7 @@ def recursiveLinearSumAssignment_v3(rewards:torch.Tensor,maximize=False,factor=1
         #x,y=torch.arange(rewards.shape[0],device=rewards.device),col_index    
     return torch.arange(rewards.shape[0],device=rewards.device),col_index
 
-def recursiveLinearSumAssignment_v4(rewards:torch.Tensor,maximize=False,factor=1):
+def recursiveLinearSumAssignment_v4(rewards:torch.Tensor,maximize=True,factor=1):
     final_fn=torch.argmax if maximize else torch.argmin
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     #remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))

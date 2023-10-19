@@ -217,37 +217,56 @@
         var table = document.createElement('table');
         // for each row in data
         var colours = calculateColours(data);
+        //data is a list of lists of floats
+
         for (var i = 0; i < data.length; i++) {
             // create a rowlength
             var row=table.insertRow(-1);
-            for (var j = 0; j < data[0].length; i++) {
+            //now work out how many columns there are
+            for (var j = 0; j < data[0].length; j++) {
+                //tjheres a type error where data[i] is undefined? 
+                //to fix: check data[i] is defined
                 var cell = row.insertCell(-1);
-
-                cell.innerHTML = data[i][j].toString();
                 cell.style.backgroundColor = "#" + colours[i][j] + colours[i][j] + colours[i][j];
             }
         }
         // add the table to the div
+        insertDataintoTable(table,data);
         div.appendChild(table);
         return div;
+    }
+    function insertDataintoTable(table,data){
+        // insert data into table
+        // data is a list of lists of floats
+        // table is the table to insert into
+        for (var i = 0; i < data.length; i++) {
+            // for each row in data
+            for (var j = 0; j < data[0].length; j++) {
+                // for each column in data
+                // insert the data into the table
+                table.rows[i].cells[j].innerHTML = data[i][j];
+            }
+        }
+
     }
     function doUpdate(){
         let request = new XMLHttpRequest();
         request.onreadystatechange = function() {
             if (request.readyState === 4) {
                 // this line doesnt work - 
-                var response=request.response; //tried let and var - should be var
+                var response=JSON.parse(request.response);
+                //tried let and var - should be var
 
-                var loss = response["loss"];
                 // remove loss from imgs
-                delete response["loss"];
                 // append losses to S
                 var S = document.getElementById("S");
-                S.innerHTML = "Loss: " + loss;
+                // remove all children of S
+                while (S.firstChild) {
+                    S.removeChild(S.firstChild);
+                }
                 
                 //create list of strings from key:value pairs
                 // create a list of images from the values
-                var divs = [];
                 // add the divs to the graph
                 var graph = document.getElementById("graph");
                 // remove all children of the graph
@@ -257,23 +276,46 @@
 
                 for (var key in response) {
                     if (response.hasOwnProperty(key)) {
-                        var data = response[key];
-                        // data is something like [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]
-                        // data is a list of lists of floats 
-                        // we need to convert it to a list of lists of strings
-                        var debug = document.getElementById("S");
-                        // debug.innerHTML.appendChild(data);
-                        // make sure every value in every row is a float
-                        for (var i = 0; i < data.length; i++) {
-                            for (var j = 0; j < data[0].length; j++) {
-                                data[i][j] = parseFloat(data[i][j]);
+                        //check if key includes "loss"
+                        if (key.includes("loss")){
+                            // add to S 
+                            var div = document.createElement('div');
+                            div.innerHTML = key + " : " + response[key];
+                            S.appendChild(div);
+                        }
+                        else{   //gonna assume is data
+                            var data = response[key];
+                            // data is something like [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]
+                            // data is a list of lists of floats 
+                            // we need to convert it to a list of lists of strings
+                            var debug = document.getElementById("S");
+                            // debug.innerHTML.appendChild(data);
+                            // make sure every value in every row is a float
+                            for (var i = 0; i < data.length; i++) {
+                                for (var j = 0; j < data[0].length; j++) {
+                                    data[i][j] = parseFloat(data[i][j]);
+                                }
+                            }
+                            // check data is a sensible shape, the same as the table then draw it
+                            var table = document.getElementById("table");
+                            var maindata=readTable(table);
+                            if (data.length != maindata.length) {
+                                console.log("data has wrong number of rows");
+                                console.log("data has " + data.length + " rows");
+                                console.log("table has " + maindata.length + " rows");
+                                //show raw data
+                                console.log(data);
+                            }
+                            else{
+                                var div = document.createElement('div');
+                                div.innerHTML = key;
+                                console.log(data);
+
+                                var tablediv=drawdata(data);
+                                div.appendChild(tablediv);
+                                graph.appendChild(div);
                             }
                         }
-                        var div = document.createElement('div');
-                        div.innerHTML = key;
-                        var tablediv=drawdata(data);
-                        div.appendChild(tablediv);
-                        graph.appendChild(div);
                     }
                 } 
 

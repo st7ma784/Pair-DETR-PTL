@@ -85,18 +85,13 @@ async def getplots():
         
     #     logging.warning("outputs: {} \n {}".format(item[0],str(item[1].tolist())))
     #if x.shape[0]==x.shape[1]:
-    losses=[(loss(outputs[name],x,app)) for name,_ in functions.items()]
-    out.update({"loss":losses})
+    out.update({str(name) + " loss": str(loss(outputs[name],x,app)) for name,_ in functions.items()})
 
-
-    #x is a array to do LSA to. 
-    #We're going to do LSA to it, and return the drawn graph
-    out.update({str(name):func(x).tolist() for name,func in functions.items()})
+    out.update({str(name): outputs[name].tolist() for name,func in functions.items()})
     output=jsonify(out)
 
     logging.warning("out"+str(out))
-    response= make_response(output)
-    return response
+    return output
 
 if __name__ == "__main__":
 
