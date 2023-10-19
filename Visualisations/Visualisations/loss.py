@@ -7,7 +7,7 @@ def loss(one_hot):
     #and then take the loss
     shape=one_hot.shape
     maxdim=max(shape)
-    padded=torch.zeros((maxdim,maxdim),device=x.device)
+    padded=torch.zeros((maxdim,maxdim),device=one_hot.device)
     padded[:shape[0],:shape[1]]=one_hot
     one_hot=padded
     xi,indices=torch.nonzero(one_hot,as_tuple=True) # not sure why this doesnt work, and seems to require LSA  for maths to worrk! 

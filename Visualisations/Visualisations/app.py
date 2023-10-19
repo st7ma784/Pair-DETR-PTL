@@ -82,7 +82,7 @@ if __name__ == "__main__":
 
         values=np.array([[float(i) if i.isnumeric() else 0 for i in j] for j in data["values"]])
 
-        x=torch.tensor(values,dtype=torch.float32)
+        x=torch.as_tensor(values,dtype=torch.float32)
         #log size of x to console 
         #print("x",x.shape)
         app.logger.info("x"+str(x.shape))
