@@ -82,11 +82,12 @@ if __name__ == "__main__":
 
         out={}
         # check if x is square i.e shape[0]==shape[1]
+        outputs={name:attempt(func,x) for name,func in functions.items()}
+
         if x.shape[0]==x.shape[1]:
             losses=[str(attempt(loss,outputs[name])*x[outputs.nonzero(as_tuple=True)]) for name,_ in functions.items()]
             out.update({"loss":losses})
 
-        outputs={name:attempt(func,x) for name,func in functions.items()}
 
         #x is a array to do LSA to. 
         #We're going to do LSA to it, and return the drawn graph
