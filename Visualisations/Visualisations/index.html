@@ -67,26 +67,16 @@
 <script src="https://cdn.jsdelivr.net/gh/interactiveJS/interactiveJS@v2.0.1/src/individuals/draggable.min.js"></script>
 <script>
     function getdata(){
-       // find the values in the interactive table and return as list of lists
-         // this will be a list of lists of strings
-            var data = [];
             var table = document.getElementById("table");
-            var rows = table.getElementsByTagName("tr");
-            for (var i = 0; i < rows.length; i++) {
-                var currentRow = table.rows[i];
-                var cells = currentRow.getElementsByTagName("td");
-                var row = [];
-                for (var j = 0; j < cells.length; j++) {
-                    // convert to float if possible
-                    value=cells[j].innerHTML;
-                    row.push(value);
-                }
-                data.push(row);
-            }
-            // convert data to byte array
-            // return a dict of the data 
+            data=readTable(table);
             return {"values"  : data}
     }
+    function setupCell(cell){
+        cell.innerHTML = "0";
+        cell.setAttribute("contenteditable", "true");
+        cell.setAttribute("oninput", "doUpdate()");
+    }
+
     function addRows(){
        //add a row to the table
         var table = document.getElementById("table");
@@ -94,34 +84,35 @@
         // add cells to the row based on the number of columns
         for (var i = 0; i < table.rows[0].cells.length; i++) {
             var cell = row.insertCell(-1);
-            cell.innerHTML = "0";
-            cell.setAttribute("contenteditable", "true");
-            // on new value, call do update 
-
-            cell.setAttribute("oninput", "doUpdate()");
+            setupCell(cell);
         }
+        //read data 
+        let data = readTable(table);
+        let colours = calculateColours(data); //remake displays
+        drawColours(colours,table);
+        
     }
+
     function removeRows(){
-        //remove rows from the table
         var table = document.getElementById("table");
         if (table.rows.length > 1) {
             table.deleteRow(-1);
-            // should also remove associated cells
         }
-        doUpdate();
+        doUpdate(); //remake displays
     }
+
     function addColumns(){
         //add columns to the table
         var table = document.getElementById("table");
         for (var i = 0; i < table.rows.length; i++) {
             var cell = table.rows[i].insertCell(-1);
-            cell.innerHTML = "0";
-            cell.setAttribute("contenteditable", "true");
-            cell.setAttribute("oninput", "doUpdate()");
-
+            setupCell(cell);
         }
-
+        let data = readTable(table);
+        let colours = calculateColours(data); //remake displays
+        drawColours(colours,table);    
     }
+
     function removeColumns(){
         //remove columns from the table
         var table = document.getElementById("table");
@@ -136,6 +127,13 @@
     function fillRandom(){
         //fill the table with random values
         var table = document.getElementById("table");
+        // if the table is empty, add a row and column until its 4x4
+        if (table.rows.length == 0) {
+            for (var i = 0; i < 4; i++) {
+                addRows();
+                addColumns();
+            }
+        }
         for (var i = 0; i < table.rows.length; i++) {
             var currentRow = table.rows[i];
             var cells = currentRow.getElementsByTagName("td");
@@ -145,68 +143,143 @@
                 cells[j].innerHTML = value;
             }
         }
+        var data = readTable(table);
+        var colours=calculateColours(data); //remake displays
+        drawColours(colours,table);
         doUpdate();
     }
+    
+    function drawColours(colours,table){
+        // draw the colours on the table
+        // colours is a list of lists of hex values
+        // table is the table to draw on
+        for (var i = 0; i < table.rows.length; i++) {
+            var currentRow = table.rows[i];
+            var cells = currentRow.getElementsByTagName("td");
+            for (var j = 0; j < cells.length; j++) {
+                // set the colour
+                cells[j].style.backgroundColor = "#" + colours[i][j] + colours[i][j] + colours[i][j];
+            }
+        }
+    }
 
+    function readTable(table){
+        var rows = table.getElementsByTagName("tr");
+        var data = [];
+        for (var i = 0; i < rows.length; i++) {
+            var currentRow = table.rows[i];
+            var cells = currentRow.getElementsByTagName("td");
+            var row = [];
+            for (var j = 0; j < cells.length; j++) {
+                // convert to float if possible
+                value=cells[j].innerHTML;
+                row.push(value);
+            }
+            data.push(row);
+        }
+        return data;
+    }
+
+    function calculateColours(data){
+        
+        // calculate the colours
+        // get the max value
+        var max = 0;
+        for (var i = 0; i < data.length; i++) {
+            for (var j = 0; j < data[0].length; j++) {
+                if (data[i][j] > max) {
+                    max = data[i][j];
+                }
+            }
+        }
+        // calculate the colours
+        var colours = [];
+        for (var i = 0; i < data.length; i++) {
+            var row = [];
+            for (var j = 0; j < data[0].length; j++) {
+                // calculate the colour
+                var colour = Math.round((data[i][j] / max) * 255);
+                // convert to hex
+                var hex = colour.toString(16);
+                // add to row
+                row.push(hex);
+            }
+            colours.push(row);
+        }
+
+       return colours; 
+    }
+
+    function drawdata(data){
+        // create div 
+        let div = document.createElement('div');
+        // read data and make into a table 
+        let table = document.createElement('table');
+        // for each row in data
+        let colours = calculateColours(data);
+        for (var i = 0; i < data.length; i++) {
+            // create a row
+            var row = document.createElement('tr');
+            // for each element in the row
+            for (var j = 0; j < data[0].length; j++) {
+                // create a cell
+                var cell = document.createElement('td');
+                // set the value of the cell
+                cell.innerHTML = data[i][j];
+                // set the colour of the cell
+                cell.style.backgroundColor = "#" + colours[i][j] + colours[i][j] + colours[i][j];
+                // add the cell to the row
+                row.appendChild(cell);
+            }
+            // add the row to the table
+            table.appendChild(row);
+        }
+        // add the table to the div
+        div.appendChild(table);
+        return div;
+    }
     function doUpdate(){
         let request = new XMLHttpRequest();
         request.onreadystatechange = function(){
             if (request.readyState === 4) {
-                //the reply is a jsonified dict of name and images of a graph.
-                var out = document.getElementById("S");
-                // use S as a debug area
-                out.innerHTML = request.response;
-                var imgs = JSON.parse(request.response);
-
+                
+                var imgs=JSON.parse(request.response);
+                
                 var loss = imgs["loss"];
                 // remove loss from imgs
-                delete imgs["loss"];
+                imgs.pop("loss");
                 // append losses to S
                 var S = document.getElementById("S");
                 S.innerHTML = "Loss: " + loss;
                 
                 //create list of strings from key:value pairs
-                var names = [];
-                for (var key in imgs) {
-                    if (imgs.hasOwnProperty(key)) {
-                        names.push(key);
-                    }
-                }
                 // create a list of images from the values
-                var images = [];
-                for (var key in imgs) {
-                    if (imgs.hasOwnProperty(key)) {
-                        images.push(imgs[key]);
-                    }
-                }
-                // create a list of divs from the images
                 var divs = [];
-                for (var i = 0; i < images.length; i++) {
-                    var div = document.createElement('div');
-                    div.innerHTML = names[i];
-                    // open byte stream as image
-                    image=new Image();
-                    // images[i] is a byte[] of the image
-                    image.src = 'data:image/png;base64,' + images[i];
-                    
-                    // add image to div
-                    div.appendChild(image);
-                    divs.push(div);
-                
-                } 
-
                 // add the divs to the graph
                 var graph = document.getElementById("graph");
                 // remove all children of the graph
                 while (graph.firstChild) {
                     graph.removeChild(graph.firstChild);
                 }
-                // add the divs to the graph
-                for (var i = 0; i < divs.length; i++) {
-                    graph.appendChild(divs[i]);
-                }
-                // add debug info
-                graph.innerHTML += "<p>Debug: "+request.response+"</p>";
+
+                for (var key in imgs) {
+                    if (imgs.hasOwnProperty(key)) {
+                        var data = imgs[key];
+                        var debug = document.getElementById("S");
+                        debug.innerHTML.appendChild(data);
+                        // make sure every value in every row is a float
+                        for (var i = 0; i < data.length; i++) {
+                            for (var j = 0; j < data[0].length; j++) {
+                                data[i][j] = parseFloat(data[i][j]);
+                            }
+                        }
+                        var div = document.createElement('div');
+                        div.innerHTML = key;
+                        let tablediv=(drawdata(data));
+                        div.appendChild(tablediv);
+                        graph.appendChild(div);
+                    }
+                } 
 
             }
         };

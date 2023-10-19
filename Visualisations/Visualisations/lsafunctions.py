@@ -22,15 +22,21 @@ def outputconversion(func):
         x1,y1=func(x)
         output=torch.zeros_like(x)
         output[x1,y1]=1
-        return output*x
+        return output
     
     return partial(wrapper,func=func)
 
-
+def forcehigh(func):
+    def wrapper(x,func=func):
+        output=func(x)
+        output=torch.nonzero(output,as_tuple=True)
+        return output
+    
+    return partial(wrapper,func=func)
 def get_all_LSA_fns():
     #returns list of all other fns in this file that take a tensor as input.
     functions=[
-        MyLinearSumAssignment,
+        outputconversion(forcehigh(MyLinearSumAssignment)),
         #outputconversion(no_for_loop_MyLinearSumAssignment),
         #outputconversion(no_for_loop_triu_MyLinearSumAssignment),
         #outputconversion(no_for_loop_v2_MyLinearSumAssignment),
@@ -256,6 +262,8 @@ def recursiveLinearSumAssignment(rewards:torch.Tensor,maximize=False,factor=1):
     removeHHB=torch.zeros((rewards.shape[0],rewards.shape[0]),dtype=torch.bool,device=rewards.device).fill_diagonal_(1).unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape) + [rewards.shape[1]]))
     removeBBH=torch.zeros((rewards.shape[1],rewards.shape[1]),dtype=torch.bool,device=rewards.device).fill_diagonal_(1).unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape)+[rewards.shape[0]]))
     #rewards=rewards-  (rewards.min())
+    col_index=None
+
     for i in range(rewards.shape[-1]):
         cost=reduceLinearSumAssignment(rewards,cost_neg,next_highest_fn,(removeHHB,removeBBH))
         rewards=rewards - cost/factor
@@ -267,6 +275,8 @@ def recursiveLinearSumAssignment_v2(rewards:torch.Tensor,maximize=False,factor=1
     cost_neg,next_highest_fn,comb_fn,final_fn=((torch.tensor(float('inf')),torch.min,torch.add,torch.argmin),(torch.tensor(float('-inf')),torch.max,torch.sub,torch.argmax))[maximize] 
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     # remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
+    col_index=None
+
     for i in range(rewards.shape[-1]):
         cost2=reduceLinearSumAssignment_v2(rewards,maximize=maximize)
         rewards=rewards- (cost2/factor)# can remove
@@ -279,6 +289,8 @@ def recursiveLinearSumAssignment_v3(rewards:torch.Tensor,maximize=False,factor=1
     final_fn=torch.argmax if maximize else torch.argmin
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     #remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
+    col_index=None
+
     for i in range(rewards.shape[-1]):
         cost=reduceLinearSumAssignment_v3(rewards,maximize=maximize)
         rewards=rewards-(cost/factor)# can remove
@@ -294,6 +306,7 @@ def recursiveLinearSumAssignment_v4(rewards:torch.Tensor,maximize=False,factor=1
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     #remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
     y_values=[]
+    col_index=None
     for i in range(rewards.shape[-1]):
         cost=reduceLinearSumAssignment_v3(rewards,maximize=maximize)
         rewards=rewards-(cost/factor)# can remove

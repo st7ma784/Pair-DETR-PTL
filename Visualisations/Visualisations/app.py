@@ -9,7 +9,7 @@ from functools import reduce
 from io import BytesIO
 import zipfile
 from PIL import Image
-
+import logging
 import numpy as np
 import matplotlib
 matplotlib.use('agg')
@@ -58,12 +58,12 @@ def attempt(func,x):
         print("failed to run",func)
 
         return torch.zeros_like(x)
-def isnumeric(x):
+def process(x):
+    #take the string value x and convert it to a float
     try:
-        float(x)
-        return True
+        return float(x)
     except:
-        return False
+        return 0
 
 @torch.no_grad()
 @app.route('/lsa/data', methods=['GET','POST'])
@@ -73,31 +73,31 @@ async def getplots():
     data=request.get_json()
     #convert from list of list of strings to list of list of floats to a tensor 
     #any nan values are converted to 0 and remove non-numeric values
-
-    values=np.array([[float(i) if i.isnumeric() else 0 for i in j] for j in data["values"]])
-    app.logger.info("values"+str(values))
-    x=torch.as_tensor(values,dtype=torch.float32)
+    values=[[process(x) for x in row] for row in data["values"]]
+    x=torch.tensor(values,dtype=torch.float32)
+    #logging.warning("values"+str(values))
     #log size of x to console 
-    #print("x",x.shape)
-    app.logger.info("x"+str(x.shape))
-
 
     out={}
     # check if x is square i.e shape[0]==shape[1]
     outputs={name:func(x) for name,func in functions.items()}
-    app.logger.info("outputs"+str(outputs))
+    # for item in outputs.items():
+        
+    #     logging.warning("outputs: {} \n {}".format(item[0],str(item[1].tolist())))
     #if x.shape[0]==x.shape[1]:
-    losses=[(loss(outputs[name],x)) for name,_ in functions.items()]
+    losses=[(loss(outputs[name],x,app)) for name,_ in functions.items()]
     out.update({"loss":losses})
 
 
     #x is a array to do LSA to. 
     #We're going to do LSA to it, and return the drawn graph
-    out.update({str(name):draw(func(x)) for name,func in functions.items()})
-    #out.update({str(name):(torch.nan_to_num(func(*xys))).tolist() for name,func in normedfunctions.items()})
-    app.logger.info("out"+str(out))
-    # out={"test":"hello"}
-    return jsonify(out)
+    out.update({str(name):func(x).tolist() for name,func in functions.items()})
+    respons=jsonify(out)
+    
+    logging.warning("out"+str(out))
+
+    return respons
+
     
 
 if __name__ == "__main__":
