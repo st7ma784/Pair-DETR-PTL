@@ -76,8 +76,9 @@ if __name__ == "__main__":
         out={}
         outputs={name:attempt(func,x) for name,func in functions.items()}
         #x is a array to do LSA to. 
-        losses=[str(loss(x,outputs[name])) for name,_ in functions.items()]
+        losses=[str(attempt(loss,outputs[name])*x[outputs.nonzero(as_tuple=True)]) for name,_ in functions.items()]
         #We're going to do LSA to it, and return the drawn graph
+        out.update({str(name):draw(func(x)) for name,func in functions.items()})
         for name,v in functions.items():
             bytes=draw(v)
             out.update({str(name):bytes.encode("base64")})
