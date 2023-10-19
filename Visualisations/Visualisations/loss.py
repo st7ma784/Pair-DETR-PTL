@@ -4,7 +4,7 @@ import torch
 def loss(one_hot):
     #this only works for 2d SQUARE matrices
     #so we remove rows and columns that are all zeros
-    one_hot=one_hot[torch.any(one_hot,dim=0,keepdim=True),torch.any(one_hot,dim=1,keepdim=True)]
+    one_hot=one_hot[torch.any(one_hot,dim=1,keepdim=True),torch.any(one_hot,dim=0,keepdim=True)]
 
     xi,indices=torch.nonzero(one_hot,as_tuple=True) # not sure why this doesnt work, and seems to require LSA  for maths to worrk! 
     index=indices.clone()
