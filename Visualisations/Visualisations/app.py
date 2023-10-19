@@ -64,7 +64,12 @@ if __name__ == "__main__":
             print("failed to run",func)
 
             return torch.zeros_like(x)
-
+    def isnumeric(x):
+        try:
+            float(x)
+            return True
+        except:
+            return False
     
     @torch.no_grad()
     @app.route('/lsa/data', methods=['GET','POST'])
@@ -73,11 +78,13 @@ if __name__ == "__main__":
         # print("request",request.get_data())
         data=request.get_json()
         #convert from list of list of strings to list of list of floats to a tensor 
-        #any nan values are converted to 0
+        #any nan values are converted to 0 and remove non-numeric values
 
-        x=torch.tensor([[float(i) for i in j] for j in data["values"]])
+        values=np.array([[float(i) if i.isnumeric() else 0 for i in j] for j in data["values"]])
+
+        x=torch.tensor(values,dtype=torch.float32)
         #log size of x to console 
-        print("x",x.shape)
+        #print("x",x.shape)
         app.logger.info("x"+str(x.shape))
 
         out={}
