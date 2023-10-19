@@ -69,7 +69,9 @@ if __name__ == "__main__":
         #any nan values are converted to 0
 
         x=torch.tensor([[float(i) for i in j] for j in data["values"]])
-        
+        #log size of x to console 
+        print("x",x.shape)
+        console.log("x",x.shape)
         out={}
         outputs={name:attempt(func,x) for name,func in functions.items()}
         #x is a array to do LSA to. 

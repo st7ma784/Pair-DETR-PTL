@@ -14,7 +14,7 @@ def loss(x,one_hot):
     x=padded
     padded2[:shape[0],:shape[1]]=one_hot
     one_hot=padded2
-    xi,indices=torch.nonzero(one_hot,as_tuple=True)
+    xi,indices=torch.nonzero(one_hot,as_tuple=True) # not sure why this doesnt work, and seems to require LSA  for maths to worrk! 
     index=indices.clone()
     counts=torch.zeros_like(indices)
     foundself=torch.zeros_like(indices)
