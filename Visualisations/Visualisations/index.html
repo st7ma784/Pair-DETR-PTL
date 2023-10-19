@@ -153,9 +153,9 @@
         request.onreadystatechange = function(){
             if (request.readyState === 4) {
                 //the reply is a jsonified dict of name and images of a graph.
-                let S = document.getElementById("S");
+                var out = document.getElementById("S");
                 // use S as a debug area
-                S.innerHTML = request.response;
+                out.innerHTML = request.response;
                 var imgs = JSON.parse(request.response);
 
                 var loss = imgs["loss"];
