@@ -90,7 +90,7 @@ if __name__ == "__main__":
         out={}
         # check if x is square i.e shape[0]==shape[1]
         outputs={name:func(x) for name,func in functions.items()}
-
+        app.logger.info("outputs"+str(outputs))
         #if x.shape[0]==x.shape[1]:
         losses=[(loss(outputs[name])*x[outputs[name].nonzero(as_tuple=True)]).tolist() for name,_ in functions.items()]
         out.update({"loss":losses})
