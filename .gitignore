@@ -41,3 +41,4 @@ wandb/debug-internal.log
 wandb/debug.log
 wandb
 wandb/*
+actions-runner/*
