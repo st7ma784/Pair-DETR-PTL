@@ -92,7 +92,7 @@ if __name__ == "__main__":
         outputs={name:func(x) for name,func in functions.items()}
         app.logger.info("outputs"+str(outputs))
         #if x.shape[0]==x.shape[1]:
-        losses=[(loss(outputs[name],x)).to_list() for name,_ in functions.items()]
+        losses=[(loss(outputs[name],x)) for name,_ in functions.items()]
         out.update({"loss":losses})
 
 

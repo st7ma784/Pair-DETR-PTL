@@ -17,4 +17,4 @@ def loss(one_hot,x):
         foundself=torch.logical_or(foundself,indices[index]==torch.arange(indices.shape[0],device=indices.device))
     values=x[one_hot]
 
-    return torch.sum(counts*values)
+    return torch.sum(counts*values).item()
