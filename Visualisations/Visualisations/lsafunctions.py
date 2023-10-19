@@ -67,7 +67,7 @@ def MyLinearSumAssignment(TruthTensor, maximize=False,lookahead=2):
     finder=torch.argmax if maximize else torch.argmin
     replaceval=float("-inf") if maximize else float("inf")
     #subtract the min from all values, so that the min is 0
-    TruthTensor=TruthTensor-TruthTensor.min()
+    TruthTensor=TruthTensor-torch.min(torch.min(TruthTensor,dim=-1).values,dim=-1).values
 
     for i in range(min(TruthTensor.shape[-2:])): # number of rows
         deltas=torch.diff(torch.topk(torch.clamp(TruthTensor*mask,max=100,min=-100),lookahead,dim=1,largest=maximize).values,n=lookahead-1,dim=0)
