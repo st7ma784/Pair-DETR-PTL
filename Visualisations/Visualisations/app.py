@@ -87,6 +87,7 @@ if __name__ == "__main__":
         #print("x",x.shape)
         app.logger.info("x"+str(x.shape))
 
+        
         out={}
         # check if x is square i.e shape[0]==shape[1]
         outputs={name:func(x) for name,func in functions.items()}
