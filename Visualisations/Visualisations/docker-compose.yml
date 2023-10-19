@@ -4,6 +4,9 @@ services:
     image: st7ma784/lsavis:latest
     container_name: lsavis
     network-mode: host
+    # map to 5000
+    ports:
+      - 5000:5000
     restart: always
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
