@@ -212,27 +212,20 @@
 
     function drawdata(data){
         // create div 
-        let div = document.createElement('div');
+        var div = document.createElement('div');
         // read data and make into a table 
-        let table = document.createElement('table');
+        var table = document.createElement('table');
         // for each row in data
-        let colours = calculateColours(data);
+        var colours = calculateColours(data);
         for (var i = 0; i < data.length; i++) {
-            // create a row
-            var row = document.createElement('tr');
-            // for each element in the row
-            for (var j = 0; j < data[0].length; j++) {
-                // create a cell
-                var cell = document.createElement('td');
-                // set the value of the cell
-                cell.innerHTML = data[i][j];
-                // set the colour of the cell
+            // create a rowlength
+            var row=table.insertRow(-1);
+            for (var j = 0; j < data[0].length; i++) {
+                var cell = row.insertCell(-1);
+
+                cell.innerHTML = data[i][j].toString();
                 cell.style.backgroundColor = "#" + colours[i][j] + colours[i][j] + colours[i][j];
-                // add the cell to the row
-                row.appendChild(cell);
             }
-            // add the row to the table
-            table.appendChild(row);
         }
         // add the table to the div
         div.appendChild(table);
@@ -240,14 +233,14 @@
     }
     function doUpdate(){
         let request = new XMLHttpRequest();
-        request.onreadystatechange = function(){
+        request.onreadystatechange = function() {
             if (request.readyState === 4) {
-                
-                var imgs=JSON.parse(request.response);
-                
-                var loss = imgs["loss"];
+                // this line doesnt work - 
+                var response=request.response; //tried let and var - should be var
+
+                var loss = response["loss"];
                 // remove loss from imgs
-                imgs.pop("loss");
+                delete response["loss"];
                 // append losses to S
                 var S = document.getElementById("S");
                 S.innerHTML = "Loss: " + loss;
@@ -262,11 +255,14 @@
                     graph.removeChild(graph.firstChild);
                 }
 
-                for (var key in imgs) {
-                    if (imgs.hasOwnProperty(key)) {
-                        var data = imgs[key];
+                for (var key in response) {
+                    if (response.hasOwnProperty(key)) {
+                        var data = response[key];
+                        // data is something like [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]
+                        // data is a list of lists of floats 
+                        // we need to convert it to a list of lists of strings
                         var debug = document.getElementById("S");
-                        debug.innerHTML.appendChild(data);
+                        // debug.innerHTML.appendChild(data);
                         // make sure every value in every row is a float
                         for (var i = 0; i < data.length; i++) {
                             for (var j = 0; j < data[0].length; j++) {
@@ -275,7 +271,7 @@
                         }
                         var div = document.createElement('div');
                         div.innerHTML = key;
-                        let tablediv=(drawdata(data));
+                        var tablediv=drawdata(data);
                         div.appendChild(tablediv);
                         graph.appendChild(div);
                     }

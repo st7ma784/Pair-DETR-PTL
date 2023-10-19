@@ -92,13 +92,11 @@ async def getplots():
     #x is a array to do LSA to. 
     #We're going to do LSA to it, and return the drawn graph
     out.update({str(name):func(x).tolist() for name,func in functions.items()})
-    respons=jsonify(out)
-    
+    output=jsonify(out)
+
     logging.warning("out"+str(out))
-
-    return respons
-
-    
+    response= make_response(output)
+    return response
 
 if __name__ == "__main__":
 
