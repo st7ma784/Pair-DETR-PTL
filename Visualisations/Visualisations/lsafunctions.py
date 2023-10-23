@@ -33,10 +33,16 @@ def forcehigh(func):
         return output
     
     return partial(wrapper,func=func)
+
+def doFlip(func):
+    #MyLSA works well on 300,20, but not on 20,300
+    def wrapper(x,func=func):
+        return func(x.T).T if x.shape[0]<x.shape[1] else func(x)
+
 def get_all_LSA_fns():
     #returns list of all other fns in this file that take a tensor as input.
     functions={
-        "my function": MyLinearSumAssignment,
+        "my function": doFlip(MyLinearSumAssignment),
         #outputconversion(no_for_loop_MyLinearSumAssignment),
         #outputconversion(no_for_loop_triu_MyLinearSumAssignment),
         #outputconversion(no_for_loop_v2_MyLinearSumAssignment),
