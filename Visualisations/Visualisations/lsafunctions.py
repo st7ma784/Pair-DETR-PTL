@@ -61,28 +61,35 @@ def get_all_LSA_fns():
 
 
 
-def MyLinearSumAssignment(TruthTensor, maximize=False,lookahead=2):
+def MyLinearSumAssignment(TruthTensor, maximize=True,lookahead=2):
     '''
     If Maximize is False, I'm trying to minimize the costs. 
     This means that the mask must instead make all the weights far above all the others - 'inf' kind of thing. 
     '''
- 
-    mask=torch.ones(TruthTensor.shape,device=TruthTensor.device)
+    #assert truthtensor is 2d and nonzero
+    assert len(TruthTensor.shape)==2
+    assert TruthTensor.shape[0]>0 and TruthTensor.shape[1]>0
+    assert lookahead>0
+    assert torch.sum(TruthTensor==0)==0
+
+    mask=torch.ones(TruthTensor.shape,device=TruthTensor.device,dtype=torch.bool)
     results=torch.zeros(TruthTensor.shape,device=TruthTensor.device)
 
     finder=torch.argmax if maximize else torch.argmin
-    replaceval=float(0) if maximize else float(1e9)
-    #subtract the min from all values, so that the min is 0
-    TruthTensor=TruthTensor-torch.min(torch.min(TruthTensor,dim=-1).values,dim=-1).values
+    
+    TruthTensor=TruthTensor-torch.min(TruthTensor)
+    replaceval=0 if maximize else torch.max(TruthTensor)+1
 
+    
     for i in range(min(TruthTensor.shape[-2:])): # number of rows
-        deltas=torch.diff(torch.topk(torch.clamp(TruthTensor*mask,max=100,min=-100),lookahead,dim=1,largest=maximize).values,n=lookahead-1,dim=0)
-        col_index=torch.argmax(torch.abs(deltas),dim=1) # this is the column to grab,  Note this measures step so its not important to do argmin...
+        deltas=torch.diff(torch.topk(torch.where(mask,TruthTensor,replaceval),lookahead,dim=0,largest=maximize).values,n=lookahead-1,dim=0)
+        col_index=torch.argmax(torch.abs(deltas)) # this is the column to grab,  Note this measures step so its not important to do argmin...
         row_index=finder(TruthTensor[:,col_index])
-        mask[:,col_index]=replaceval #mask out the column
-        mask[row_index]=replaceval
+        mask[:,col_index]=0 #mask out the column
+        mask[row_index]=0
         results[row_index,col_index]=1
-    return results
+    return results.nonzero(as_tuple=True) 
+
 
 def no_for_loop_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False):
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize]
