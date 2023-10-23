@@ -62,6 +62,13 @@ def get_args_parser():
     parser.add_argument('--bbox_loss_coef', default=5, type=float)
     parser.add_argument('--giou_loss_coef', default=2, type=float)
     parser.add_argument('--focal_alpha', default=0.25, type=float)
+    parser.add_argument('--loss_gt_iou', default=0.5, type=float)            #need to do sweep over these
+    parser.add_argument('--loss_out_iou', default=0.5, type=float)         #need to do sweep over these     
+    parser.add_argument('--class_loss_coef', default=1, type=float)        #need to do sweep over these
+    parser.add_argument('--class_mask_loss_coef', default=2, type=float)   #need to do sweep over these
+
+    parser.add_argument('--method', default="linear_sum",type=str) #
+                        # "linear_sum","v1", "v2",...."v5"
 
     # dataset parameters
     parser.add_argument('--dataset_file', default='coco')

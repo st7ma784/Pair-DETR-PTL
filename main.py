@@ -103,10 +103,10 @@ class PairDETR(pl.LightningModule):
         # if args.masks:
         #     model = DETRsegm(model, freeze_detr=(args.frozen_weights is not None))
 
-        self.weight_dict = {'loss_out_iou':0.5,
-                            'loss_gt_iou':0.5,
-                            'class_loss':1,
-                            "class_mask_loss":2,
+        self.weight_dict = {'loss_out_iou':args['loss_out_iou'],
+                            'loss_gt_iou':args['loss_gt_iou'],
+                            'class_loss':args['class_loss_coef'],
+                            "class_mask_loss":args['class_mask_loss_coef'],
                             'loss_bbox_acc': args['bbox_loss_coef'],
                             'loss_giou': args['giou_loss_coef'],
                             'loss_dice': args['dice_loss_coef'], #  last unc
@@ -114,33 +114,33 @@ class PairDETR(pl.LightningModule):
                             'CELoss':1}
         
         #if methods behave identically to linearsum assignment then use: 
-
+        costs= [args['set_cost_class'], args['set_cost_bbox'], args['set_cost_giou']]
         self.method = args['method']
         if self.method == 'linear_sum':
-            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
                                       assignment=None)
         elif self.method == 'v2':
             from Visualisations.Visualisations.lsafunctions import recursiveLinearSumAssignment as func
-            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
                                         assignment=func)
         elif self.method == 'v3':
             from Visualisations.Visualisations.lsafunctions import recursiveLinearSumAssignment_v2 as func
-            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
                                         assignment=func)
         elif self.method == 'v4':
             from Visualisations.Visualisations.lsafunctions import recursiveLinearSumAssignment_v3 as func
-            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
                                         assignment=func)
         elif self.method == 'v5':
             from Visualisations.Visualisations.lsafunctions import recursiveLinearSumAssignment_v4 as func
-            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
                                         assignment=func)
         elif self.method == 'v6':
             from Visualisations.Visualisations.lsafunctions import MyLinearSumAssignment as func
-            self.matcher=HungarianMatcher(1,1,1,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
                                         assignment=func)
         if self.method=='fastcriterion':
-            self.criterion=FastCriterion(1,1,1,logger=self,assignment=None)
+            self.criterion=FastCriterion(*costs,logger=self,assignment=None)
         else:
             self.criterion = SetCriterion( 
                 weight_dict=self.weight_dict,
@@ -518,9 +518,9 @@ if __name__ == '__main__':
     model=PairDETR(**args)
     #check for os key WANDA_API_KEY
     wandb.login(key='9cf7e97e2460c18a89429deed624ec1cbfb537bc')
-    run=wandb.init(project="SPARC-COCO-Sweep",entity="st7ma784",name="VRE-Vis",config=args)
+    run=wandb.init(project="SPARC-COCO-Sweep",entity="st7ma784",name="LSA-Vis",config=args)
 
-    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="VRE-Vis",experiment=run,save_dir=savepath,log_model=True)
+    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="LSA-Vis",experiment=run,save_dir=savepath,log_model=True)
 
     
 
