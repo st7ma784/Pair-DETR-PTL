@@ -38,6 +38,7 @@ def doFlip(func):
     #MyLSA works well on 300,20, but not on 20,300
     def wrapper(x,func=func):
         return func(x.T).T if x.shape[0]<x.shape[1] else func(x)
+    return partial(wrapper,func=func)
 
 def get_all_LSA_fns():
     #returns list of all other fns in this file that take a tensor as input.
