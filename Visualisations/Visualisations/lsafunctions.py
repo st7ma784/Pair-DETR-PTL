@@ -37,7 +37,8 @@ def forcehigh(func):
 def doFlip(func):
     #MyLSA works well on 300,20, but not on 20,300
     def wrapper(x,func=func):
-        return func(x.T).T if x.shape[0]<x.shape[1] else func(x)
+        out= func(x.T).T if x.shape[0]<x.shape[1] else func(x)
+        return out
     return partial(wrapper,func=func)
 
 def get_all_LSA_fns():
