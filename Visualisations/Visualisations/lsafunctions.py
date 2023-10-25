@@ -14,21 +14,31 @@ modified to return 1-hot tensors * input so we get a sense of values returned.
 
 '''
 from scipy.optimize import linear_sum_assignment
-
+import logging
 
 from functools import partial
-def outputconversion(func):
-    def wrapper(x,func=func):
-        x1,y1=func(x)
+def outputconversion(func): #converts the output of a function back to 1-hot tensor
+    def wrapper(*args, **kwargs):
+        func=kwargs.pop("func")
+        args=list(args)
+        x=args.pop(0)
         output=torch.zeros_like(x)
-        output[x1,y1]=1
+
+        x1,y1=func(x, *args, **kwargs)
+        try:
+            output[x1,y1]=1
+        except:
+            output[y1,x1]=1
         return output
     
     return partial(wrapper,func=func)
 
 def forcehigh(func):
-    def wrapper(x,func=func):
-        output=func(x)
+    def wrapper(*args, **kwargs):
+        func=kwargs.pop("func")
+        args=list(args)
+        x=args.pop(0)
+        output=func(x, *args, **kwargs)
         output=torch.nonzero(output,as_tuple=True)
         return output
     
@@ -36,15 +46,18 @@ def forcehigh(func):
 
 def doFlip(func):
     #MyLSA works well on 300,20, but not on 20,300
-    def wrapper(x,func=func):
-        out= func(x.T).T if x.shape[0]<x.shape[1] else func(x)
+    def wrapper(*args, **kwargs):
+        func=kwargs.pop("func")
+        args=list(args)
+        x=args.pop(0)
+        out= func(x.T, *args,**kwargs).T if x.shape[0]<x.shape[1] else func(x,*args,**kwargs)
         return out
     return partial(wrapper,func=func)
 
 def get_all_LSA_fns():
     #returns list of all other fns in this file that take a tensor as input.
     functions={
-        "my function": doFlip(outputconversion(MyLinearSumAssignment)),
+        "my function": MyLSA,
         #outputconversion(no_for_loop_MyLinearSumAssignment),
         #outputconversion(no_for_loop_triu_MyLinearSumAssignment),
         #outputconversion(no_for_loop_v2_MyLinearSumAssignment),
@@ -53,6 +66,7 @@ def get_all_LSA_fns():
         #outputconversion(no_for_loop_v3_triu_MyLinearSumAssignment),
         "recursive fn":outputconversion(recursiveLinearSumAssignment),
         "recursive fn2 ":outputconversion(recursiveLinearSumAssignment_v2),
+        "recursive fn5":recursiveLinearSumAssignment_v5,
         #outputconversion(recursiveLinearSumAssignment_v3),
         #outputconversion(recursiveLinearSumAssignment_v4),
         "stock":outputconversion(linear_sum_assignment),
@@ -63,7 +77,7 @@ def get_all_LSA_fns():
 
 
 
-def MyLinearSumAssignment(TruthTensor, maximize=True,lookahead=2):
+def MyLSA(TruthTensor, maximize=True,lookahead=2):
     '''
     If Maximize is False, I'm trying to minimize the costs. 
     This means that the mask must instead make all the weights far above all the others - 'inf' kind of thing. 
@@ -74,26 +88,51 @@ def MyLinearSumAssignment(TruthTensor, maximize=True,lookahead=2):
     # assert lookahead>0
     # assert torch.sum(TruthTensor==0)==0
 
-    mask=torch.ones(TruthTensor.shape,device=TruthTensor.device,dtype=torch.bool)
-    results=torch.zeros(TruthTensor.shape,device=TruthTensor.device)
+    mask=torch.zeros(TruthTensor.shape,device=TruthTensor.device,dtype=torch.int8)
+    results=torch.zeros_like(TruthTensor)
 
     finder=torch.argmax if maximize else torch.argmin
     
-    TruthTensor=TruthTensor-torch.min(TruthTensor)
-    replaceval=torch.tensor([float(0)]) if maximize else torch.max(TruthTensor).to(dtype=torch.float32)
+    #subtract the min value from all values so that the min value is 0
+    TruthTensor=TruthTensor-torch.min(torch.min(TruthTensor,dim=1,keepdim=True).values,dim=0).values
+    replaceval=torch.tensor([float(-1)]) if maximize else torch.max(TruthTensor).to(dtype=torch.float32)+1
 
-    
-    for i in range(min(TruthTensor.shape[-2:])): # number of rows
-        deltas=torch.diff(torch.topk(torch.where(mask,TruthTensor,replaceval),lookahead,dim=0,largest=maximize).values,n=lookahead-1,dim=0)
+    dimsizes=torch.tensor(TruthTensor.shape)
+    #select index of the smallest value
+    bigdim=torch.argmax(dimsizes)   # 0 
+    small_dim=1-bigdim          # 1
+
+    for i in range(TruthTensor.shape[small_dim]): # number of rows 
+        #print("masked input is: ")
+        #draw(torch.where(mask==0,TruthTensor,replaceval))
+        array=torch.where(mask==0,TruthTensor,replaceval)
+        deltas=torch.diff(torch.topk(array,lookahead,dim=bigdim,largest=maximize).values,n=lookahead-1,dim=bigdim).squeeze()
+        #print(deltas)
+        #draw(deltas.unsqueeze(1))
         col_index=torch.argmax(torch.abs(deltas)) # this is the column to grab,  Note this measures step so its not important to do argmin...
-        row_index=finder(TruthTensor[:,col_index])
-        mask[:,col_index]=0 #mask out the column
-        mask[row_index]=0
-        results[row_index,col_index]=1
-    return results.nonzero(as_tuple=True) 
+        #print(str(col_index.item()) + " selected ")
+        if small_dim==1:
+            row_index=finder(array[:,col_index]) 
+            results[row_index,col_index]=1
+            mask[:,col_index]=1 #mask out the column 
+            mask[row_index]=1
+        else: 
+            row_index=finder(array[col_index])
+            #now we have to swap the row and column index 
+            # results[col_index,row_index]=1
+            results[col_index,row_index]=1
 
+            mask[:,row_index]=1 #mask out the column 
+            mask[col_index]=1
+        #results[row_index,col_index]=1
+        #print("mask is now")
+        #draw(mask)
+    return results
 
-def no_for_loop_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False):
+def MyLinearSumAssignment(TruthTensor, maximize=True,lookahead=2):
+    return MyLSA(TruthTensor, maximize=maximize,lookahead=lookahead).nonzero(as_tuple=True)
+
+def no_for_loop_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True):
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize]
     remove=torch.ones_like(rewards,dtype=torch.bool).triu().unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
     weights=rewards.unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape)+[rewards.shape[-1]]))
@@ -102,11 +141,12 @@ def no_for_loop_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False):
     Locations=comb_fn(rewards,Costs)
     dimsizes=torch.tensor(rewards.shape)
     #select index of the smallest value
-    dim=torch.argmin(dimsizes)
+    dim=torch.argmax(dimsizes)
     col_index=final_fn(Locations,dim=dim)
+    
     return torch.arange(Locations.shape[0],device=Locations.device),col_index
 
-def no_for_loop_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=False):
+def no_for_loop_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True,tril=False):
 
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize]
     remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
@@ -118,11 +158,11 @@ def no_for_loop_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=F
     Locations=comb_fn(rewards,Costs)
     dimsizes=torch.tensor(rewards.shape)
     #select index of the smallest value
-    dim=torch.argmin(dimsizes)
+    dim=torch.argmax(dimsizes)
     col_index=final_fn(Locations,dim=dim)
 
     return torch.arange(Locations.shape[0],device=Locations.device),col_index
-def no_for_loop_v2_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=False):
+def no_for_loop_v2_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True,tril=False):
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize] 
     remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
     weights=rewards.unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape)+[rewards.shape[-1]]))
@@ -137,12 +177,12 @@ def no_for_loop_v2_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tri
     #find the dim with the smallest value
     dimsizes=torch.tensor(rewards.shape)
     #select index of the smallest value
-    dim=torch.argmin(dimsizes)
+    dim=torch.argmax(dimsizes)
     col_index=final_fn(Locations,dim=dim)
 
     return torch.arange(Locations.shape[0],device=Locations.device),col_index
 
-def no_for_loop_v2_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=False):
+def no_for_loop_v2_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True,tril=False):
 
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize]
    
@@ -156,12 +196,12 @@ def no_for_loop_v2_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=Fals
     Locations=rewards - Cost_total/2
     dimsizes=torch.tensor(rewards.shape)
     #select index of the smallest value
-    dim=torch.argmin(dimsizes)
+    dim=torch.argmax(dimsizes)
     col_index=final_fn(Locations,dim=dim)
     return torch.arange(Locations.shape[0],device=Locations.device),col_index
 
 
-def no_for_loop_v3_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=False):
+def no_for_loop_v3_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True,tril=False):
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize] 
     remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
     weights=rewards.unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape)+[rewards.shape[-1]]))
@@ -175,12 +215,12 @@ def no_for_loop_v3_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tri
     Locations=rewards - Cost_total/2
     dimsizes=torch.tensor(rewards.shape)
     #select index of the smallest value
-    dim=torch.argmin(dimsizes)
+    dim=torch.argmax(dimsizes)
     col_index=final_fn(Locations,dim=dim)
 
     return torch.arange(Locations.shape[0],device=Locations.device),col_index
 
-def no_for_loop_v3_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=False,tril=False):
+def no_for_loop_v3_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=True,tril=False):
 
     cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(0,torch.max,torch.sub,torch.argmax))[maximize]
    
@@ -194,25 +234,28 @@ def no_for_loop_v3_triu_MyLinearSumAssignment(rewards:torch.Tensor,maximize=Fals
     Locations=rewards - Cost_total/2
     dimsizes=torch.tensor(rewards.shape)
     #select index of the smallest value
-    dim=torch.argmin(dimsizes)
+    dim=torch.argmax(dimsizes)
     col_index=final_fn(Locations,dim=dim)
     return torch.arange(Locations.shape[0],device=Locations.device),col_index
 
 
-def reduceLinearSumAssignment(rewards:torch.Tensor,cost_neg:torch.Tensor,next_highest_fn: Callable,remove):
+def reduceLinearSumAssignment(rewards:torch.Tensor,cost_neg:torch.Tensor,next_highest_fn: Callable,remove,dim=1):
     removehw,removehwT=remove
+    if dim==0:
+        removehw,removehwT=removehwT,removehw
+
     # rewards is HW, weights is  B(H) H W 
     weights=rewards.unsqueeze(0).repeat(*tuple([rewards.shape[0]]+ [1]*len(rewards.shape)))
     #rewards is shape hw, weights is shape h w w
     weights=weights.masked_fill(removehw,cost_neg)#.permute(1,2,0)
     #draw(weights.cpu())
-    Costs=next_highest_fn(weights,dim=1).values #should not be 0  
+    Costs=next_highest_fn(weights,dim=dim).values #should not be 0  
     #draw(Costs.cpu())
     #print(Costs.shape)
     weights2=rewards.T.unsqueeze(0).repeat(*tuple([rewards.shape[1]]+ [1]*len(rewards.shape)))
 
     weights2=weights2.masked_fill(removehwT,cost_neg)#.permute(1,2,0)
-    Costs2=next_highest_fn(weights2,dim=1).values #should not be 0
+    Costs2=next_highest_fn(weights2,dim=dim).values #should not be 0
 
     Cost_total= torch.add(Costs,Costs2.T)
     return Cost_total
@@ -248,7 +291,7 @@ def reduceLinearSumAssignment_v2(rewards:torch.Tensor,maximize=False):
     return Cost_total
 
 
-def reduceLinearSumAssignment_v3(rewards:torch.Tensor,maximize=False):
+def reduceLinearSumAssignment_v3(rewards:torch.Tensor,maximize=True):
 
     #30,32
     TotalCosts= torch.max(rewards,dim=1,keepdim=True).values + torch.max(rewards,dim=0,keepdim=True).values
@@ -270,7 +313,7 @@ def reduceLinearSumAssignment_v3(rewards:torch.Tensor,maximize=False):
     return totalCosts
 
 
-def reduceLinearSumAssignment_v4(rewards:torch.Tensor,maximize=False):
+def reduceLinearSumAssignment_v4(rewards:torch.Tensor,maximize=True):
 
     #30,32
     TotalCosts= torch.max(rewards,dim=1,keepdim=True).values + torch.max(rewards,dim=0,keepdim=True).values
@@ -291,62 +334,94 @@ def reduceLinearSumAssignment_v4(rewards:torch.Tensor,maximize=False):
     totalCosts=TotalCosts+one_hot2#deltas
     return totalCosts
 
-def recursiveLinearSumAssignment(rewards:torch.Tensor,maximize=False,factor=1):
+def recursiveLinearSumAssignment(rewards:torch.Tensor,maximize=False,factor=0.8):
     cost_neg,next_highest_fn,comb_fn,final_fn=((torch.tensor(float('inf')),torch.min,torch.add,torch.argmin),(torch.tensor(float('-inf')),torch.max,torch.sub,torch.argmax))[maximize] 
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     #we need to make a mask that holds the diagonal of a H x H matrix repeated B times, and then one with the diagonal of a BxB matrix repeated H times
-
-    removeHHB=torch.zeros((rewards.shape[0],rewards.shape[0]),dtype=torch.bool,device=rewards.device).fill_diagonal_(1).unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape) + [rewards.shape[1]]))
-    removeBBH=torch.zeros((rewards.shape[1],rewards.shape[1]),dtype=torch.bool,device=rewards.device).fill_diagonal_(1).unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape)+[rewards.shape[0]]))
+    # rewards=rewards-torch.min(torch.min(rewards,dim=1,keepdim=True).values,dim=0).values
+    #^^ should make no difference.....but always worth checking! 
     #rewards=rewards-  (rewards.min())
-    col_index=None
+    #col_index=None
     dimsizes=torch.tensor(rewards.shape)
     #select index of the smallest value
-    dim=torch.argmin(dimsizes)
-    
-    for i in range(rewards.shape[-1]):
-        cost=reduceLinearSumAssignment(rewards,cost_neg,next_highest_fn,(removeHHB,removeBBH))
-        rewards=rewards - cost/factor
-        col_index=final_fn(rewards,dim=dim)
-        #x,y=torch.arange(rewards.shape[0],device=rewards.device),col_index    
-    return torch.arange(rewards.shape[0],device=rewards.device),col_index
+    bigdim=torch.argmax(dimsizes)
+    small_dim=torch.argmin(dimsizes)
+    output=torch.zeros_like(rewards,dtype=torch.int8)
+    removeHHB=torch.zeros((rewards.shape[small_dim],rewards.shape[small_dim]),dtype=torch.bool,device=rewards.device).fill_diagonal_(1).unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape) + [rewards.shape[bigdim]]))
+    removeBBH=torch.zeros((rewards.shape[bigdim],rewards.shape[bigdim]),dtype=torch.bool,device=rewards.device).fill_diagonal_(1).unsqueeze(-1).repeat(*tuple([1]*len(rewards.shape)+[rewards.shape[small_dim]]))
+    for i in range(10):
+        cost=reduceLinearSumAssignment(rewards,cost_neg,next_highest_fn,(removeHHB,removeBBH),dim=bigdim)
+        rewards=rewards - (cost/factor)
+    col_index=final_fn(rewards,dim=bigdim)
+    #return torch.arange(rewards.shape[0],device=rewards.device),col_index
+    output=(torch.arange(rewards.shape[small_dim],device=rewards.device),col_index) if small_dim==1 else (col_index,torch.arange(rewards.shape[small_dim],device=rewards.device))
+    return output
 
-def recursiveLinearSumAssignment_v2(rewards:torch.Tensor,maximize=False,factor=1):
+def recursiveLinearSumAssignment_v2(rewards:torch.Tensor,maximize=True,factor=1):
     cost_neg,next_highest_fn,comb_fn,final_fn=((torch.tensor(float('inf')),torch.min,torch.add,torch.argmin),(torch.tensor(float('-inf')),torch.max,torch.sub,torch.argmax))[maximize] 
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     # remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
-    col_index=None
+    # col_index=None
     dimsizes=torch.tensor(rewards.shape)
     #select index of the smallest value
-    dim=torch.argmin(dimsizes)
-
-    for i in range(rewards.shape[-1]):
+    bigdim=torch.argmax(dimsizes)
+    small_dim=torch.argmin(dimsizes)
+    for i in range(min(rewards.shape[-2:])):
         cost2=reduceLinearSumAssignment_v2(rewards,maximize=maximize)
         rewards=rewards- (cost2/factor)# can remove
-        col_index=final_fn(rewards,dim=dim)
+    col_index=final_fn(rewards,dim=bigdim)
         #return torch.arange(rewards.shape[0],device=rewards.device),col_index
-    
-    return torch.arange(rewards.shape[0],device=rewards.device),col_index
+    # logging.warning("small dim"+str(small_dim))
+    output=(torch.arange(rewards.shape[small_dim],device=rewards.device),col_index) if small_dim==1 else (col_index,torch.arange(rewards.shape[small_dim],device=rewards.device))
+    return output
+def recursiveLinearSumAssignment_v5(rewards:torch.Tensor,maximize=True,factor=10):
+    #create tensor of ints
+    output=torch.zeros_like(rewards,dtype=torch.int8)
+    #print("out1")
+    #draw(output)
+    #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
+    # remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
+    # col_index=None
+    rewards=rewards.clone()
+    dimsizes=torch.tensor(rewards.shape)
+    #select index of the smallest value
+    bigdim=torch.argmax(dimsizes)
 
-def recursiveLinearSumAssignment_v3(rewards:torch.Tensor,maximize=False,factor=1):
+    small_dim=torch.argmin(dimsizes)
+    for i in range(10):
+        cost2=reduceLinearSumAssignment_v2(rewards,maximize=maximize)
+        rewards=rewards- (cost2/factor)# can remove
+    
+    #draw(output)
+    #draw(rewards)
+    cutoff=torch.topk(rewards.flatten(),rewards.shape[small_dim]+1,largest=maximize,sorted=True).values[-1]
+    if maximize:
+        output[(rewards>cutoff)]=1
+    else:
+        output[(rewards<cutoff)]=1
+    return output
+
+
+def recursiveLinearSumAssignment_v3(rewards:torch.Tensor,maximize=True,factor=1):
     final_fn=torch.argmax if maximize else torch.argmin
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     #remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
-    col_index=None
+    # col_index=None
     dimsizes=torch.tensor(rewards.shape)
     #select index of the smallest value
-    dim=torch.argmin(dimsizes)
+    dim=torch.argmax(dimsizes)
     for i in range(rewards.shape[-1]):
         cost=reduceLinearSumAssignment_v3(rewards,maximize=maximize)
         rewards=rewards-(cost/factor)# can remove
         #draw(rewards.cpu())
         #? why is this suggested??? rewards,_,_=torch.svd(rewards)
         #rewards=rewards ** (rewards-cost/factor) #times here makes it very spiky! 
-        col_index=final_fn(rewards,dim=dim)
+    col_index=final_fn(rewards,dim=dim)
         #x,y=torch.arange(rewards.shape[0],device=rewards.device),col_index    
+        
     return torch.arange(rewards.shape[0],device=rewards.device),col_index
 
-def recursiveLinearSumAssignment_v4(rewards:torch.Tensor,maximize=False,factor=1):
+def recursiveLinearSumAssignment_v4(rewards:torch.Tensor,maximize=True,factor=1):
     final_fn=torch.argmax if maximize else torch.argmin
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     #remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
@@ -354,7 +429,7 @@ def recursiveLinearSumAssignment_v4(rewards:torch.Tensor,maximize=False,factor=1
     col_index=None
     dimsizes=torch.tensor(rewards.shape)
     #select index of the smallest value
-    dim=torch.argmin(dimsizes)
+    dim=torch.argmax(dimsizes)
     for i in range(rewards.shape[-1]):
         cost=reduceLinearSumAssignment_v3(rewards,maximize=maximize)
         rewards=rewards-(cost/factor)# can remove

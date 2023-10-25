@@ -74,19 +74,20 @@ async def getplots():
     #convert from list of list of strings to list of list of floats to a tensor 
     #any nan values are converted to 0 and remove non-numeric values
     values=[[process(x) for x in row] for row in data["values"]]
+    maximize=data["maximize"]
     x=torch.tensor(values,dtype=torch.float32)
     #logging.warning("values"+str(values))
     #log size of x to console 
 
     out={}
     # check if x is square i.e shape[0]==shape[1]
-    outputs={name:func(x) for name,func in functions.items()}
+    outputs={name:func(x,maximize=maximize) for name,func in functions.items()}
     # for item in outputs.items():
         
     #     logging.warning("outputs: {} \n {}".format(item[0],str(item[1].tolist())))
     #if x.shape[0]==x.shape[1]:
     out.update({str(name) + " loss": str(loss(outputs[name],x,app)) for name,_ in functions.items()})
-
+    out.update({str(name) + " LSA score": torch.sum(x*outputs[name]).item() for name,func in functions.items()})
     out.update({str(name): outputs[name].tolist() for name,func in functions.items()})
     output=jsonify(out)
 

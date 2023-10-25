@@ -523,6 +523,9 @@ if __name__ == '__main__':
     logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="LSA-Vis",experiment=run,save_dir=savepath,log_model=True)
 
     
+    #import DDPStrategy 
+    from pytorch_lightning.plugins import DDPPlugin as DDP
+
 
     trainer = pl.Trainer(
                          precision=32, #undo to fix scaling errors
@@ -533,6 +536,8 @@ if __name__ == '__main__':
                          logger=logtool,
                          #callbacks=[ModelCheckpoint(dirpath=args['output_dir'],save_top_k=1,monitor='val_loss',mode='min')],
                          accelerator='auto',
+                         #set strategy with auto-find unused parameters
+                         strategy=DDP(find_unused_parameters=True),                   
                          profiler='advanced',
                          fast_dev_run=False,  
                          devices="auto",

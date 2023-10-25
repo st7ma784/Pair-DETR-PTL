@@ -9,7 +9,7 @@ WORKDIR /app
 COPY . /app
 
 # show the files in the container
-RUN ls -la /app
+#RUN ls -la /app
 EXPOSE 5000/tcp
 
 # run the app with gunicorn.sh

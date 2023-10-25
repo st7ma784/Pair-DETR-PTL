@@ -5,6 +5,18 @@
 <body>
 <!-- use css -->
 <style>
+    /* make the score and S take mid right and bottom right  of screen respectively  */
+    #score {
+        position: fixed;
+        /* height from bottom is #S height +50 */
+        bottom: 200px;
+        right: 0;
+    }
+    #S {
+        position: fixed;
+        bottom: 0;
+        right: 0;
+    }
     /* set table cells as  having a fixed size*/
     td {
         width: 50px;
@@ -69,7 +81,8 @@
     function getdata(){
             var table = document.getElementById("table");
             data=readTable(table);
-            return {"values"  : data}
+            maximize = document.getElementById("maximize").checked;
+            return {"values"  : data, "maximize" : maximize};
     }
     function setupCell(cell){
         cell.innerHTML = "0";
@@ -264,7 +277,11 @@
                 while (S.firstChild) {
                     S.removeChild(S.firstChild);
                 }
-                
+                var score= document.getElementById("score");
+                // remove all children of score
+                while (score.firstChild) {
+                    score.removeChild(score.firstChild);
+                }
                 //create list of strings from key:value pairs
                 // create a list of images from the values
                 // add the divs to the graph
@@ -282,6 +299,12 @@
                             var div = document.createElement('div');
                             div.innerHTML = key + " : " + response[key];
                             S.appendChild(div);
+                        } //now check scores 
+                        else if(key.includes("score")){
+                            // add to score
+                            var div = document.createElement('div');
+                            div.innerHTML = key + " : " + response[key];
+                            score.appendChild(div);
                         }
                         else{   //gonna assume is data
                             var data = response[key];
@@ -326,8 +349,8 @@
         // const endpoint = "http://"+window.location.hostname+":5000/demo/data";
 
 
-        // const endpoint = "http://scc-lanfotech.lancs.ac.uk:81/lsa/data";
-        const endpoint = "http://localhost:5000/lsa/data";
+        const endpoint = "http://scc-lanfotech.lancs.ac.uk:81/lsa/data";
+        // const endpoint = "http://localhost:5000/lsa/data";
         //get endpoint from the server
         // this may vary depending on the server
         //const endpoint = "http://"+window.location.hostname+":5000/data";
@@ -349,7 +372,8 @@
 <button type="button" class="b" id="remove_rows" onclick="removeRows()">Remove Rows</button>
 <button type="button" class="b" id="add_columns" onclick="addColumns()">Add Columns</button>
 <button type="button" class="b" id="remove_columns" onclick="removeColumns()">Remove Columns</button>
-
+<!-- add checkbox for maximize  with name next to it "Maximize score"--> 
+<input type="checkbox" id="maximize" name="maximize" value="maximize" checked>Maximize Score</input>
 <!-- fill with random -->
 <button type="button" class="b" id="fill_rand" onclick="fillRandom()">Fill with Random</button>
 <div class="tooltip">How To use...
@@ -385,4 +409,6 @@
 
 
 <div id="S"></div>
+<div id="loss"></div>
+<div id="score"></div>
 </html>
