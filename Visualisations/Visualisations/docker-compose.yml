@@ -6,7 +6,7 @@ services:
     # network-mode: host
     # map to 5000
     ports:
-      - 5000:5000
+      - 5001:5000
     restart: always
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
@@ -16,7 +16,7 @@ services:
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 10 vis lsavis
+    command: --interval 10 demo lsavis
     environment:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_LABEL_ENABLE=true
@@ -26,3 +26,33 @@ services:
     restart: always
 
 
+  demo: 
+    image: st7ma784/vis:latest
+    container_name: demo
+    restart: always
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+    ports:
+    # open port 5001 on host to port 5000 
+      - "5000:5000"
+
+# create nginx container
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    restart: always
+    depends_on:
+      - lsavis
+      - demo
+    environment:
+      - lsa_server_addr=lsavis:5000/lsa
+      - demo_server_addr=demo:5000/demo 
+    ports:
+    # open port 80 on host to port 80 
+      - "8081:80"
+    volumes:
+    # mount nginx config file
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    links:
+      - lsavis
+      - demo

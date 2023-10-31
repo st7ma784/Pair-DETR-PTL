@@ -520,11 +520,11 @@ if __name__ == '__main__':
     wandb.login(key='9cf7e97e2460c18a89429deed624ec1cbfb537bc')
     run=wandb.init(project="SPARC-COCO-Sweep",entity="st7ma784",name="LSA-Vis",config=args)
 
-    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="LSA-Vis",experiment=run,save_dir=savepath,log_model=True)
+    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="LSA-Vis",experiment=run,save_dir=args.output_dir,log_model=True)
 
     
     #import DDPStrategy 
-    from pytorch_lightning.plugins import DDPPlugin as DDP
+    from pytorch_lightning.strategies import DDPStrategy as DDP
 
 
     trainer = pl.Trainer(
