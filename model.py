@@ -478,10 +478,12 @@ class HungarianMatcher(nn.Module):
         # target_classes_o=encodings[class_lookup[GT_class_indexes]]
         # print(torch.allclose(target_classes_o/torch.norm(target_classes_o,dim=-1,keepdim=True),tgt_embs))
         #indices = [MyLinearSumAssignment(c[i]) for i,c in enumerate(C.split(tgt_sizes.tolist(), -1))]
+        print(indices)
         x,y=zip(*indices) #x is output idx, y is tgt idx
-        src=torch.cat([torch.as_tensor(x) for x in x])
-        tgt=torch.cat([torch.as_tensor(y) for y in y])
-        indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i) for i, x in enumerate(x)]), src,tgt])
+        
+        src=torch.cat([torch.as_tensor(x,dtype=torch.int64) for x in x])
+        tgt=torch.cat([torch.as_tensor(y,dtype=torch.int64) for y in y])
+        indices = torch.stack([torch.cat([torch.full_like(torch.as_tensor(x), i,dtype=torch.int64) for i, x in enumerate(x)]), src,tgt])
         return indices#, target_classes_o
     def BatchedgenerateIndices(self, C,tgt_sizes):
         #C=C.sigmoid().cpu()
@@ -622,7 +624,7 @@ class SetCriterion(nn.Module):
         }
         self.loss=nn.CrossEntropyLoss(reduction="mean")
         self.logger=logger
-    def sigmoid_focal_loss(self,inputs, targets, num_boxes):
+    def sigmoid_focal_loss(self,inputs, targets, num_boxes,tgt_sizes):
 
         # #do similarity of inputs to targets,
         inputs=inputs/torch.norm(inputs,dim=-1,keepdim=True)
@@ -630,16 +632,16 @@ class SetCriterion(nn.Module):
         loss=1-torch.sum(inputs*targets,dim=-1)
         return loss.mean() / num_boxes
 
-    def loss_labels(self,target_classes_o, outputs,targets, indices, num_boxes):
+    def loss_labels(self,target_classes_o, outputs,targets, indices, num_boxes,tgt_sizes):
      
         assert 'pred_logits' in outputs
 
         #idx= (indices[0], indices[2])
         src_idx= (indices[0], indices[1])
-        return {'loss_ce': self.sigmoid_focal_loss(outputs['pred_logits'][src_idx], target_classes_o, num_boxes) * outputs['pred_logits'][src_idx].shape[1]}
+        return {'loss_ce': self.sigmoid_focal_loss(outputs['pred_logits'][src_idx], target_classes_o, num_boxes,tgt_sizes=tgt_sizes) * outputs['pred_logits'][src_idx].shape[1]}
 
     @torch.no_grad()
-    def loss_cardinality(self, target_classes_o, outputs, targets, indices, num_boxes):
+    def loss_cardinality(self, target_classes_o, outputs, targets, indices, num_boxes,tgt_sizes):
         """ Compute the cardinality error, ie the absolute error in the number of predicted non-empty boxes
         This is not really a loss, it is intended for logging purposes only. It doesn't propagate gradients
         """
@@ -649,7 +651,7 @@ class SetCriterion(nn.Module):
         card_pred = (pred_logits.argmax(-1) != pred_logits.shape[-1] - 1).sum(1)
         return {'cardinality_error': F.l1_loss(card_pred.float(), tgt_lengths.float())}
 
-    def loss_boxes(self, target_classes_o, outputs, targets, indices, num_boxes):
+    def loss_boxes(self, target_classes_o, outputs, targets, indices, num_boxes,tgt_sizes):
         """Compute the losses related to the bounding boxes, the L1 regression loss and the GIoU loss
            targets dicts must contain the key "boxes" containing a tensor of dim [nb_target_boxes, 4]
            The target boxes are expected in format (center_x, center_y, w, h), normalized by the image size.
@@ -666,17 +668,25 @@ class SetCriterion(nn.Module):
         return {'loss_bbox':loss_bbox.sum() / num_boxes,
                 'loss_giou': loss_giou.sum() / num_boxes}
 
-    def loss_masks(self, target_classes_o,outputs, targets, indices, num_boxes):
+    def loss_masks(self, target_classes_o,outputs, targets, indices, num_boxes,tgt_sizes):
         """Compute the losses related to the masks: the focal loss and the dice loss.
            targets dicts must contain the key "masks" containing a tensor of dim [nb_target_boxes, h, w]
         """
 
         src_idx =(indices[0],indices[1])   # should probably just check these are the right way around.     
+        print(indices.shape)
+        #work out tgtsizes cumulatively
+        cumulativesizes=torch.cumsum(tgt_sizes,dim=0)
+        #use cumulativesizes to work out which masks belong to which image
         
-        #tgt_idx = (indices[0],indices[2])
-        src_masks = outputs["pred_masks"][indices[1]]
+        print("cumulativesizes",cumulativesizes)
+        print(outputs["pred_masks"].shape)
+        #I might actually need tgtsizes here 
+        src_masks = outputs["pred_masks"][src_idx]
         #print("src masks",src_masks.shape) # should be ann *200*200
         masks=torch.stack([targets[t]['masks'][i] for (t, i) in zip(indices[0],indices[2])])
+        print("tgt masks",masks.shape) # should be ann *200*200
+        print("src masks",masks.shape) # should be ann *200*200
         src_masks = interpolate(src_masks.unsqueeze(1), size=masks.shape[-2:],
                                 mode="bilinear", align_corners=False)[:, 0].flatten(1)
         masks = masks.flatten(1).to(src_masks)
@@ -689,9 +699,14 @@ class SetCriterion(nn.Module):
     def forward(self, **kwargs):
         encodings,outputs, targets, tgt_sizes,tgt_embs,tgt_bbox,class_lookup,num_boxes=kwargs["classencodings"],kwargs["outputs"],kwargs["targets"],kwargs["tgt_sizes"],kwargs["tgt_embs"],kwargs["tgt_bbox"],kwargs["class_lookup"],kwargs["num_boxes"]
         losses = {}
-        indices = self.matcher(outputs,tgt_sizes=tgt_sizes,tgt_embs=tgt_embs,tgt_bbox=tgt_bbox)        
-        #these refer to batch, then the index within batch and should be able to get the embeddings from this 
-        idx=torch.as_tensor([targets[i]['labels'][j] for (i,j) in zip(indices[0],indices[2])])
+        #assert not all targets are empty, otherwise normalize by the total number of targets
+        #print("tgt_sizes",tgt_sizes)
+
+        indices = self.matcher(outputs,tgt_sizes=tgt_sizes,tgt_embs=tgt_embs,tgt_bbox=tgt_bbox)
+        # move to device 
+        #print(indices)
+        ''' Almost certainly a way to optimize this, but for now, just do it twice'''
+        idx=torch.as_tensor([targets[i]['labels'][j] for (i,j) in zip(indices[0],indices[2])]).to(dtype=torch.int64)
 
         if 'aux_outputs' in outputs:
             for i, aux_outputs in enumerate(outputs.pop('aux_outputs')):
@@ -699,20 +714,37 @@ class SetCriterion(nn.Module):
                 idx=torch.as_tensor([targets[i]['labels'][j] for (i,j) in zip(indices[0],indices[2])])
 
                 for loss in self.losses:
-                    l_dict = self.loss_map[loss](encodings[class_lookup[idx]],outputs, targets, indices, num_boxes)
+                    l_dict = self.loss_map[loss](encodings[class_lookup[idx]],outputs, targets, indices, num_boxes,tgt_sizes=tgt_sizes)
                     l_dict = {k + f'_{i}': v for k, v in l_dict.items()}
                     losses.update(l_dict)
+        #check for index errors
+        #to avoid IndexError: tensors used as indices must be long, int, byte or bool tensors
+        #do some asserts to make sure that the indices are in the right range
+      
+        # check type of idx is long with assert and an error message
+        assert idx.dtype==torch.int64,"idx.dtype is {}".format(idx.dtype)
+        # check type of class_lookup[idx] is long with assert and an error message
+        assert class_lookup[idx].dtype==torch.int64,"class_lookup[idx].dtype is {}".format(class_lookup[idx].dtype)
 
-               #target_classes_o=encodings[class_lookup[idx]]
-        # print(torch.allclose(target_classes_o,target_classes_v2))
         for loss in self.losses:
-            losses.update(self.loss_map[loss](encodings[class_lookup[idx]],outputs, targets, indices, num_boxes))
+            #filter outputs and targets by indices
+            losses.update(self.loss_map[loss](encodings[class_lookup[idx]],outputs, targets, indices, num_boxes,tgt_sizes=tgt_sizes))
         
-        src_idx= (indices[0], indices[1]) #0,1 was the original version, 
-        # print("src idx max values ",torch.max(src_idx[0]),torch.max(src_idx[1]))
-        # print("array size",outputs['pred_logits'].shape)
-        # print("Boxes size",outputs['pred_boxes'].shape)
-        return losses, outputs['pred_logits'][src_idx], outputs['pred_boxes'][(indices[0], indices[1])]
+        src_idx= (indices[1], indices[0]) #0,1 was the original version, 
+        '''indices have 3 parts, a batch index- which image the annotation belongs to, 
+                                 a src index - which output box the annotation is matched to
+                                 a tgt index - which annotation the output box is matched to
+        '''
+        #output['pred_logits'] is shape B, Q, F, so we need to index it with src_idx
+        #print(src_idx) points to which of the input annotations this refers to. 
+        #indices[2] points to which of the annotations this refers to. # aka the A index
+        #indices[0] points to which of the output Q this refers to. # aka the B index
+        #indices[1] points to which of the images this refers to. # aka the B index
+        print(indices)
+        print(outputs["pred_logits"].shape)
+        print(outputs["pred_masks"].shape)
+        print(outputs["pred_boxes"].shape)
+        return losses, outputs['pred_logits'][(indices[0],indices[1])], outputs['pred_boxes'][(indices[0],indices[1])]
 
 
 
@@ -1041,7 +1073,7 @@ class PositionalTransformer(nn.Module):
     def __init__(self, d_model=512, nhead=8, num_encoder_layers=6,
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False,
-                 return_intermediate_dec=False,device="cuda"):
+                 return_intermediate_dec=False):
         super().__init__()
         self.bbox_embed = MLP(d_model, d_model, 4, 6)
 

@@ -4,7 +4,7 @@ import sys
 sys.path.append(".")
 sys.path.append("..")
 from lsafunctions import get_all_LSA_fns
-from loss import loss
+from loss import *
 from functools import reduce
 from io import BytesIO
 import zipfile
@@ -82,11 +82,9 @@ async def getplots():
     out={}
     # check if x is square i.e shape[0]==shape[1]
     outputs={name:func(x,maximize=maximize) for name,func in functions.items()}
-    # for item in outputs.items():
-        
-    #     logging.warning("outputs: {} \n {}".format(item[0],str(item[1].tolist())))
-    #if x.shape[0]==x.shape[1]:
-    out.update({str(name) + " loss": str(loss(outputs[name],x,app)) for name,_ in functions.items()})
+    for lossname,func in get_all_loss_fns().items():
+        out.update({"{} with {} loss".format(name,lossname): str(loss(outputs[lossname],x,app))} for name,_ in functions.items())
+    #out.update({str(name) + " loss": str(loss(outputs[name],x,app)) for name,_ in functions.items()})
     out.update({str(name) + " LSA score": torch.sum(x*outputs[name]).item() for name,func in functions.items()})
     out.update({str(name): outputs[name].tolist() for name,func in functions.items()})
     output=jsonify(out)

@@ -256,10 +256,10 @@ class ConvertCocoPolysToMask(object):
 
 class COCODataModule(pl.LightningDataModule):
 
-    def __init__(self, Cache_dir='.', batch_size=256):
+    def __init__(self, Cache_dir='.', ann_file=None, batch_size=256):
         super().__init__()
         self.data_dir = Cache_dir
-        self.ann_dir=os.path.join(self.data_dir,"annotations")
+        self.ann_dir=os.path.join(self.data_dir,"annotations") if ann_file is None else ann_file
         self.batch_size = batch_size
         self.splits={"train":[],"val":[],"test":[]}
         self.prepare_data()
@@ -364,9 +364,9 @@ class COCODataModule(pl.LightningDataModule):
         assert root.exists(), f'provided COCO path {root} does not exist'
         mode = 'instances'
         PATHS = {
-            "train": (root  / "train2017", root / "annotations" / f'{mode}_train2017.json'),
-            "val": (root / "val2017", root / "annotations" / f'{mode}_val2017.json'),
-            "test": (root /"test2017", root / "annotations" / f'image_info_test-dev2017.json'),
+            "train": (os.path.join(self.data_dir,"train2017"), os.path.join(self.ann_dir,"instances_train2017.json")),
+            "val": (os.path.join(self.data_dir,"val2017"), os.path.join(self.ann_dir,"instances_val2017.json")),
+            "test": (os.path.join(self.data_dir,"test2017"), os.path.join(self.ann_dir,"image_info_test-dev2017.json")),
         }
 
         img_folder, ann_file = PATHS["train"]

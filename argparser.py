@@ -9,7 +9,7 @@ def get_args_parser():
     parser.add_argument('--epochs', default=10, type=int)
     parser.add_argument('--clip_max_norm', default=0.1, type=float,
                         help='gradient clipping max norm')
-    
+    parser.add_argument('--debug', action='store_true',default=False)
     # Model parameters
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
@@ -73,10 +73,11 @@ def get_args_parser():
     # dataset parameters
     parser.add_argument('--dataset_file', default='coco')
     parser.add_argument('--coco_path', default=".",type=str)
+    parser.add_argument('--annotations', default=None, type=str)
     parser.add_argument('--coco_panoptic_path', type=str)
     parser.add_argument('--remove_difficult', action='store_true')
 
-    parser.add_argument('--output_dir', default='',
+    parser.add_argument('--output_dir', default='.',
                         help='path where to save, empty for no saving')
     parser.add_argument('--device', default='cuda',
                         help='device to use for training / testing')

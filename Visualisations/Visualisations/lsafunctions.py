@@ -96,7 +96,7 @@ def MyLSA(TruthTensor, maximize=True,lookahead=2):
     #subtract the min value from all values so that the min value is 0
     TruthTensor=TruthTensor-torch.min(torch.min(TruthTensor,dim=1,keepdim=True).values,dim=0).values
     replaceval=torch.tensor([float(-1)]) if maximize else torch.max(TruthTensor).to(dtype=torch.float32)+1
-
+    replaceval=replaceval.to(TruthTensor.device)
     dimsizes=torch.tensor(TruthTensor.shape)
     #select index of the smallest value
     bigdim=torch.argmax(dimsizes)   # 0 
@@ -399,7 +399,7 @@ def recursiveLinearSumAssignment_v5(rewards:torch.Tensor,maximize=True,factor=10
         output[(rewards>cutoff)]=1
     else:
         output[(rewards<cutoff)]=1
-    return output
+    return output.nonzero(as_tuple=True)
 
 
 def recursiveLinearSumAssignment_v3(rewards:torch.Tensor,maximize=True,factor=1):
@@ -425,22 +425,22 @@ def recursiveLinearSumAssignment_v4(rewards:torch.Tensor,maximize=True,factor=1)
     final_fn=torch.argmax if maximize else torch.argmin
     #cost_neg,next_highest_fn,comb_fn,final_fn=((1e9,torch.min,torch.add,torch.argmin),(-1e9,torch.max,torch.sub,torch.argmax))[maximize] 
     #remove=torch.zeros_like(rewards,dtype=torch.bool).fill_diagonal_(1).unsqueeze(0).repeat(*tuple([rewards.shape[-1]]+[1]*len(rewards.shape)))
-    y_values=[]
+    #y_values=[]
     col_index=None
     dimsizes=torch.tensor(rewards.shape)
     #select index of the smallest value
-    dim=torch.argmax(dimsizes)
+    dim=torch.argmin(dimsizes)
     for i in range(rewards.shape[-1]):
         cost=reduceLinearSumAssignment_v3(rewards,maximize=maximize)
         rewards=rewards-(cost/factor)# can remove
         #draw(rewards.cpu())
         #? why is this suggested??? rewards,_,_=torch.svd(rewards)
         #rewards=rewards ** (rewards-cost/factor) #times here makes it very spiky! 
-        col_index=final_fn(rewards,dim=dim)
-        #x,y=torch.arange(rewards.shape[0],device=rewards.device),col_index
-        y_values.append(col_index)
-    
-    return torch.arange(rewards.shape[0],device=rewards.device),col_index
+    col_index=final_fn(rewards,dim=dim)
+    #x,y=torch.arange(rewards.shape[0],device=rewards.device),col_index
+    #y_values.append(col_index)
+
+    return torch.arange(rewards.shape[dim],device=rewards.device),col_index
 
 
 
@@ -448,7 +448,9 @@ def recursiveLinearSumAssignment_v4(rewards:torch.Tensor,maximize=True,factor=1)
 
 #run each method on the same data and compare the results
 if __name__ == "__main__":
-    for i,func in enumerate(get_all_LSA_fns()):
+    import matplotlib.pyplot as plt
+
+    for i,func in get_all_LSA_fns().items():
         print("method:",i)
         input=torch.rand([10,10])
         try:
@@ -459,3 +461,140 @@ if __name__ == "__main__":
             print(e)
             continue
         
+
+
+
+    def LSA_loss(Tensor):
+        #Take the LSA of the tensor, and then use the LSA to index the tensor
+        
+        #return sum of Tensor(LSA(Tensor)) - sum of Tensor[!LSA(Tensor)] 
+        #so we need to get the indices of the LSA
+        indices=MyLSA(Tensor)
+        #assert that indices is 2d and has the same number of elements as the input tensor and is boolean
+        assert len(indices.shape)==2
+        assert indices.shape[0]==indices.shape[1]
+        assert indices.shape[0]==Tensor.shape[0]
+        assert indices.shape[1]==Tensor.shape[1]
+        # assert indices.dtype==torch.bool
+        reward=Tensor[indices.bool()]
+        Cost=Tensor[torch.logical_not(indices.bool())]
+        #plt.imshow(indices.cpu().numpy())
+        
+
+
+        output= (Tensor*indices) + (Tensor*(indices-1))
+        
+        return torch.sum(reward)-torch.sum(Cost), output
+    
+
+
+    def LSA_2loss(x):
+        #this only works for 2d SQUARE matrices
+        #so we remove rows and columns that are all zeros
+        one_hot=MyLSA(x.clone()).int()
+        print(one_hot.dtype)
+        assert len(one_hot.shape)==2
+        assert one_hot.shape[0]==one_hot.shape[1]
+        assert one_hot.shape[0]==x.shape[0]
+        assert one_hot.shape[1]==x.shape[1]
+        dim0index=torch.sum(one_hot,dim=0,keepdim=False)==1
+        dim1index=torch.sum(one_hot,dim=1,keepdim=False)==1
+        locations=one_hot[dim1index][:,dim0index]
+        # logging.warning("one_hot"+str(one_hot))
+
+        (xi,indices)=torch.nonzero(locations,as_tuple=True) # not sure why this doesnt work, and seems to require LSA  for maths to worrk! 
+
+        index=indices.clone()
+        counts=torch.zeros_like(indices)
+        foundself=torch.zeros_like(indices)
+        while not torch.all(foundself):
+            index[:]=indices[index]#### herea 
+            counts[torch.logical_not(foundself)]= counts[torch.logical_not(foundself)]+1
+            foundself=torch.logical_or(foundself,indices[index]==torch.arange(indices.shape[0],device=indices.device))
+        values=x*one_hot
+        positives=x* one_hot*counts
+        #negatives = not one_hot * input
+        negatives=x * (1-one_hot)
+
+
+        # plt.subplot(1,3,1)
+        # plt.imshow(positives.cpu().numpy())
+        # plt.subplot(1,3,2)
+        # plt.imshow(negatives.cpu().numpy())
+        # plt.subplot(1,3,3)
+        # plt.imshow((positives+negatives).cpu().numpy())
+        # plt.show()
+
+        values=values[one_hot==1]
+
+        return torch.sum(counts*values).item(), positives+negatives
+
+
+
+
+    size=20
+    #show comparison of CELoss to LSA Loss side by side for an array like 
+    #create a 2d array of size x size between -1 and 1
+    input=torch.rand([size,size]) *2 -1
+
+    # #input=torch.tensor([[1,0.2,0.3],[0.4,0.5,1],[0.3,1,0.2]])
+    # input=torch.tensor([[1,0.2,0.3],[0.4,0.5,1],[1,0.3,0.2]])
+    loss_stock=torch.nn.CrossEntropyLoss(reduction="none")
+    labels=torch.arange(size)
+
+    dim1_loss_stock=loss_stock(input,labels).unsqueeze(1)
+    dim0_loss_stock=loss_stock(input.T,labels).unsqueeze(0)
+
+
+    LossToDraw=dim1_loss_stock @ dim0_loss_stock
+    dim1_loss_LSA,output=LSA_loss(input)
+    LSA_2l,output2=LSA_2loss(input)
+
+    plt.subplot(2,3,1)
+
+    #in the first plot, draw the input
+
+    plt.imshow(input.cpu().numpy())
+    plt.subplot(2,3,2)
+    plt.imshow(LossToDraw.cpu().numpy())
+    plt.subplot(2,3,3)
+    plt.imshow(output.cpu().numpy())
+    plt.subplot(2,3,4)
+    plt.imshow(output2.cpu().numpy())
+    plt.subplot(2,3,5)
+    matrix= (torch.sum(output,dim=0,keepdim=True)) 
+    matrix1=(torch.sum(output,dim=1,keepdim=True))
+    #print(torch.sum(output2,dim=1),torch.sum(output2,dim=0))
+    plt.imshow((matrix.T@matrix1.T).T.cpu().numpy())
+
+
+
+    print("dim0 loss stock: \n {} \n {}".format(dim0_loss_stock.tolist(), torch.sum(dim0_loss_stock).item()/size))
+
+    print("dim1 loss stock: \n {} \n {}".format(dim1_loss_stock.tolist(), torch.sum(dim1_loss_stock).item()/size))
+    total=torch.sum(dim0_loss_stock).item()/size+torch.sum(dim1_loss_stock).item()/size
+    print("total CE loss: ",total)
+    print("dim1 loss LSA: ",dim1_loss_LSA)
+    print("dim1 loss LSA 2: ",LSA_2l)
+
+    # edit titles and make them small enough to fit
+
+    
+    plt.subplot(2,3,1)
+
+    plt.title("input Random Tensor \n size {}x{}".format(size,size),fontsize=8)
+    
+    plt.subplot(2,3,2)
+    plt.title("CE Loss attribution of input: \n Total = {}".format(total),fontsize=8)
+    plt.subplot(2,3,3)
+    plt.title("LSA Loss attribution of input:\n Total = {}".format(dim1_loss_LSA),fontsize=8)
+    plt.subplot(2,3,4)
+    plt.title("LSA Loss attribution of with loopscaling:\n Total = {}".format(LSA_2l),fontsize=8)
+    plt.subplot(2,3,5)
+    plt.title("LSA2 Loss aggregate {}".format(dim1_loss_LSA),fontsize=8)
+    #lt.plot(output.cpu().numpy().flatten())
+
+    plt.show()
+
+
+   

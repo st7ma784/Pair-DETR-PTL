@@ -39,6 +39,8 @@ from detic.modeling.text.text_encoder import build_text_encoder
 import wget
 from typing import Optional,List
 import torchvision
+
+torch.set_float32_matmul_precision('medium')
 # class DETRsegm(nn.Module):
 #     def __init__(self, detr, freeze_detr=False):
 #         super().__init__()
@@ -87,7 +89,6 @@ class PairDETR(pl.LightningModule):
             num_decoder_layers=args['dec_layers'],
             normalize_before=args['pre_norm'],
             return_intermediate_dec=args['intermediate_layer'],
-            device=self.device,
         )
         self.positional_embedding = posmethod(args['hidden_dim'] // 2,device=self.device)
        
@@ -116,37 +117,38 @@ class PairDETR(pl.LightningModule):
         #if methods behave identically to linearsum assignment then use: 
         costs= [args['set_cost_class'], args['set_cost_bbox'], args['set_cost_giou']]
         self.method = args['method']
+        
         if self.method == 'linear_sum':
-            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=None, batched=False,
                                       assignment=None)
         elif self.method == 'v2':
             from Visualisations.Visualisations.lsafunctions import recursiveLinearSumAssignment as func
-            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=None, batched=False,
                                         assignment=func)
         elif self.method == 'v3':
             from Visualisations.Visualisations.lsafunctions import recursiveLinearSumAssignment_v2 as func
-            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=None, batched=False,
                                         assignment=func)
         elif self.method == 'v4':
             from Visualisations.Visualisations.lsafunctions import recursiveLinearSumAssignment_v3 as func
-            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=None, batched=False,
                                         assignment=func)
         elif self.method == 'v5':
             from Visualisations.Visualisations.lsafunctions import recursiveLinearSumAssignment_v4 as func
-            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=None, batched=False,
                                         assignment=func)
         elif self.method == 'v6':
             from Visualisations.Visualisations.lsafunctions import MyLinearSumAssignment as func
-            self.matcher=HungarianMatcher(*costs,logger=self, batched=False,
+            self.matcher=HungarianMatcher(*costs,logger=None, batched=False,
                                         assignment=func)
         if self.method=='fastcriterion':
-            self.criterion=FastCriterion(*costs,logger=self,assignment=None)
+            self.criterion=FastCriterion(*costs,logger=None,assignment=None)
         else:
             self.criterion = SetCriterion( 
                 weight_dict=self.weight_dict,
                 focal_alpha=args['focal_alpha'],
                 losses=['labels', 'boxes','masks'], # final cardinality
-                logger=self.logger,
+                logger=None,
                 matcher=self.matcher
                                      )
         #if the methods behave differently, then use:
@@ -159,7 +161,7 @@ class PairDETR(pl.LightningModule):
         self.postprocessors = {'bbox': PostProcess()}
         self.bbox_attention = MHAttentionMap(hidden_dim, hidden_dim, args['nheads'], dropout=0.01)
         self.mask_head = MaskHeadSmallConv(hidden_dim + args['nheads'], [1024, 512, 256], hidden_dim)
-        self.threshold = 0.75
+        self.threshold = nn.Parameter(torch.tensor([0.5]))
 
     def tokenize(self,x):
             return self.Tokenizer(x, # Sentence to encode.
@@ -186,8 +188,8 @@ class PairDETR(pl.LightningModule):
         classencodings=classencodings.repeat(1,self.num_queries,1).flatten(0,1)
         outputs_coord, outputs_class ,outputs_coord2, outputs_class2= self.transformer( self.input_proj(src) , classencodings, self.positional_embedding(src,mask), mask)
        
-        similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
-        pred_to_keep_mask=torch.max(similarities,dim=-1).values>self.threshold
+        #similarities=torch.einsum('bqf,gf->bqg', outputs_class[-1], classencoding.squeeze())# this takes output classes of shape (1,24,240,512) and class encodings of shape (240,512) and returns (1,24,240,n_classes)
+        #pred_to_keep_mask=torch.max(similarities,dim=-1).values>self.threshold
        
         bbox_mask = self.bbox_attention(outputs_class[-1], classencodings, mask=mask)
         feats=feats[::-1]
@@ -199,7 +201,7 @@ class PairDETR(pl.LightningModule):
             torch.cuda.empty_cache()
             seg_masks = self.mask_head(self.input_proj(src), bbox_mask, feats)
         outputs_seg_masks = seg_masks.view(src.shape[0], -1, seg_masks.shape[-2], seg_masks.shape[-1])
-        outputs_seg_masks=outputs_seg_masks[pred_to_keep_mask]
+        #outputs_seg_masks=outputs_seg_masks[pred_to_keep_mask]
 
         out = {'pred_logits': outputs_class[-1], 'pred_boxes': outputs_coord[-1]}#,'pred_masks':masks}
         out2= {'pred_logits': outputs_class2[-1], 'pred_boxes': outputs_coord2[-1]}#,'pred_masks':masks}
@@ -219,6 +221,9 @@ class PairDETR(pl.LightningModule):
 
     def training_step(self, batch, batch_idx2):
         samples, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
+        tgt_masks=interpolate(tgt_masks.unsqueeze(1).to(dtype=torch.float16,non_blocking=True),(200,200),mode="bilinear",align_corners=False).squeeze(1) # BB,W,H
+        masks=interpolate(masks.to(dtype=torch.float16,non_blocking=True).unsqueeze(1),(200,200),mode="bilinear",align_corners=False).squeeze(1) # B,W,H
+
         class_to_tensor=torch.zeros(max(list(classencodings.keys()))+1,device=self.device,dtype=torch.long) # find what the biggest index of classes is then make that many zeros. 
         for i,c in enumerate(classencodings.keys()):
             class_to_tensor[c]=i
@@ -230,8 +235,9 @@ class PairDETR(pl.LightningModule):
 
         tgt_embs= classencodings[embedding_indices] 
         tgt_embs=tgt_embs/torch.norm(tgt_embs,dim=-1,keepdim=True)
-        tgt_masks=interpolate(tgt_masks.unsqueeze(1),outputs['pred_masks'].shape[-2:],mode="bilinear",align_corners=False).squeeze(1).to(outputs['pred_masks']) # BB,W,H
-        masks=interpolate(masks.to(outputs['pred_masks']).unsqueeze(1),outputs['pred_masks'].shape[-2:],mode="bilinear",align_corners=False).squeeze(1) # B,W,H
+        assert outputs['pred_masks'].shape[-2:] == torch.Size([200, 200])    #check outputs are 200x200 
+        #needs to convert this to float for the loss function
+       
         num_boxes = max(tgt_ids.shape[0], 1)
         loss_dict, predictions,boxes= self.criterion(classencodings=classencodings,targets=targets,num_boxes=num_boxes,outputs=outputs, tgt_masks=tgt_masks,class_lookup=class_to_tensor,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
         loss_dict2,predictions2,boxes2 = self.criterion(classencodings=classencodings,targets=targets,num_boxes=num_boxes, outputs=outputs, tgt_masks=tgt_masks,class_lookup=class_to_tensor,tgt_embs=tgt_embs,tgt_sizes=tgt_sizes,tgt_ids=tgt_ids,tgt_bbox=tgt_bbox,im_masks=masks,batch_idx=batch_idx)
@@ -293,22 +299,21 @@ class PairDETR(pl.LightningModule):
         return losses +losses2
    
     def on_test_epoch_start(self,*args):
-        self.cocoann=self.trainer.datamodule.test.coco
+        self.coco_ann=self.trainer.datamodule.val.coco
         self.evalmodule = evaluate.load("ybelkada/cocoevaluate", coco=self.coco_ann)
     
-    def on_test_step(self,batch,batch_idx):
+    def test_step(self,batch,batch_idx):
 
-        samples, targets ,classencodings,masks,batch_idx,(tgt_ids,tgt_bbox,tgt_masks,tgt_sizes)= batch
+        samples, targets ,classencodings,masks,*other= batch
+       
+        tensor_index_to_class=torch.as_tensor(list(classencodings.keys()),device=self.device)
+    
         class_to_tensor=torch.zeros(max(list(classencodings.keys()))+1,device=self.device,dtype=torch.long) # find what the biggest index of classes is then make that many zeros. 
         for i,c in enumerate(classencodings.keys()):
             class_to_tensor[c]=i
-            #we have to make this because it's not a given that the dictionary of classes has every key, nor that they're the same size
-        tensor_index_to_class=torch.as_tensor(list(classencodings.keys()),device=self.device)
-    
-        samples = samples.to(self.device)
-        targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
-        classencodings = {k: v.to(self.device,non_blocking=True) for k, v in  classencodings.items()}
-        classencodings=torch.stack(list(classencodings.values()))
+         
+        classencodings = torch.stack([v.squeeze() for v in classencodings.values()]).to(self.device,non_blocking=True)
+        
         outputs, _ = self(samples, classencodings,masks)# we need to find coco classes for this!?
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         scores,labels,boxes = self.postprocessors['bbox'](outputs, orig_target_sizes,classencodings)    
@@ -316,9 +321,9 @@ class PairDETR(pl.LightningModule):
         labels=tensor_index_to_class[labels]
         results = [{'scores': s, 'labels': l, 'boxes': b} for s, l, b in zip(scores, labels, boxes)]
 
-        if 'segm' in self.postprocessors.keys():
-            target_sizes = torch.stack([t["size"] for t in targets], dim=0)
-            results = self.postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
+        # if 'segm' in self.postprocessors.keys():
+        #     target_sizes = torch.stack([t["size"] for t in targets], dim=0)
+        #     results = self.postprocessors['segm'](results, outputs, orig_target_sizes, target_sizes)
         # I Probably want .evaluate() here
 
         # if self.panoptic_evaluator is not None:
@@ -331,6 +336,8 @@ class PairDETR(pl.LightningModule):
         #     self.panoptic_evaluator.update(res_pano)
         # outputs={target['image_id']: output for target, output in zip(targets, results)}
         #self.coco_evaluator.update(outputs)
+        # print("results",results)
+        print("targets",targets)
         self.evalmodule.add(prediction=results, reference=targets)
 
     def on_test_epoch_end(self,outputs):
@@ -506,9 +513,10 @@ if __name__ == '__main__':
         Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     savepath=args.coco_path
     args = vars(args)
+    annotations=args.get("annotations",None)
 
     from data.coco import COCODataModule
-    data=COCODataModule(Cache_dir=savepath,batch_size=4)
+    data=COCODataModule(Cache_dir=savepath,ann_file=annotations,batch_size=2)
 
     from data.VisGenomeDataModule import VisGenomeDataModule
     import wandb
@@ -518,9 +526,9 @@ if __name__ == '__main__':
     model=PairDETR(**args)
     #check for os key WANDA_API_KEY
     wandb.login(key='9cf7e97e2460c18a89429deed624ec1cbfb537bc')
-    run=wandb.init(project="SPARC-COCO-Sweep",entity="st7ma784",name="LSA-Vis",config=args)
+    run=wandb.init(project="SPARC-PairDETR-COCO-Sweep",entity="st7ma784",name="LSA-Vis-sweep",config=args)
 
-    logtool= pl.loggers.WandbLogger( project="SPARC-VisGenome",entity="st7ma784",name="LSA-Vis",experiment=run,save_dir=args.output_dir,log_model=True)
+    logtool= pl.loggers.WandbLogger( project="SPARC-PairDETR-COCO-Sweep",entity="st7ma784",name="LSA-Vis-sweep",experiment=run,save_dir=args.get("output_dir",None),log_model=True)
 
     
     #import DDPStrategy 
@@ -539,7 +547,7 @@ if __name__ == '__main__':
                          #set strategy with auto-find unused parameters
                          strategy=DDP(find_unused_parameters=True),                   
                          profiler='advanced',
-                         fast_dev_run=False,  
+                         fast_dev_run=args.get("debug",False),  
                          devices="auto",
                             )
     trainer.fit(model,data)
